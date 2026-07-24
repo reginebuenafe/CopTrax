@@ -2,7 +2,7 @@
 
 # NERC Copra Trading Demo
 
-A practice demo website built around a copra trading business concept set in Kumalarang, Zamboanga del Sur, Philippines. The site showcases **NERC Copra Trading** as a trusted buying station where farmers and suppliers can learn about copra, explore fair pricing, and reach out to inquire about current rates.
+A website built around a copra trading business concept set in Kumalarang, Zamboanga del Sur, Philippines. The site showcases **NERC Copra Trading** as a trusted buying station where farmers and suppliers can learn about copra, explore fair pricing, and reach out to inquire about current rates.
 
 </div>
 
