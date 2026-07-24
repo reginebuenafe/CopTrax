@@ -16,9 +16,6 @@ export default function HomePage() {
 
         <div className="relative z-10 max-w-6xl mx-auto px-5 py-24 sm:py-32 w-full">
           <div className="max-w-3xl">
-            <span className="inline-flex items-center gap-2 glass text-white text-sm font-medium px-5 py-2 rounded-full mb-8 animate-fade-in-up">
-              <LuLeaf className="w-4 h-4" /> Trusted Copra Buyer in Zamboanga del Sur
-            </span>
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white leading-[1.1] mb-6 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
               Your Trusted{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-100 animate-shimmer">
