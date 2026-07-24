@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { LuLeaf, LuPhone } from "react-icons/lu";
+import { LuLeaf, LuPhone, LuLogIn } from "react-icons/lu";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
@@ -87,6 +87,16 @@ export default function Navbar() {
           <span>Sell Copra</span>
         </Link>
 
+        <Link
+          to="/login"
+          className={`liquid-glass pointer-events-auto rounded-full hidden lg:flex items-center gap-2 text-green-dark font-bold text-[13px] transition-all duration-500 group hover:shadow-glow-green ${
+            scrolled ? "px-4 py-2 shadow-lg" : "px-5 py-2.5 shadow-md"
+          }`}
+        >
+          <LuLogIn className="w-3.5 h-3.5" />
+          <span>Login</span>
+        </Link>
+
         <button
           onClick={() => setOpen(!open)}
           className={`liquid-glass pointer-events-auto rounded-full lg:hidden flex items-center justify-center transition-all duration-500 ${
@@ -133,13 +143,20 @@ export default function Navbar() {
               </NavLink>
             ))}
           </div>
-          <div className="mt-4 pt-4 border-t border-white/15">
+          <div className="mt-4 pt-4 border-t border-white/15 flex flex-col gap-2">
             <Link
               to="/contact"
               onClick={() => setOpen(false)}
               className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-dark to-green-mid text-white font-bold py-3.5 rounded-2xl text-sm shadow-lg hover:shadow-glow-green transition-all duration-300"
             >
               <LuPhone className="w-4 h-4" /> Sell Your Copra
+            </Link>
+            <Link
+              to="/login"
+              onClick={() => setOpen(false)}
+              className="flex items-center justify-center gap-2 border-2 border-green-dark text-green-dark font-bold py-3 rounded-2xl text-sm hover:bg-green-pale transition-all duration-300"
+            >
+              <LuLogIn className="w-4 h-4" /> Staff Login
             </Link>
           </div>
           </div>
