@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LuLayoutDashboard, LuFileText, LuTruck, LuWallet,
   LuStar, LuMessageSquare, LuArrowRight, LuClock,
-  LuCircleCheck, LuCircleAlert,
+  LuCircleCheck, LuCircleAlert, LuTrendingUp,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -33,12 +33,13 @@ export default function SupplierOverview() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
+  const [spotPrice, setSpotPrice] = useState(null);
   const [recentDeliveries, setRecentDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const [contractRes, deliveryRes, paymentRes, ratingRes] = await Promise.all([
+      const [contractRes, deliveryRes, paymentRes, ratingRes, spotRes] = await Promise.all([
         supabase.from("contracts")
           .select("contract_id, status")
           .eq("supplier_id", user.id),
@@ -65,6 +66,8 @@ export default function SupplierOverview() {
           .order("snapshot_date", { ascending: false })
           .limit(1)
           .single(),
+
+        supabase.from("spot_price").select("price_per_kg").limit(1).single(),
       ]);
 
       const contracts = contractRes.data ?? [];
@@ -78,6 +81,8 @@ export default function SupplierOverview() {
         pendingPayment: payments.filter(p => p.payment_status === "Pending").reduce((s, p) => s + Number(p.total_amount), 0),
         overallRating: ratingRes.data?.overall_supplier_rating ?? null,
       });
+
+      setSpotPrice(spotRes.data?.price_per_kg ?? null);
 
       setRecentDeliveries(deliveryRes.data ?? []);
       setLoading(false);
@@ -142,6 +147,29 @@ export default function SupplierOverview() {
               color="bg-amber-50 text-amber-500"
               onClick={() => navigate("/dashboard/supplier/rating")}
             />
+          </div>
+
+          {/* Current Spot Price */}
+          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                <LuTrendingUp className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-0.5">
+                  Current Spot Price (Price of the Day)
+                </p>
+                <p className="text-2xl font-extrabold text-brown-dark">
+                  {spotPrice !== null
+                    ? `₱${Number(spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                    : "—"}
+                  <span className="text-brown-light text-base font-normal ml-1">/kg</span>
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-brown-light mt-3">
+              The spot price is used when a delivery has no eligible active contract remaining. Set by the Business Owner.
+            </p>
           </div>
 
           {/* Recent deliveries */}

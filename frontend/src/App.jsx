@@ -25,6 +25,7 @@ import BOQualityPage from "./pages/owner/BOQualityPage";
 import PaymentsPage from "./pages/owner/PaymentsPage";
 import InventoryPage from "./pages/owner/InventoryPage";
 import SupplierRatingsPage from "./pages/owner/SupplierRatingsPage";
+import BOReportsPage from "./pages/owner/BOReportsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
 import SupplierConversationsPage from "./pages/supplier/SupplierConversationsPage";
@@ -92,6 +93,7 @@ function App() {
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="suppliers" element={<SupplierRatingsPage />} />
+          <Route path="reports" element={<BOReportsPage />} />
         </Route>
 
         {/* Supplier dashboard */}
