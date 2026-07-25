@@ -12,12 +12,16 @@ import Contact from "./Contact";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import PendingApprovalPage from "./pages/auth/PendingApprovalPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 import OwnerLayout from "./pages/owner/OwnerLayout";
 import OwnerOverview from "./pages/owner/OwnerOverview";
 import UserApprovalsPage from "./pages/owner/UserApprovalsPage";
 import BOConversationsPage from "./pages/owner/BOConversationsPage";
+import BOContractsPage from "./pages/owner/BOContractsPage";
+import BODeliveriesPage from "./pages/owner/BODeliveriesPage";
+import BOQualityPage from "./pages/owner/BOQualityPage";
 import PaymentsPage from "./pages/owner/PaymentsPage";
 import InventoryPage from "./pages/owner/InventoryPage";
 import SupplierRatingsPage from "./pages/owner/SupplierRatingsPage";
@@ -72,6 +76,7 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/pending-approval" element={<PendingApprovalPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Business Owner dashboard */}
         <Route path="/dashboard/owner" element={
@@ -81,9 +86,9 @@ function App() {
           <Route path="users" element={<UserApprovalsPage />} />
           <Route path="conversations" element={<BOConversationsPage />} />
           <Route path="conversations/:conversationId" element={<ChatPage viewerRole="Business Owner" />} />
-          <Route path="contracts" element={<ComingSoon label="Contracts" />} />
-          <Route path="deliveries" element={<ComingSoon label="Deliveries" />} />
-          <Route path="quality" element={<ComingSoon label="Quality Results" />} />
+          <Route path="contracts" element={<BOContractsPage />} />
+          <Route path="deliveries" element={<BODeliveriesPage />} />
+          <Route path="quality" element={<BOQualityPage />} />
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="suppliers" element={<SupplierRatingsPage />} />

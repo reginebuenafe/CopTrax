@@ -47,7 +47,7 @@ export default function MyRatingPage() {
           overall_supplier_rating, contract_fulfillment_score,
           delivered_volume_score, copra_quality_score,
           contract:contract_id(
-            contract_number, contract_status, due_date,
+            contract_number, status, due_date,
             negotiated_price_per_kg
           )
         `)
@@ -117,15 +117,15 @@ export default function MyRatingPage() {
                       <p className="font-bold text-brown-dark">{snap.contract?.contract_number ?? "—"}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                          snap.contract?.contract_status === "Completed"
+                          snap.contract?.status === "Completed"
                             ? "bg-green-pale text-green-dark"
                             : "bg-red-50 text-red-600"
                         }`}>
-                          {snap.contract?.contract_status === "Completed"
+                          {snap.contract?.status === "Completed"
                             ? <LuCheck className="w-3 h-3" />
                             : <LuX className="w-3 h-3" />
                           }
-                          {snap.contract?.contract_status ?? "—"}
+                          {snap.contract?.status ?? "—"}
                         </span>
                         <span className="text-brown-light text-xs">
                           {snap.snapshot_date ? new Date(snap.snapshot_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : ""}

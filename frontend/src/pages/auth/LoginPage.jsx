@@ -23,6 +23,25 @@ export default function LoginPage() {
       : ""
   );
   const [loading, setLoading] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    if (!email) { setError("Enter your email address first."); return; }
+    setForgotLoading(true);
+    setError("");
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setForgotLoading(false);
+    if (resetError) {
+      setError("Could not send reset email. Check the address and try again.");
+    } else {
+      setForgotSent(true);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -90,6 +109,14 @@ export default function LoginPage() {
           <h2 className="text-xl font-bold text-brown-dark mb-1">Welcome back</h2>
           <p className="text-brown-light text-sm mb-6">Sign in to your account</p>
 
+          {/* Forgot password sent */}
+          {forgotSent && (
+            <div className="flex items-start gap-2.5 bg-green-pale border border-green-mid/30 text-green-dark rounded-2xl px-4 py-3 mb-5 text-sm">
+              <LuCircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Password reset email sent to <strong>{email}</strong>. Check your inbox.</span>
+            </div>
+          )}
+
           {error && (
             <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 mb-5 text-sm">
               <LuCircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
@@ -97,7 +124,36 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {forgotMode ? (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-brown-dark mb-1.5">Email address</label>
+                <div className="relative">
+                  <LuMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white/70
+                      text-brown-dark placeholder-brown-light/50 text-sm
+                      focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all duration-200" />
+                </div>
+              </div>
+              <button type="submit" disabled={forgotLoading}
+                className="w-full bg-gradient-to-r from-green-dark to-green-mid text-white font-bold py-3 rounded-xl
+                  shadow-md hover:shadow-glow-green transition-all duration-300 disabled:opacity-60 text-sm">
+                {forgotLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending…
+                  </span>
+                ) : "Send Reset Link"}
+              </button>
+              <button type="button" onClick={() => { setForgotMode(false); setForgotSent(false); setError(""); }}
+                className="w-full text-sm text-brown-light hover:text-brown-dark transition-colors py-1">
+                ← Back to sign in
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div>
               <label className="block text-sm font-medium text-brown-dark mb-1.5">
@@ -147,6 +203,14 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Forgot password link */}
+            <div className="text-right">
+              <button type="button" onClick={() => { setForgotMode(true); setError(""); }}
+                className="text-xs text-brown-light hover:text-green-dark transition-colors font-medium">
+                Forgot password?
+              </button>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -162,6 +226,7 @@ export default function LoginPage() {
               ) : "Sign In"}
             </button>
           </form>
+          )}
 
           <p className="text-center text-sm text-brown-light mt-6">
             New supplier?{" "}

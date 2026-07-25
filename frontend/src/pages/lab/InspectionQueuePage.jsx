@@ -114,16 +114,29 @@ export default function InspectionQueuePage() {
       .update({ delivery_status: newStatus, lab_staff_id: user.id })
       .eq("delivery_id", selected.delivery_id);
 
-    // 4. If accepted contractual delivery → add to Resecada inventory
-    if (preview.result === "Accepted" && selected.delivery_source === "Contract-based") {
+    // 4. Add accepted deliveries to inventory
+    if (preview.result === "Accepted") {
       const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
-      await supabase.from("inventory_batches").insert({
-        delivery_id: selected.delivery_id,
-        source_type: "Contractual",
-        batch_status: "Resecada",
-        weight_kg: netKg,
-        recorded_date: selected.delivery_date,
-      });
+
+      if (selected.delivery_source === "Contract-based") {
+        // Contractual → straight into Resecada
+        await supabase.from("inventory_batches").insert({
+          delivery_id: selected.delivery_id,
+          source_type: "Contractual",
+          batch_status: "Resecada",
+          weight_kg: netKg,
+          recorded_date: selected.delivery_date,
+        });
+      } else {
+        // Walk-in → Walk-in Holding (trigger sets merge_eligible_date + notifies BO)
+        await supabase.from("inventory_batches").insert({
+          delivery_id: selected.delivery_id,
+          source_type: "Walkin",
+          batch_status: "Walk-in Holding",
+          weight_kg: netKg,
+          recorded_date: selected.delivery_date,
+        });
+      }
     }
 
     setSubmitting(false);

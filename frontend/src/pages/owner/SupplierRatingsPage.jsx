@@ -38,7 +38,7 @@ export default function SupplierRatingsPage() {
           overall_supplier_rating, contract_fulfillment_score,
           delivered_volume_score, copra_quality_score,
           supplier:supplier_id(user_id, first_name, last_name, email),
-          contract:contract_id(contract_number, contract_status, due_date)
+          contract:contract_id(contract_number, status, due_date)
         `)
         .order("snapshot_date", { ascending: false });
 
@@ -147,9 +147,9 @@ export default function SupplierRatingsPage() {
                             <div>
                               <p className="font-semibold text-brown-dark text-sm">{snap.contract?.contract_number ?? "—"}</p>
                               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                snap.contract?.contract_status === "Completed" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
+                                snap.contract?.status === "Completed" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
                               }`}>
-                                {snap.contract?.contract_status ?? "—"}
+                                {snap.contract?.status ?? "—"}
                               </span>
                             </div>
                             <div className="text-right">

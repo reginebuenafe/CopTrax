@@ -188,7 +188,7 @@ export default function PaymentsPage() {
         .eq("delivery_id", d.delivery_id);
 
       if (d._computed?.isLate) {
-        await supabase.from("contracts").update({ contract_status: "Breached" })
+        await supabase.from("contracts").update({ status: "Breached" })
           .eq("contract_id", d.contract.contract_id);
       }
     }
@@ -198,7 +198,8 @@ export default function PaymentsPage() {
       user_id: supplierId,
       message: `A payment of ${peso(totalAmount)} for ${deliveries.length} delivery(ies) is ready for release.`,
       notification_type: "Weekly Payment Ready",
-      related_id: payment.payment_id,
+      related_entity_type: "payments",
+      related_entity_id: payment.payment_id,
     });
 
     setProcessing(false);

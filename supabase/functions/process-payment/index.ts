@@ -101,7 +101,8 @@ Deno.serve(async (req) => {
       user_id: payment.supplier.user_id,
       message: `Payment of ₱${Number(payment.total_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} has been released. Reference: ${referenceNumber}`,
       notification_type: "Payment Released",
-      related_id: payment_id,
+      related_entity_type: "payments",
+      related_entity_id: payment_id,
     });
 
     return json({ success: true, receipt_number: receiptNumber, reference_number: referenceNumber });

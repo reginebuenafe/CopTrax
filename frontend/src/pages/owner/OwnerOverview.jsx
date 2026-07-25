@@ -15,7 +15,7 @@ export default function OwnerOverview() {
       const [spotRes, pendingRes, contractRes, deliveryRes, payRes] = await Promise.all([
         supabase.from("spot_price").select("price_per_kg").limit(1).single(),
         supabase.from("users").select("user_id", { count: "exact", head: true }).eq("account_status", "Pending"),
-        supabase.from("contracts").select("contract_id", { count: "exact", head: true }).eq("contract_status", "Active"),
+        supabase.from("contracts").select("contract_id", { count: "exact", head: true }).eq("status", "Active"),
         supabase.from("deliveries").select("delivery_id", { count: "exact", head: true }).eq("delivery_status", "Weighed"),
         supabase.from("payments").select("payment_id", { count: "exact", head: true }).eq("payment_status", "Pending"),
       ]);

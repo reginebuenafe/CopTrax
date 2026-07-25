@@ -120,8 +120,9 @@ export default function InventoryPage() {
       await supabase.from("notifications").insert({
         user_id: user.id,
         message: `${fmt3(batch.weight_kg)} kg walk-in batch has been successfully merged into Resecada.`,
-        notification_type: "Inventory Merge Completed",
-        related_id: batch.inventory_batch_id,
+        notification_type: "Merge Completed",
+        related_entity_type: "inventory_batches",
+        related_entity_id: batch.inventory_batch_id,
       });
 
       showToast(`${fmt3(batch.weight_kg)} kg merged into Resecada.`);
