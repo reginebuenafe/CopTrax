@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  LuUsers, LuCheck, LuX, LuUser, LuMail, LuPhone,
-  LuMapPin, LuClock, LuChevronDown, LuSearch, LuCircleAlert,
+  LuUsers, LuCheck, LuX, LuPhone,
+  LuMapPin, LuClock, LuSearch, LuCircleAlert,
+  LuIdCard, LuCamera, LuPenLine, LuLoader, LuEye,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -15,19 +16,185 @@ const ROLE_COLORS = {
   "Business Owner":   "bg-green-pale text-green-dark",
 };
 
+// ── Document viewer modal ─────────────────────────────────────────────────────
+function DocumentsModal({ targetUser, onClose, onApprove, onReject, processing }) {
+  const [docs,      setDocs]      = useState(null);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [docErr,    setDocErr]    = useState("");
+
+  useEffect(() => {
+    async function loadDocs() {
+      setLoadingDocs(true);
+      try {
+        // 1. Fetch user_verify record
+        const { data: verify, error: vErr } = await supabase
+          .from("user_verify")
+          .select(`
+            verify_id, verify_status,
+            gov_id:gov_id_file_id(file_id, file_name, file_url, file_category),
+            esign:esign_file_id(file_id, file_name, file_url, file_category)
+          `)
+          .eq("user_id", targetUser.user_id)
+          .maybeSingle();
+
+        if (vErr) throw new Error(vErr.message);
+
+        // 2. Fetch face ID (stored in file_uploads with category 'Face ID')
+        const { data: faceFiles } = await supabase
+          .from("file_uploads")
+          .select("file_id, file_name, file_url, file_category")
+          .eq("uploaded_by", targetUser.user_id)
+          .eq("file_category", "Face ID")
+          .limit(1)
+          .maybeSingle();
+
+        // 3. Generate signed URLs (1-hour expiry) for each file
+        async function signUrl(path) {
+          if (!path) return null;
+          const { data, error } = await supabase.storage
+            .from("documents")
+            .createSignedUrl(path, 3600);
+          return error ? null : data.signedUrl;
+        }
+
+        const [govUrl, faceUrl, esignUrl] = await Promise.all([
+          signUrl(verify?.gov_id?.file_url),
+          signUrl(faceFiles?.file_url),
+          signUrl(verify?.esign?.file_url),
+        ]);
+
+        setDocs({
+          govId:   { ...verify?.gov_id,  url: govUrl },
+          faceId:  { ...faceFiles,       url: faceUrl },
+          esign:   { ...verify?.esign,   url: esignUrl },
+          hasVerify: !!verify,
+        });
+      } catch (err) {
+        setDocErr(err.message);
+      }
+      setLoadingDocs(false);
+    }
+    loadDocs();
+  }, [targetUser.user_id]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center px-4 py-8">
+      <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-beige-dark/20">
+          <div>
+            <h3 className="text-lg font-bold text-brown-dark">
+              {targetUser.first_name} {targetUser.last_name}
+            </h3>
+            <p className="text-brown-light text-xs">{targetUser.email}</p>
+          </div>
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+          {loadingDocs ? (
+            <div className="flex items-center justify-center py-16">
+              <LuLoader className="w-7 h-7 animate-spin text-green-dark" />
+            </div>
+          ) : docErr ? (
+            <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+              <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              {docErr}
+            </div>
+          ) : !docs?.hasVerify ? (
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm">
+              <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              No verification documents submitted. This account registered before document upload was required.
+            </div>
+          ) : (
+            <>
+              {/* Gov ID */}
+              <DocSection
+                icon={<LuIdCard className="w-4 h-4 text-green-dark" />}
+                title="Government-Issued ID"
+                subtitle={docs.govId?.file_name?.replace(".jpg", "") ?? "—"}
+                url={docs.govId?.url}
+              />
+
+              {/* Selfie with ID */}
+              <DocSection
+                icon={<LuCamera className="w-4 h-4 text-green-dark" />}
+                title="Selfie Holding Government ID"
+                subtitle="Confirm face matches the ID"
+                url={docs.faceId?.url}
+              />
+
+              {/* E-Signature */}
+              <DocSection
+                icon={<LuPenLine className="w-4 h-4 text-green-dark" />}
+                title="Handwritten E-Signature (3× on white paper)"
+                subtitle="3 signatures on a white bond paper"
+                url={docs.esign?.url}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div className="px-6 py-5 border-t border-beige-dark/20 flex gap-3">
+          <button onClick={onClose} disabled={processing}
+            className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-50">
+            Close
+          </button>
+          <button onClick={onReject} disabled={processing}
+            className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-semibold text-sm hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {processing ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuX className="w-4 h-4" />}
+            Reject
+          </button>
+          <button onClick={onApprove} disabled={processing}
+            className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {processing ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuCheck className="w-4 h-4" />}
+            Approve
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocSection({ icon, title, subtitle, url }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <div>
+          <p className="text-sm font-semibold text-brown-dark">{title}</p>
+          {subtitle && <p className="text-xs text-brown-light">{subtitle}</p>}
+        </div>
+      </div>
+      {url ? (
+        <div className="rounded-2xl overflow-hidden border border-beige-dark bg-beige">
+          <img src={url} alt={title} className="w-full max-h-64 object-contain" />
+        </div>
+      ) : (
+        <div className="rounded-2xl border-2 border-dashed border-beige-dark bg-beige flex items-center justify-center py-8 text-brown-light text-sm">
+          No photo submitted
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function UserApprovalsPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [tab, setTab] = useState("Pending");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // { action: 'approve'|'reject', target: user }
+  const [reviewModal, setReviewModal] = useState(null); // target user
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    fetchUsers();
-  }, [tab]);
+  useEffect(() => { fetchUsers(); }, [tab]);
 
   async function fetchUsers() {
     setLoading(true);
@@ -46,22 +213,23 @@ export default function UserApprovalsPage() {
     setProcessing(true);
     const newStatus = action === "approve" ? "Active" : "Rejected";
 
-    const { error } = await supabase
-      .from("users")
-      .update({
-        account_status: newStatus,
-        approved_by: action === "approve" ? user.id : null,
-        approved_at: action === "approve" ? new Date().toISOString() : null,
-      })
-      .eq("user_id", targetUser.user_id);
+    const { error } = await supabase.from("users").update({
+      account_status: newStatus,
+      approved_by:    action === "approve" ? user.id : null,
+      approved_at:    action === "approve" ? new Date().toISOString() : null,
+    }).eq("user_id", targetUser.user_id);
+
+    // Update user_verify record
+    if (!error) {
+      await supabase.from("user_verify")
+        .update({ verify_status: action === "approve" ? "Approved" : "Rejected", review_by: user.id, reviewed_at: new Date().toISOString() })
+        .eq("user_id", targetUser.user_id);
+    }
 
     setProcessing(false);
-    setModal(null);
+    setReviewModal(null);
 
-    if (error) {
-      showToast("error", "Something went wrong. Please try again.");
-      return;
-    }
+    if (error) { showToast("error", "Something went wrong. Please try again."); return; }
 
     showToast(
       "success",
@@ -99,7 +267,7 @@ export default function UserApprovalsPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-brown-dark">User Approvals</h1>
-          <p className="text-brown-light text-sm">Review and manage staff account requests</p>
+          <p className="text-brown-light text-sm">Review submitted documents and manage account requests</p>
         </div>
       </div>
 
@@ -107,15 +275,10 @@ export default function UserApprovalsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <div className="flex gap-1 bg-beige rounded-xl p-1">
           {STATUS_TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setSearch(""); }}
+            <button key={t} onClick={() => { setTab(t); setSearch(""); }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                tab === t
-                  ? "bg-white text-brown-dark shadow-sm"
-                  : "text-brown-light hover:text-brown-dark"
-              }`}
-            >
+                tab === t ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-dark"
+              }`}>
               {t}
             </button>
           ))}
@@ -123,14 +286,10 @@ export default function UserApprovalsPage() {
 
         <div className="relative flex-1 max-w-xs">
           <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-          <input
-            type="text"
-            placeholder="Search by name, email, role…"
-            value={search}
+          <input type="text" placeholder="Search by name, email, role…" value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
-              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
-          />
+              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all" />
         </div>
 
         {tab === "Pending" && pendingCount > 0 && (
@@ -165,9 +324,9 @@ export default function UserApprovalsPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide">Role</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide hidden md:table-cell">Contact</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide hidden lg:table-cell">Registered</th>
-                  {tab === "Pending" && (
-                    <th className="text-right px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide">Actions</th>
-                  )}
+                  <th className="text-right px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide">
+                    {tab === "Pending" ? "Review" : "Status"}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-beige-dark/20">
@@ -180,9 +339,7 @@ export default function UserApprovalsPage() {
                           {[u.first_name?.[0], u.last_name?.[0]].filter(Boolean).join("").toUpperCase() || "?"}
                         </div>
                         <div>
-                          <p className="font-semibold text-brown-dark">
-                            {u.first_name} {u.last_name}
-                          </p>
+                          <p className="font-semibold text-brown-dark">{u.first_name} {u.last_name}</p>
                           <p className="text-brown-light text-xs">{u.email}</p>
                         </div>
                       </div>
@@ -216,38 +373,29 @@ export default function UserApprovalsPage() {
                     {/* Registered */}
                     <td className="px-5 py-4 hidden lg:table-cell">
                       <p className="text-brown-mid text-xs">
-                        {new Date(u.created_at).toLocaleDateString("en-PH", {
-                          year: "numeric", month: "short", day: "numeric",
-                        })}
+                        {new Date(u.created_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
                       </p>
                       <p className="text-brown-light text-xs">
-                        {new Date(u.created_at).toLocaleTimeString("en-PH", {
-                          hour: "2-digit", minute: "2-digit",
-                        })}
+                        {new Date(u.created_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
                       </p>
                     </td>
 
-                    {/* Actions (Pending tab only) */}
-                    {tab === "Pending" && (
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setModal({ action: "approve", target: u })}
-                            className="inline-flex items-center gap-1.5 bg-green-pale text-green-dark text-xs font-semibold
-                              px-3 py-1.5 rounded-lg hover:bg-green-light/20 transition-all duration-200"
-                          >
-                            <LuCheck className="w-3.5 h-3.5" /> Approve
-                          </button>
-                          <button
-                            onClick={() => setModal({ action: "reject", target: u })}
-                            className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 text-xs font-semibold
-                              px-3 py-1.5 rounded-lg hover:bg-red-100 transition-all duration-200"
-                          >
-                            <LuX className="w-3.5 h-3.5" /> Reject
-                          </button>
-                        </div>
-                      </td>
-                    )}
+                    {/* Actions */}
+                    <td className="px-5 py-4 text-right">
+                      {tab === "Pending" ? (
+                        <button onClick={() => setReviewModal(u)}
+                          className="inline-flex items-center gap-1.5 bg-green-pale text-green-dark text-xs font-semibold
+                            px-3 py-1.5 rounded-lg hover:bg-green-light/20 transition-all duration-200">
+                          <LuEye className="w-3.5 h-3.5" /> Review Documents
+                        </button>
+                      ) : (
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          u.account_status === "Active" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
+                        }`}>
+                          {u.account_status}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -256,57 +404,15 @@ export default function UserApprovalsPage() {
         )}
       </div>
 
-      {/* Confirm Modal */}
-      {modal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-          <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-sm p-7 animate-fade-in-up">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
-              modal.action === "approve" ? "bg-green-pale" : "bg-red-50"
-            }`}>
-              {modal.action === "approve"
-                ? <LuCheck className="w-6 h-6 text-green-dark" />
-                : <LuCircleAlert className="w-6 h-6 text-red-500" />
-              }
-            </div>
-
-            <h3 className="text-lg font-bold text-brown-dark text-center mb-2">
-              {modal.action === "approve" ? "Approve Account?" : "Reject Account?"}
-            </h3>
-            <p className="text-brown-light text-sm text-center mb-6">
-              {modal.action === "approve"
-                ? <>This will activate <span className="font-semibold text-brown-dark">{modal.target.first_name} {modal.target.last_name}</span>'s account and allow them to log in.</>
-                : <>This will reject <span className="font-semibold text-brown-dark">{modal.target.first_name} {modal.target.last_name}</span>'s registration. They will not be able to access CopTrax.</>
-              }
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setModal(null)}
-                disabled={processing}
-                className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm
-                  hover:bg-beige transition-all duration-200 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDecision(modal.target, modal.action)}
-                disabled={processing}
-                className={`flex-1 py-2.5 rounded-xl font-semibold text-sm text-white transition-all duration-200 disabled:opacity-50
-                  ${modal.action === "approve"
-                    ? "bg-gradient-to-r from-green-dark to-green-mid hover:shadow-glow-green"
-                    : "bg-red-500 hover:bg-red-600"
-                  }`}
-              >
-                {processing ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    {modal.action === "approve" ? "Approving…" : "Rejecting…"}
-                  </span>
-                ) : modal.action === "approve" ? "Yes, Approve" : "Yes, Reject"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Document review modal */}
+      {reviewModal && (
+        <DocumentsModal
+          targetUser={reviewModal}
+          processing={processing}
+          onClose={() => setReviewModal(null)}
+          onApprove={() => handleDecision(reviewModal, "approve")}
+          onReject={()  => handleDecision(reviewModal, "reject")}
+        />
       )}
 
       {/* Toast */}
