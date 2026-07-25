@@ -26,7 +26,9 @@ export default function InspectionQueuePage() {
       .from("deliveries")
       .select(`
         delivery_id, delivery_source, delivery_date, delivery_status, created_at,
-        contract:contract_id(contract_number, supplier:supplier_id(user_id, first_name, last_name)),
+        supplier:supplier_id(user_id, first_name, last_name),
+        contract:contract_id(contract_number),
+        delivery_allocations(contract_id, contract:contract_id(contract_number)),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weighing_records(net_weight_kg)
       `)
@@ -129,15 +131,20 @@ export default function InspectionQueuePage() {
 
     // 5. Notify the supplier (contractual deliveries only — walk-in suppliers have no account)
     if (selected.delivery_source === "Contract-based") {
-      const supplierId = selected.contract?.supplier?.user_id;
-      const contractNumber = selected.contract?.contract_number ?? "";
+      const supplierId = selected.supplier?.user_id;
+      // Collect contract numbers from allocations for the notification message
+      const contractNums = (selected.delivery_allocations ?? [])
+        .map(a => a.contract?.contract_number)
+        .filter(Boolean)
+        .join(", ");
+      const contractRef = contractNums || selected.contract?.contract_number || "";
       const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
 
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery under ${contractNumber} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}%.`
-          : `Your delivery under ${contractNumber} has been rejected. Moisture content ${mc}% exceeds 20.2%.`;
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}%.`
+          : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}% exceeds 20.2%.`;
 
         await supabase.from("notifications").insert({
           user_id: supplierId,
@@ -162,7 +169,7 @@ export default function InspectionQueuePage() {
   function getSupplierName(d) {
     return d.delivery_source === "Walkin"
       ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+      : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
   }
 
   function resetInspection() {

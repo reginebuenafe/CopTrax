@@ -43,14 +43,13 @@ export default function PaymentsPage() {
 
     const [deliveriesRes, batchesRes, spotRes] = await Promise.all([
       supabase.from("deliveries").select(`
-        delivery_id, delivery_date, delivery_source,
-        contract:contract_id(
-          contract_id, contract_number, due_date, negotiated_price_per_kg,
-          supplier:supplier_id(user_id, first_name, last_name)
-        ),
+        delivery_id, delivery_date, delivery_source, created_at,
+        supplier:supplier_id(user_id, first_name, last_name),
+        delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+          contract:contract_id(contract_number, negotiated_price_per_kg)),
         weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
         laboratory_inspections(moisture_content_pct),
-        quality_results(result)
+        quality_results(result, remarks)
       `)
         .eq("delivery_source", "Contract-based")
         .eq("delivery_status", "Accepted")
@@ -74,10 +73,11 @@ export default function PaymentsPage() {
     const spot = spotRes.data?.price_per_kg ?? 0;
     setSpotPrice(spot);
 
-    // Enrich each delivery with computed payment line
+    // Enrich each delivery with computed payment line and payment week
     const enriched = (deliveriesRes.data ?? []).map(d => ({
       ...d,
       _computed: computeLine(d, spot),
+      _paymentWeek: getPaymentFriday(d.created_at),
     })).filter(d => d._computed !== null);
 
     setReadyDeliveries(enriched);
@@ -87,119 +87,122 @@ export default function PaymentsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── payment computation (mirrors Edge Function / spec §3.4) ──────────────
+  // ── payment computation: allocation-aware (spec §3.5) ────────────────────
   function computeLine(delivery, spot) {
-    const wr = delivery.weighing_records?.[0];
-    const li = delivery.laboratory_inspections?.[0];
-    const qr = delivery.quality_results?.[0];
-    const contract = delivery.contract;
+    const wr   = delivery.weighing_records?.[0];
+    const li   = delivery.laboratory_inspections?.[0];
+    const qr   = delivery.quality_results?.[0];
+    const allocs = (delivery.delivery_allocations ?? [])
+      .slice()
+      .sort((a, b) => a.sequence_order - b.sequence_order);
 
-    if (!wr || !li || !qr || !contract) return null;
+    if (!wr || !li || !qr) return null;
     if (qr.result !== "Accepted") return null;
+    if (allocs.length === 0) return null;
 
-    const mc = parseFloat(li.moisture_content_pct);
-    const netKg = parseFloat(wr.net_weight_kg);
+    const mc     = parseFloat(li.moisture_content_pct);
+    const netKg  = parseFloat(wr.net_weight_kg);
     const grossKg = parseFloat(wr.gross_weight_kg);
-    const tareKg = parseFloat(wr.tare_weight_kg);
+    const tareKg  = parseFloat(wr.tare_weight_kg);
 
-    // Moisture deduction (discount from quality result remarks)
-    // We re-derive discount from pca_discount_table lookup result stored via remarks —
-    // use moisture to determine deduction percentage
-    // For mc < 5 → 0%, mc > 20.2 → already rejected, 5–20.2 → lookup.
-    // We stored discount_value in quality_results.remarks "Discount: X%"
-    // We'll use the laboratory_inspection moisture + query PCA table at batch creation time.
-    // For live preview, approximate: if mc < 5 → 0%, else read from quality result remarks.
-    const qrRemarks = delivery.quality_results?.[0]?.remarks ?? "";
+    // Derive discount % from quality result remarks
+    const qrRemarks  = qr.remarks ?? "";
     const remarkMatch = qrRemarks.match(/Discount:\s*([\d.]+)%/);
     const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
 
     const deductionKg = netKg * (discountPct / 100);
-    const finalKg = netKg - deductionKg;
+    const finalKg     = netKg - deductionKg;
 
-    const deliveryDate = new Date(delivery.delivery_date);
-    const dueDate = new Date(contract.due_date);
-    const isLate = deliveryDate > dueDate;
+    // Per-allocation line amounts; moisture discount applied proportionally
+    let lineAmount = 0;
+    for (const alloc of allocs) {
+      const allocFinalKg   = finalKg * (parseFloat(alloc.allocated_weight_kg) / netKg);
+      const allocPricePerKg = alloc.contract_id
+        ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
+        : parseFloat(spot);
+      lineAmount += allocFinalKg * allocPricePerKg;
+    }
 
-    const priceType = isLate ? "Spot" : "Negotiated";
-    const pricePerKg = isLate ? parseFloat(spot) : parseFloat(contract.negotiated_price_per_kg);
-    const lineAmount = finalKg * pricePerKg;
+    const hasSpot  = allocs.some(a => !a.contract_id);
+    const hasNeg   = allocs.some(a =>  a.contract_id);
+    const priceType = hasSpot && hasNeg ? "Mixed" : hasSpot ? "Spot" : "Negotiated";
+    const effectivePricePerKg = finalKg > 0 ? lineAmount / finalKg : 0;
 
     return {
       grossKg, tareKg, netKg, mc, discountPct, deductionKg, finalKg,
-      priceType, pricePerKg, lineAmount, isLate,
-      contract,
+      priceType,
+      pricePerKg: effectivePricePerKg,
+      lineAmount,
+      allocs,
     };
   }
 
-  // ── group ready deliveries by supplier ───────────────────────────────────
+  // ── group ready deliveries by (supplier, payment week) ───────────────────
+  // Key: "userId::YYYY-MM-DD" (the disbursement Friday)
   const supplierGroups = readyDeliveries.reduce((acc, d) => {
-    const sid = d.contract?.supplier?.user_id;
+    const sid  = d.supplier?.user_id;
+    const week = d._paymentWeek;
     if (!sid) return acc;
-    if (!acc[sid]) acc[sid] = { supplier: d.contract.supplier, deliveries: [] };
-    acc[sid].deliveries.push(d);
+    const key = `${sid}::${week}`;
+    if (!acc[key]) acc[key] = { supplier: d.supplier, paymentWeek: week, deliveries: [] };
+    acc[key].deliveries.push(d);
     return acc;
   }, {});
 
   // ── create payment batch ─────────────────────────────────────────────────
   async function createBatch() {
-    const { supplierId, deliveries } = batchModal;
+    const { supplierId, deliveries, paymentWeek } = batchModal;
     setProcessing(true);
 
     const totalAmount = deliveries.reduce((s, d) => s + (d._computed?.lineAmount ?? 0), 0);
-    const paymentWeek = getMondayOfWeek(new Date());
 
     // 1. Insert payment header
     const { data: payment, error: pErr } = await supabase.from("payments").insert({
-      supplier_id: supplierId,
+      supplier_id:       supplierId,
       business_owner_id: user.id,
-      payment_week: paymentWeek,
-      total_amount: Math.round(totalAmount * 100) / 100,
-      payment_status: "Pending",
-      payment_method: "Bank Transfer",
+      payment_week:      paymentWeek,
+      total_amount:      Math.round(totalAmount * 100) / 100,
+      payment_status:    "Pending",
+      payment_method:    "Bank Transfer",
     }).select("payment_id").single();
 
     if (pErr) { showToast("Failed to create payment batch.", "error"); setProcessing(false); return; }
 
-    // 2. Insert payment details
+    // 2. Insert payment details (one row per delivery)
     const details = deliveries.map(d => {
       const c = d._computed;
       return {
-        payment_id: payment.payment_id,
-        delivery_id: d.delivery_id,
-        gross_weight_kg: c.grossKg,
-        tare_weight_kg: c.tareKg,
-        net_weight_kg: c.netKg,
+        payment_id:           payment.payment_id,
+        delivery_id:          d.delivery_id,
+        gross_weight_kg:      c.grossKg,
+        tare_weight_kg:       c.tareKg,
+        net_weight_kg:        c.netKg,
         moisture_content_pct: c.mc,
         moisture_deduction_kg: c.deductionKg,
-        final_weight_kg: c.finalKg,
-        price_type: c.priceType,
-        price_per_kg_used: c.pricePerKg,
-        pca_discount_amount: c.deductionKg,
-        line_amount: Math.round(c.lineAmount * 100) / 100,
+        final_weight_kg:      c.finalKg,
+        price_type:           c.priceType === "Mixed" ? "Negotiated" : c.priceType, // mixed → dominant
+        price_per_kg_used:    c.pricePerKg,
+        pca_discount_amount:  c.deductionKg,
+        line_amount:          Math.round(c.lineAmount * 100) / 100,
       };
     });
 
     const { error: dErr } = await supabase.from("payment_details").insert(details);
     if (dErr) { showToast("Batch created but detail lines failed.", "error"); setProcessing(false); return; }
 
-    // 3. Stamp payment_id on each delivery + breach contracts if late
+    // 3. Stamp payment_id on each delivery
     for (const d of deliveries) {
       await supabase.from("deliveries").update({ payment_id: payment.payment_id })
         .eq("delivery_id", d.delivery_id);
-
-      if (d._computed?.isLate) {
-        await supabase.from("contracts").update({ status: "Breached" })
-          .eq("contract_id", d.contract.contract_id);
-      }
     }
 
     // 4. Notify supplier
     await supabase.from("notifications").insert({
-      user_id: supplierId,
-      message: `A payment of ${peso(totalAmount)} for ${deliveries.length} delivery(ies) is ready for release.`,
-      notification_type: "Weekly Payment Ready",
-      related_entity_type: "payments",
-      related_entity_id: payment.payment_id,
+      user_id:              supplierId,
+      message:              `A payment of ${peso(totalAmount)} for ${deliveries.length} delivery(ies) is ready for release on ${fmtDate(paymentWeek)}.`,
+      notification_type:    "Weekly Payment Ready",
+      related_entity_type:  "payments",
+      related_entity_id:    payment.payment_id,
     });
 
     setProcessing(false);
@@ -227,10 +230,28 @@ export default function PaymentsPage() {
     fetchData();
   }
 
-  function getMondayOfWeek(d) {
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    return new Date(d.setDate(diff)).toISOString().slice(0, 10);
+  // ── Friday 5PM PHT disbursement week helper ──────────────────────────────
+  // Each delivery's created_at determines its payment week (Friday date).
+  // Week spans Sat 00:00 → Fri 17:00 Philippine Time (UTC+8).
+  // Deliveries recorded after 5:00 PM on Friday go to the NEXT Friday.
+  function getPaymentFriday(isoTimestamp) {
+    const phMs  = new Date(isoTimestamp).getTime() + 8 * 3600 * 1000; // shift to UTC+8
+    const ph    = new Date(phMs);
+    const day   = ph.getUTCDay();    // 0=Sun … 5=Fri … 6=Sat (in PH time)
+    const hour  = ph.getUTCHours();
+    const min   = ph.getUTCMinutes();
+
+    // Days until the disbursement Friday
+    let daysToFriday = ((5 - day) + 7) % 7;
+    // Friday after 5:00 PM → next Friday
+    if (day === 5 && (hour > 17 || (hour === 17 && min > 0))) daysToFriday = 7;
+
+    const fridayPhMs = phMs + daysToFriday * 24 * 3600 * 1000;
+    const f = new Date(fridayPhMs);
+    const y = f.getUTCFullYear();
+    const m = String(f.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(f.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -275,8 +296,7 @@ export default function PaymentsPage() {
               <span className="ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
                 {Object.keys(supplierGroups).length}
               </span>
-            )}
-          </button>
+            )}          </button>
         ))}
       </div>
 
@@ -314,19 +334,26 @@ export default function PaymentsPage() {
           <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 mb-4 max-h-56 overflow-y-auto">
             {batchModal.deliveries.map(d => {
               const c = d._computed;
+              const contractNums = (d.delivery_allocations ?? [])
+                .filter(a => a.contract_id)
+                .map(a => a.contract?.contract_number)
+                .filter(Boolean)
+                .join(", ");
               return (
                 <div key={d.delivery_id} className="px-4 py-3 text-sm">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="font-semibold text-brown-dark">{d.contract?.contract_number}</p>
+                      <p className="font-semibold text-brown-dark">{contractNums || "Spot Price"}</p>
                       <p className="text-brown-light text-xs">{fmtDate(d.delivery_date)} · {fmt3(c.finalKg)} kg final</p>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-brown-dark">{peso(c.lineAmount)}</p>
                       <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
-                        c.priceType === "Spot" ? "bg-red-50 text-red-600" : "bg-green-pale text-green-dark"
+                        c.priceType === "Spot" ? "bg-red-50 text-red-600"
+                          : c.priceType === "Mixed" ? "bg-amber-50 text-amber-700"
+                          : "bg-green-pale text-green-dark"
                       }`}>
-                        {c.priceType === "Spot" ? "Late/Spot" : "On-time"}
+                        {c.priceType}
                       </span>
                     </div>
                   </div>
@@ -342,10 +369,10 @@ export default function PaymentsPage() {
             </p>
           </div>
 
-          {batchModal.deliveries.some(d => d._computed?.isLate) && (
+          {batchModal.deliveries.some(d => d._computed?.priceType !== "Negotiated") && (
             <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 mb-4">
               <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              <p>Some deliveries are <strong>late</strong> — spot price applies and affected contracts will be marked <strong>Breached</strong>.</p>
+              <p>Some deliveries include <strong>Spot Price</strong> allocations (excess beyond available contract capacity).</p>
             </div>
           )}
 
@@ -416,9 +443,9 @@ export default function PaymentsPage() {
 
 // ── Ready to Pay Tab ────────────────────────────────────────────────────────
 function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreateBatch }) {
-  const supplierIds = Object.keys(groups);
+  const groupKeys = Object.keys(groups);
 
-  if (supplierIds.length === 0) {
+  if (groupKeys.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
         <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
@@ -432,17 +459,17 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
 
   return (
     <div className="space-y-3">
-      {supplierIds.map(sid => {
-        const { supplier, deliveries } = groups[sid];
+      {groupKeys.map(key => {
+        const { supplier, paymentWeek, deliveries } = groups[key];
         const totalAmount = deliveries.reduce((s, d) => s + (d._computed?.lineAmount ?? 0), 0);
-        const hasLate = deliveries.some(d => d._computed?.isLate);
-        const isOpen = expandedSupplier === sid;
+        const hasMixed = deliveries.some(d => d._computed?.priceType !== "Negotiated");
+        const isOpen = expandedSupplier === key;
 
         return (
-          <div key={sid} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+          <div key={key} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
             {/* Supplier row header */}
             <button
-              onClick={() => setExpandedSupplier(isOpen ? null : sid)}
+              onClick={() => setExpandedSupplier(isOpen ? null : key)}
               className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/30 transition-colors text-left"
             >
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white font-bold text-sm shrink-0">
@@ -450,11 +477,13 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-brown-dark">{supplier.first_name} {supplier.last_name}</p>
-                <p className="text-brown-light text-xs">{deliveries.length} delivery(ies) · {deliveries.filter(d => d._computed?.isLate).length > 0 ? `${deliveries.filter(d => d._computed?.isLate).length} late` : "all on-time"}</p>
+                <p className="text-brown-light text-xs">
+                  {deliveries.length} delivery(ies) · Disbursement Friday: {fmtDate(paymentWeek)}
+                </p>
               </div>
-              {hasLate && (
+              {hasMixed && (
                 <span className="text-xs bg-amber-50 text-amber-600 font-semibold px-2 py-0.5 rounded-full border border-amber-200 shrink-0">
-                  Late delivery
+                  Includes Spot
                 </span>
               )}
               <div className="text-right shrink-0">
@@ -471,7 +500,7 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
                   <table className="w-full text-sm">
                     <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                       <tr>
-                        {["Contract", "Date", "Net kg", "MC%", "Final kg", "Price/kg", "Amount", "Status"].map(h => (
+                        {["Allocations", "Date", "Net kg", "MC%", "Final kg", "Effective ₱/kg", "Amount", "Type"].map(h => (
                           <th key={h} className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -479,9 +508,14 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
                     <tbody className="divide-y divide-beige-dark/20">
                       {deliveries.map(d => {
                         const c = d._computed;
+                        const contractNums = (d.delivery_allocations ?? [])
+                          .filter(a => a.contract_id)
+                          .map(a => a.contract?.contract_number)
+                          .filter(Boolean)
+                          .join(", ");
                         return (
-                          <tr key={d.delivery_id} className={c.isLate ? "bg-red-50/40" : ""}>
-                            <td className="px-4 py-3 font-medium text-brown-dark text-xs">{d.contract?.contract_number}</td>
+                          <tr key={d.delivery_id}>
+                            <td className="px-4 py-3 font-medium text-brown-dark text-xs">{contractNums || "—"}</td>
                             <td className="px-4 py-3 text-brown-mid text-xs whitespace-nowrap">{fmtDate(d.delivery_date)}</td>
                             <td className="px-4 py-3 text-brown-mid">{fmt3(c.netKg)}</td>
                             <td className="px-4 py-3 text-brown-mid">{c.mc}%</td>
@@ -489,17 +523,22 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
                             <td className="px-4 py-3 text-brown-mid">
                               {peso(c.pricePerKg)}
                               <span className={`ml-1 text-xs font-semibold px-1 rounded ${
-                                c.priceType === "Spot" ? "text-red-500" : "text-green-dark"
+                                c.priceType === "Spot" ? "text-red-500"
+                                  : c.priceType === "Mixed" ? "text-amber-600"
+                                  : "text-green-dark"
                               }`}>
                                 ({c.priceType})
                               </span>
                             </td>
                             <td className="px-4 py-3 font-bold text-brown-dark">{peso(c.lineAmount)}</td>
                             <td className="px-4 py-3">
-                              {c.isLate
-                                ? <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Late</span>
-                                : <span className="text-xs text-green-dark font-semibold bg-green-pale px-2 py-0.5 rounded-full">On-time</span>
-                              }
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                c.priceType === "Spot" ? "bg-red-50 text-red-600"
+                                  : c.priceType === "Mixed" ? "bg-amber-50 text-amber-700"
+                                  : "bg-green-pale text-green-dark"
+                              }`}>
+                                {c.priceType}
+                              </span>
                             </td>
                           </tr>
                         );
@@ -508,9 +547,14 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
                   </table>
                 </div>
                 <div className="flex items-center justify-between px-5 py-4 bg-beige/50 border-t border-beige-dark/20">
-                  <p className="font-semibold text-brown-dark">{peso(totalAmount)} total</p>
+                  <p className="font-semibold text-brown-dark">{peso(totalAmount)} total · Disburse {fmtDate(paymentWeek)}</p>
                   <button
-                    onClick={() => onCreateBatch({ supplierId: sid, name: `${supplier.first_name} ${supplier.last_name}`, deliveries })}
+                    onClick={() => onCreateBatch({
+                      supplierId: supplier.user_id,
+                      name: `${supplier.first_name} ${supplier.last_name}`,
+                      deliveries,
+                      paymentWeek,
+                    })}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
                   >
                     <LuPackage className="w-4 h-4" /> Create Batch

@@ -34,7 +34,8 @@ export default function BODeliveriesPage() {
         .select(`
           delivery_id, delivery_status, delivery_date, delivery_source,
           truck_plate_number, batch_number, created_at,
-          contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+          supplier:supplier_id(first_name, last_name),
+          contract:contract_id(contract_number),
           walkin_supplier:walkin_supplier_id(first_name, last_name),
           weigher:weigher_id(first_name, last_name),
           weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
@@ -51,7 +52,7 @@ export default function BODeliveriesPage() {
   function getSupplierName(d) {
     return d.delivery_source === "Walkin"
       ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+      : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
   }
 
   const filtered = deliveries.filter(d => {

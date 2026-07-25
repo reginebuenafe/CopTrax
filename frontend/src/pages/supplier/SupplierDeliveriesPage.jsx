@@ -31,31 +31,20 @@ export default function SupplierDeliveriesPage() {
 
   useEffect(() => {
     async function fetchDeliveries() {
-      // First get all contract IDs for this supplier
-      const { data: contractIds } = await supabase
-        .from("contracts")
-        .select("contract_id")
-        .eq("supplier_id", user.id);
-
-      if (!contractIds || contractIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      const ids = contractIds.map(c => c.contract_id);
-
       const { data } = await supabase
         .from("deliveries")
         .select(`
           delivery_id, delivery_status, delivery_date, delivery_source,
           truck_plate_number, batch_number,
           contract:contract_id(contract_number, due_date, negotiated_price_per_kg),
+          delivery_allocations(contract_id, allocated_weight_kg, price_type, sequence_order,
+            contract:contract_id(contract_number)),
           weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg, weighed_at),
           laboratory_inspections(moisture_content_pct, inspected_at),
           quality_results(result, remarks),
           payments(payment_id, payment_status, total_amount)
         `)
-        .in("contract_id", ids)
+        .eq("supplier_id", user.id)
         .eq("delivery_source", "Contract-based")
         .order("delivery_date", { ascending: false });
 
