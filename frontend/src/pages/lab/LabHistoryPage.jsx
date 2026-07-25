@@ -13,7 +13,7 @@ export default function LabHistoryPage() {
       const { data } = await supabase
         .from("laboratory_inspections")
         .select(`
-          inspection_id, moisture_content_pct, created_at,
+          inspection_id, moisture_content_pct, inspected_at,
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
             contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
@@ -23,7 +23,7 @@ export default function LabHistoryPage() {
           quality_results(result, remarks)
         `)
         .eq("lab_staff_id", user.id)
-        .order("created_at", { ascending: false });
+        .order("inspected_at", { ascending: false });
 
       setRecords(data ?? []);
       setLoading(false);

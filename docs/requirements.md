@@ -2,7 +2,18 @@
 
 > Extracted from the capstone paper *"CopTrax: A Web-Based Copra Management System"* (NERC Copra Trading). Chapters 1–2 (Introduction, Related Systems), Bibliography, and personal/administrative appendices (Transmittal Letter, Interview Guide, Curriculum Vitae) were omitted as not relevant to building the site. All embedded images/photos were stripped — text only.
 
-> **Note:** This paper describes a full-stack system (React frontend + Node/Express backend + PostgreSQL). Since this repo is a **frontend-only landing page**, treat backend/API/database sections as context for understanding the product, not as build instructions — the landing page should not implement any of that.
+> **Note:** This paper describes a full-stack system (React frontend + Node/Express backend + PostgreSQL). Since this repo is now building the **full application**, not just a landing page, this file is still **background/context only** — it is an earlier capstone-paper draft, predating both `docs/build-spec.md` and the SRS it's built from (SRS v1.0, July 22, 2026). Where anything here conflicts with `docs/build-spec.md`, **`build-spec.md` always wins** — don't pull requirements, schemas, or specific numbers from this file if they contradict it.
+
+> **Known contradictions — do NOT build these, they're superseded:**
+> - **Weekly Friday-batched payments** (throughout — "weekly payment computations," "disbursements scheduled every Friday," "Weekly Payment Ready" notification). Superseded: payments are **per-delivery**, one Xendit transaction per delivery, disbursed as soon as the Business Owner approves it — never batched or scheduled. See build-spec.md §3.5.
+> - **DocuSeal** for e-signature. Superseded: Suppliers upload their own signature image once at registration; it's reused automatically on future contracts — no third-party e-signature platform. See build-spec.md §3.0/§3.1.
+> - **`INVENTORY` table with `Drying`/`Market-Ready` states and `INVENTORY_TRANSACTIONS.transaction_type` including `Transfer`/`Drying to Market-Ready`**. Superseded: inventory uses a Walk-in Holding → Resecada model (`INVENTORY_BATCHES`, `batch_status` ENUM `Walk-in Holding`/`Ready to Merge`/`Resecada`, 14-day merge review by the Business Owner). See build-spec.md §3.6/§4.
+> - **`SUPPLIER_PERFORMANCE_SNAPSHOT` with `rejection_rate_pct`, `on_time_delivery_pct`, `contract_completion_rate_pct`, `avg_moisture_pct`, `payment_reliability_pct`, `overall_rank_score`**. Superseded: the rating is the SRS's weighted formula — 60% Contract Fulfillment + 20% Delivered Volume + 20% Copra Quality (Moisture) → 1–5 rating, computed per contract on Completed/Breached. See build-spec.md §3.7.
+> - **Node.js/Express.js backend.** Superseded (deliberately, not accidentally): Supabase — Postgres, Supabase Auth, Edge Functions. See build-spec.md §7 for why, and don't "correct" it back.
+> - **No mention of Spot Price, automatic multi-contract delivery allocation, or the Non-Contract/cascade mechanics.** These didn't exist yet in this draft. See build-spec.md §3.3/§3.5 for the current (and only) delivery-allocation model — the current SRS's REQ-4.3-9/10 and REQ-4.4-2 through 9 define it, and it has no equivalent here.
+> - **`account_status` ENUM uses `'Pending'`** where the current spec uses `'Pending Verification'`. Minor naming drift — use build-spec.md's naming.
+>
+> Everything else below — the general shape of the ERD, the negotiation/contract/delivery/rating workflow narrative, the UML/use-case description — is still useful *context* for understanding the product's history and intent. Just don't treat specific numbers, table names, or enum values here as current unless build-spec.md also has them.
 
 ---
 

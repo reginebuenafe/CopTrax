@@ -26,7 +26,7 @@ export default function InspectionQueuePage() {
       .from("deliveries")
       .select(`
         delivery_id, delivery_source, delivery_date, delivery_status, created_at,
-        contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+        contract:contract_id(contract_number, supplier:supplier_id(user_id, first_name, last_name)),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weighing_records(net_weight_kg)
       `)
@@ -114,27 +114,37 @@ export default function InspectionQueuePage() {
       .update({ delivery_status: newStatus, lab_staff_id: user.id })
       .eq("delivery_id", selected.delivery_id);
 
-    // 4. Add accepted deliveries to inventory
-    if (preview.result === "Accepted") {
+    // 4. For accepted contractual deliveries → add to Resecada inventory
+    // (Walk-in batches are already inserted into Walk-in Holding by WalkinDeliveryForm at record time)
+    if (preview.result === "Accepted" && selected.delivery_source === "Contract-based") {
+      const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
+      await supabase.from("inventory_batches").insert({
+        delivery_id: selected.delivery_id,
+        source_type: "Contractual",
+        batch_status: "Resecada",
+        weight_kg: netKg,
+        recorded_date: selected.delivery_date,
+      });
+    }
+
+    // 5. Notify the supplier (contractual deliveries only — walk-in suppliers have no account)
+    if (selected.delivery_source === "Contract-based") {
+      const supplierId = selected.contract?.supplier?.user_id;
+      const contractNumber = selected.contract?.contract_number ?? "";
       const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
 
-      if (selected.delivery_source === "Contract-based") {
-        // Contractual → straight into Resecada
-        await supabase.from("inventory_batches").insert({
-          delivery_id: selected.delivery_id,
-          source_type: "Contractual",
-          batch_status: "Resecada",
-          weight_kg: netKg,
-          recorded_date: selected.delivery_date,
-        });
-      } else {
-        // Walk-in → Walk-in Holding (trigger sets merge_eligible_date + notifies BO)
-        await supabase.from("inventory_batches").insert({
-          delivery_id: selected.delivery_id,
-          source_type: "Walkin",
-          batch_status: "Walk-in Holding",
-          weight_kg: netKg,
-          recorded_date: selected.delivery_date,
+      if (supplierId) {
+        const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
+        const notifMsg = preview.result === "Accepted"
+          ? `Your delivery under ${contractNumber} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}%.`
+          : `Your delivery under ${contractNumber} has been rejected. Moisture content ${mc}% exceeds 20.2%.`;
+
+        await supabase.from("notifications").insert({
+          user_id: supplierId,
+          notification_type: notifType,
+          message: notifMsg,
+          related_entity_type: "deliveries",
+          related_entity_id: selected.delivery_id,
         });
       }
     }
