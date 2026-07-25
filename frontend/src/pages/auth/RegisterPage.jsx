@@ -234,28 +234,16 @@ export default function RegisterPage() {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
 
-  async function uploadFile(userId, fileObj, category, filename) {
-    const path = `${userId}/${category}-${Date.now()}-${filename}`;
-    const { data: storageData, error: storageErr } = await supabase.storage
-      .from("documents")
-      .upload(path, fileObj.file, { upsert: false });
-
-    if (storageErr) throw new Error(`Upload failed (${category}): ${storageErr.message}`);
-
-    const { data: fileRecord, error: dbErr } = await supabase
-      .from("file_uploads")
-      .insert({
-        uploaded_by:   userId,
-        file_category: category,
-        file_name:     filename,
-        file_url:      storageData.path,
-        file_size:     fileObj.file.size,
-      })
-      .select("file_id")
-      .single();
-
-    if (dbErr) throw new Error(`File record failed (${category}): ${dbErr.message}`);
-    return fileRecord.file_id;
+  // Convert File to base64 data URL (for file-picker uploads that come in as File objects)
+  function fileToDataUrl(fileObj) {
+    return new Promise((resolve, reject) => {
+      // If dataUrl is already available (from camera capture), use it directly
+      if (fileObj.dataUrl) { resolve(fileObj.dataUrl); return; }
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(fileObj.file);
+    });
   }
 
   async function handleSubmit(e) {
@@ -284,51 +272,50 @@ export default function RegisterPage() {
     if (authError) { setError(authError.message); setLoading(false); setStep("form"); return; }
     const userId = data.user.id;
 
-    // 2. Update profile
-    setUploadProgress("Saving profile…");
-    const { error: profileError } = await supabase.from("users").update({
-      first_name: form.firstName.trim(),
-      last_name:  form.lastName.trim(),
-      phone:      form.phone.trim() || null,
-      address:    form.address.trim() || null,
-    }).eq("user_id", userId);
-
-    if (profileError) {
-      setError("Profile update failed. Please contact support.");
+    // 2. Convert photos to base64 data URLs (camera captures already have dataUrl;
+    //    file-picker uploads need to be read via FileReader)
+    let govIdData, faceIdData, esignData;
+    try {
+      setUploadProgress("Preparing documents…");
+      [govIdData, faceIdData, esignData] = await Promise.all([
+        fileToDataUrl(govIdPhoto),
+        fileToDataUrl(selfiePhoto),
+        fileToDataUrl(signaturePhoto),
+      ]);
+    } catch (convErr) {
+      setError("Failed to read photo files. Please try again.");
       setLoading(false); setStep("form"); return;
     }
 
-    // 3. Upload files
+    // 3. Call the Edge Function (service-role, bypasses RLS — needed because
+    //    signUp with email confirmation enabled returns no session)
     try {
-      setUploadProgress("Uploading government ID photo…");
-      const govIdFileId = await uploadFile(userId, govIdPhoto, "Gov ID", `gov-id.jpg`);
-
-      setUploadProgress("Uploading selfie with ID…");
-      const faceIdFileId = await uploadFile(userId, selfiePhoto, "Face ID", `face-id.jpg`);
-
-      setUploadProgress("Uploading e-signature photo…");
-      const esignFileId = await uploadFile(userId, signaturePhoto, "E-Sign", `esign.jpg`);
-
-      // Also upload face ID to file_uploads (it links via uploaded_by only — user_verify tracks gov_id + esign)
-      // 4. Create user_verify record
-      setUploadProgress("Submitting verification request…");
-      await supabase.from("user_verify").insert({
-        user_id:        userId,
-        gov_id_file_id: govIdFileId,
-        esign_file_id:  esignFileId,
-        verify_status:  "Pending",
-      });
-
-      // Face ID stored in file_uploads with category 'Face ID' — BO can retrieve via uploaded_by
-      // (user_verify table doesn't have a face_id column — linked implicitly)
-      void faceIdFileId;
-
+      setUploadProgress("Uploading documents…");
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+        "upload-registration-files",
+        {
+          body: {
+            user_id:      userId,
+            first_name:   form.firstName.trim(),
+            last_name:    form.lastName.trim(),
+            phone:        form.phone.trim() || null,
+            address:      form.address.trim() || null,
+            gov_id_type:  form.govIdType,
+            gov_id_data:  govIdData,
+            face_id_data: faceIdData,
+            esign_data:   esignData,
+          },
+        }
+      );
+      if (fnErr || fnData?.error) {
+        throw new Error(fnData?.error ?? fnErr?.message ?? "Upload failed");
+      }
     } catch (uploadErr) {
       setError(uploadErr.message);
       setLoading(false); setStep("form"); return;
     }
 
-    // 5. Sign out and redirect
+    // 4. Sign out and redirect to pending screen
     await supabase.auth.signOut();
     setLoading(false);
     navigate("/pending-approval");
