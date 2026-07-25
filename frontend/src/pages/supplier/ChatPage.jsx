@@ -179,8 +179,16 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
   const isSupplier = viewerRole === "Supplier";
   const isBO = viewerRole === "Business Owner";
 
-  // Latest active (non-rejected) proposal
-  const latestProposal = [...proposals].reverse().find(p => p.proposal_status !== "Rejected");
+  // Latest active (non-rejected) proposal.
+  // proposals are ordered by submitted_at ascending — each negotiation turn
+  // adds exactly one proposal, so its index parity tells us who submitted it:
+  // even index (0,2,…) = Supplier's turn, odd index (1,3,…) = Business Owner's counter.
+  const latestProposalIndex = [...proposals]
+    .map((p, i) => ({ p, i }))
+    .reverse()
+    .find(({ p }) => p.proposal_status !== "Rejected")?.i ?? -1;
+  const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
+  const latestSubmitterRole = latestProposalIndex % 2 === 0 ? "Supplier" : "Business Owner";
 
   if (loading) {
     return (
@@ -264,9 +272,8 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
         {latestProposal && latestProposal.proposal_status === "Pending" && (
           <ProposalCard
             proposal={latestProposal}
-            isBO={isBO}
-            isSupplier={isSupplier}
-            currentUserId={user.id}
+            viewerRole={viewerRole}
+            submitterRole={latestSubmitterRole}
             onAccept={() => isBO ? acceptProposal(latestProposal) : acceptCounter(latestProposal)}
             onReject={() => rejectProposal(latestProposal)}
             onCounter={() => setCounterModal(latestProposal)}
@@ -303,6 +310,7 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
+          supplierId={conversation?.supplier_id}
           onClose={() => setShowProposeModal(false)}
           onSubmitted={async (msg) => {
             setShowProposeModal(false);
@@ -322,6 +330,7 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
+          supplierId={conversation?.supplier_id}
           isCounter
           supersedesId={counterModal.proposal_id}
           onClose={() => setCounterModal(null)}
@@ -348,9 +357,9 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
 }
 
 // Inline proposal card component
-function ProposalCard({ proposal, isBO, isSupplier, currentUserId, onAccept, onReject, onCounter }) {
-  const submittedByMe = proposal.supplier_id === currentUserId;
-  const canAct = (isBO && submittedByMe === false) || (isSupplier && submittedByMe === false);
+function ProposalCard({ proposal, viewerRole, submitterRole, onAccept, onReject, onCounter }) {
+  const submittedByMe = viewerRole === submitterRole;
+  const canAct = !submittedByMe;
 
   return (
     <div className="flex justify-center my-2">

@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 export default function ProposePriceModal({
   conversationId,
   userId,
+  supplierId,
   isCounter = false,
   supersedesId = null,
   onClose,
@@ -29,7 +30,7 @@ export default function ProposePriceModal({
 
     const { error: err } = await supabase.from("proposal_forms").insert({
       conversation_id: conversationId,
-      supplier_id: userId,
+      supplier_id: supplierId ?? userId,
       proposed_price_per_kg: price,
       proposed_volume_tons: volume,
       proposal_status: "Pending",

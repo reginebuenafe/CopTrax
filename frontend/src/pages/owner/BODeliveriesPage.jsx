@@ -18,7 +18,7 @@ const STATUS_META = {
   Accepted:  { color: "bg-green-pale text-green-dark",     label: "Accepted",  icon: LuCheck },
   Rejected:  { color: "bg-red-50 text-red-600",            label: "Rejected",  icon: LuX },
 };
-const FILTERS = ["All", "Pending", "Weighed", "Accepted", "Rejected"];
+const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
 
 export default function BODeliveriesPage() {
   const [deliveries, setDeliveries] = useState([]);

@@ -27,10 +27,9 @@ Deno.serve(async (req) => {
     const { data: payment, error: pErr } = await supabase
       .from("payments")
       .select(`
-        payment_id, total_amount, payment_week, payment_method,
+        payment_id, total_amount, payment_week, payment_method, payment_status,
         supplier:supplier_id(
-          user_id, first_name, last_name, email,
-          profile:users(phone_number)
+          user_id, first_name, last_name, email, phone
         )
       `)
       .eq("payment_id", payment_id)
