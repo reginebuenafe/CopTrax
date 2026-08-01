@@ -3,13 +3,13 @@ import {
   LuUsers, LuCheck, LuX, LuPhone,
   LuMapPin, LuClock, LuSearch, LuCircleAlert,
   LuIdCard, LuCamera, LuPenLine, LuLoader, LuEye,
-  LuUserPlus,
+  LuUserPlus, LuTrash2, LuTriangleAlert,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import CreateStaffModal from "../../components/CreateStaffModal";
 
-const STATUS_TABS = ["Pending", "Active", "Rejected"];
+const STATUS_TABS = ["Pending", "Active", "Rejected", "Deleted"];
 
 const ROLE_COLORS = {
   "Supplier":         "bg-blue-50 text-blue-700",
@@ -185,6 +185,46 @@ function DocSection({ icon, title, subtitle, url }) {
   );
 }
 
+// ── Delete confirmation modal ─────────────────────────────────────────────────
+function DeleteConfirmModal({ targetUser, onClose, onConfirm, processing }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-md p-6">
+        <div className="flex items-start gap-4 mb-5">
+          <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center shrink-0">
+            <LuTriangleAlert className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-brown-dark">Delete Account?</h3>
+            <p className="text-brown-light text-sm mt-1">
+              This will permanently deactivate{" "}
+              <span className="font-semibold text-brown-dark">
+                {targetUser.first_name} {targetUser.last_name}
+              </span>
+              's account ({targetUser.roles?.role_name}). They will be logged out immediately and
+              will not be able to log back in. All historical records (contracts, deliveries,
+              payments) are preserved.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} disabled={processing}
+            className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-50">
+            Cancel
+          </button>
+          <button onClick={onConfirm} disabled={processing}
+            className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {processing
+              ? <LuLoader className="w-4 h-4 animate-spin" />
+              : <LuTrash2 className="w-4 h-4" />}
+            Delete Account
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function UserApprovalsPage() {
   const { user } = useAuth();
@@ -192,8 +232,9 @@ export default function UserApprovalsPage() {
   const [tab, setTab] = useState("Pending");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [reviewModal, setReviewModal] = useState(null); // target user
+  const [reviewModal, setReviewModal] = useState(null);
   const [createModal, setCreateModal] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(null); // target user to delete
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -240,6 +281,21 @@ export default function UserApprovalsPage() {
         ? `${targetUser.first_name} ${targetUser.last_name}'s account has been approved.`
         : `${targetUser.first_name} ${targetUser.last_name}'s account has been rejected.`
     );
+    fetchUsers();
+  }
+
+  async function handleDelete(targetUser) {
+    setProcessing(true);
+    const { data, error: fnErr } = await supabase.functions.invoke("delete-user-account", {
+      body: { target_user_id: targetUser.user_id },
+    });
+    setProcessing(false);
+    setDeleteModal(null);
+
+    const errMsg = data?.error ?? fnErr?.message;
+    if (errMsg) { showToast("error", `Delete failed: ${errMsg}`); return; }
+
+    showToast("success", `${targetUser.first_name} ${targetUser.last_name}'s account has been deleted.`);
     fetchUsers();
   }
 
@@ -321,7 +377,9 @@ export default function UserApprovalsPage() {
             </div>
             <p className="text-brown-dark font-semibold">No {tab.toLowerCase()} accounts</p>
             <p className="text-brown-light text-sm mt-1">
-              {tab === "Pending" ? "No new account requests right now." : `No ${tab.toLowerCase()} accounts found.`}
+              {tab === "Pending" ? "No new account requests right now." :
+               tab === "Deleted" ? "No deleted accounts." :
+               `No ${tab.toLowerCase()} accounts found.`}
             </p>
           </div>
         ) : (
@@ -334,7 +392,7 @@ export default function UserApprovalsPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide hidden md:table-cell">Contact</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide hidden lg:table-cell">Registered</th>
                   <th className="text-right px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide">
-                    {tab === "Pending" ? "Review" : "Status"}
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -391,19 +449,36 @@ export default function UserApprovalsPage() {
 
                     {/* Actions */}
                     <td className="px-5 py-4 text-right">
-                      {tab === "Pending" ? (
-                        <button onClick={() => setReviewModal(u)}
-                          className="inline-flex items-center gap-1.5 bg-green-pale text-green-dark text-xs font-semibold
-                            px-3 py-1.5 rounded-lg hover:bg-green-light/20 transition-all duration-200">
-                          <LuEye className="w-3.5 h-3.5" /> Review Documents
-                        </button>
-                      ) : (
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          u.account_status === "Active" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
-                        }`}>
-                          {u.account_status}
-                        </span>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {tab === "Pending" && (
+                          <button onClick={() => setReviewModal(u)}
+                            className="inline-flex items-center gap-1.5 bg-green-pale text-green-dark text-xs font-semibold
+                              px-3 py-1.5 rounded-lg hover:bg-green-light/20 transition-all duration-200">
+                            <LuEye className="w-3.5 h-3.5" /> Review
+                          </button>
+                        )}
+                        {tab === "Active" && (
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-green-pale text-green-dark">
+                            Active
+                          </span>
+                        )}
+                        {tab === "Rejected" && (
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600">
+                            Rejected
+                          </span>
+                        )}
+                        {tab === "Deleted" ? (
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                            Deleted
+                          </span>
+                        ) : (
+                          <button onClick={() => setDeleteModal(u)}
+                            className="inline-flex items-center gap-1.5 text-red-500 hover:text-red-600 text-xs font-semibold
+                              px-2.5 py-1.5 rounded-lg hover:bg-red-50 transition-all duration-200">
+                            <LuTrash2 className="w-3.5 h-3.5" /> Delete
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -433,6 +508,16 @@ export default function UserApprovalsPage() {
             showToast("success", `${firstName} ${lastName}'s ${role} account has been created.`);
             if (tab === "Active") fetchUsers();
           }}
+        />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteModal && (
+        <DeleteConfirmModal
+          targetUser={deleteModal}
+          processing={processing}
+          onClose={() => setDeleteModal(null)}
+          onConfirm={() => handleDelete(deleteModal)}
         />
       )}
 
