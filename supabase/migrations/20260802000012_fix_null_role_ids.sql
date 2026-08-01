@@ -29,6 +29,7 @@ ON CONFLICT (role_name) DO NOTHING;
 
 -- Ensure a default spot price row exists so SupplierOverview and
 -- WeigherPage don't blow up when no row has been inserted yet.
-INSERT INTO public.spot_price (price_per_ton, updated_at)
-SELECT 2000, NOW()
+-- Column is price_per_kg (see initial_schema.sql).
+INSERT INTO public.spot_price (price_per_kg, updated_at)
+SELECT 2.00, NOW()
 WHERE NOT EXISTS (SELECT 1 FROM public.spot_price);
