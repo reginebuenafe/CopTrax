@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
-import { LuLayoutDashboard, LuTrendingUp, LuPencil, LuCheck, LuX, LuCircleAlert } from "react-icons/lu";
+import { useNavigate } from "react-router-dom";
+import {
+  LuLayoutDashboard, LuTrendingUp, LuPencil, LuCheck, LuX, LuCircleAlert,
+  LuUserPlus, LuScale, LuFlaskConical,
+} from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import CreateStaffModal from "../../components/CreateStaffModal";
 
 export default function OwnerOverview() {
+  const navigate = useNavigate();
   const [spotPrice, setSpotPrice] = useState(null);
   const [editing, setEditing] = useState(false);
   const [newPrice, setNewPrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [stats, setStats] = useState(null);
+  const [createModal, setCreateModal] = useState(false);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     async function loadData() {
@@ -46,6 +54,11 @@ export default function OwnerOverview() {
     setNewPrice("");
   }
 
+  function showToast(message) {
+    setToast(message);
+    setTimeout(() => setToast(null), 4000);
+  }
+
   const STAT_CARDS = stats ? [
     { label: "Pending Approvals", value: stats.pendingApprovals, color: "bg-amber-50 text-amber-600", path: "/dashboard/owner/users" },
     { label: "Active Contracts", value: stats.activeContracts, color: "bg-green-pale text-green-dark", path: "/dashboard/owner/contracts" },
@@ -80,7 +93,7 @@ export default function OwnerOverview() {
       )}
 
       {/* Spot Price card */}
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
+      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
@@ -133,6 +146,66 @@ export default function OwnerOverview() {
           This is the current spot price used for late deliveries. Updating it takes effect immediately on all future payment computations.
         </p>
       </div>
+
+      {/* Quick Actions — Staff Account Creation */}
+      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
+        <p className="text-xs font-semibold text-brown-light uppercase tracking-wide mb-4">Staff Account Management</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Create Weigher */}
+          <button
+            onClick={() => setCreateModal("Weigher")}
+            className="flex items-center gap-3 p-4 rounded-2xl border border-beige-dark/30 bg-orange-50/50
+              hover:bg-orange-50 hover:border-orange-200 hover:-translate-y-0.5 transition-all duration-200 text-left group">
+            <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-orange-200 transition-colors">
+              <LuScale className="w-5 h-5 text-orange-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-brown-dark">Create Weigher Account</p>
+              <p className="text-xs text-brown-light">Active immediately, no approval needed</p>
+            </div>
+            <LuUserPlus className="w-4 h-4 text-brown-light ml-auto shrink-0" />
+          </button>
+
+          {/* Create Laboratory Staff */}
+          <button
+            onClick={() => setCreateModal("Laboratory Staff")}
+            className="flex items-center gap-3 p-4 rounded-2xl border border-beige-dark/30 bg-purple-50/50
+              hover:bg-purple-50 hover:border-purple-200 hover:-translate-y-0.5 transition-all duration-200 text-left group">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-purple-200 transition-colors">
+              <LuFlaskConical className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-brown-dark">Create Lab Staff Account</p>
+              <p className="text-xs text-brown-light">Active immediately, no approval needed</p>
+            </div>
+            <LuUserPlus className="w-4 h-4 text-brown-light ml-auto shrink-0" />
+          </button>
+        </div>
+        <p className="text-xs text-brown-light mt-3">
+          Weigher and Laboratory Staff accounts are created directly by the Business Owner. They are active immediately with no pending or approval step.
+        </p>
+      </div>
+
+      {/* Create Staff Modal */}
+      {createModal && (
+        <CreateStaffModal
+          defaultRole={createModal}
+          onClose={() => setCreateModal(false)}
+          onCreated={(firstName, lastName, role) => {
+            setCreateModal(false);
+            showToast(`${firstName} ${lastName}'s ${role} account has been created successfully.`);
+          }}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-card-hover
+          bg-white border border-green-pale text-green-dark text-sm font-medium animate-fade-in-up">
+          <LuCheck className="w-4 h-4 shrink-0" />
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
