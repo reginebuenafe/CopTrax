@@ -20,6 +20,10 @@ export default function LoginPage() {
   const [error, setError] = useState(
     params.get("reason") === "rejected"
       ? "Your account registration was declined. Please contact NERC Copra Trading."
+      : params.get("reason") === "expired"
+      ? "Your session has expired. Please log in again."
+      : params.get("reason") === "deleted"
+      ? "Your account has been deactivated. Please contact NERC Copra Trading."
       : ""
   );
   const [loading, setLoading] = useState(false);

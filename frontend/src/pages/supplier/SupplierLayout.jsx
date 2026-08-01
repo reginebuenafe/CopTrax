@@ -3,7 +3,7 @@ import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuLogOut, LuMenu, LuX, LuChevronRight,
   LuLayoutDashboard, LuMessageSquare, LuFileText, LuTruck,
-  LuWallet, LuStar,
+  LuWallet, LuStar, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { to: "/dashboard/supplier/deliveries", label: "Deliveries", icon: LuTruck },
   { to: "/dashboard/supplier/payments", label: "Payments", icon: LuWallet },
   { to: "/dashboard/supplier/rating", label: "My Rating", icon: LuStar },
+  { to: "/dashboard/supplier/settings", label: "Settings", icon: LuSettings },
 ];
 
 export default function SupplierLayout() {

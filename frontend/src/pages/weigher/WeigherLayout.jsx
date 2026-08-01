@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuLogOut, LuMenu, LuX, LuChevronRight,
-  LuTruck, LuClipboardList,
+  LuTruck, LuClipboardList, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -10,6 +10,7 @@ import NotificationBell from "../../components/NotificationBell";
 const NAV_ITEMS = [
   { to: "/dashboard/weigher", label: "New Delivery", icon: LuTruck, end: true },
   { to: "/dashboard/weigher/history", label: "Delivery History", icon: LuClipboardList },
+  { to: "/dashboard/weigher/settings", label: "Settings", icon: LuSettings },
 ];
 
 export default function WeigherLayout() {

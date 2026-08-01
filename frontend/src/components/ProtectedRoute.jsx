@@ -1,18 +1,9 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
-/**
- * Wraps a route and enforces:
- *  - authenticated session
- *  - optional role check
- *  - account must be Active (not Pending/Rejected)
- *
- * Props:
- *   allowedRoles?: string[]   — if omitted, any authenticated role is allowed
- *   redirectTo?: string       — where to send unauthenticated users (default: /login)
- */
 export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/login" }) {
   const { session, role, accountStatus, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -22,10 +13,15 @@ export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/
     );
   }
 
-  if (!session) return <Navigate to={redirectTo} replace />;
+  // No session — may be expired or never logged in
+  if (!session) {
+    const wasAuthed = !!location.state?.from;
+    return <Navigate to={`${redirectTo}?reason=expired`} replace />;
+  }
 
   if (accountStatus === "Pending") return <Navigate to="/pending-approval" replace />;
   if (accountStatus === "Rejected") return <Navigate to="/login?reason=rejected" replace />;
+  if (accountStatus === "Deleted") return <Navigate to="/login?reason=deleted" replace />;
 
   if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to="/unauthorized" replace />;

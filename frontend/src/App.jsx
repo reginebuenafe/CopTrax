@@ -26,6 +26,7 @@ import PaymentsPage from "./pages/owner/PaymentsPage";
 import InventoryPage from "./pages/owner/InventoryPage";
 import SupplierRatingsPage from "./pages/owner/SupplierRatingsPage";
 import BOReportsPage from "./pages/owner/BOReportsPage";
+import AccountSettingsPage from "./pages/shared/AccountSettingsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
 import SupplierConversationsPage from "./pages/supplier/SupplierConversationsPage";
@@ -94,6 +95,7 @@ function App() {
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="suppliers" element={<SupplierRatingsPage />} />
           <Route path="reports" element={<BOReportsPage />} />
+          <Route path="settings" element={<AccountSettingsPage />} />
         </Route>
 
         {/* Supplier dashboard */}
@@ -107,6 +109,7 @@ function App() {
           <Route path="deliveries" element={<SupplierDeliveriesPage />} />
           <Route path="payments" element={<SupplierPaymentsPage />} />
           <Route path="rating" element={<MyRatingPage />} />
+          <Route path="settings" element={<AccountSettingsPage />} />
         </Route>
 
         {/* Weigher dashboard */}
@@ -117,12 +120,14 @@ function App() {
           <Route path="walkin" element={<WalkinDeliveryForm />} />
           <Route path="contractual" element={<ContractualDeliveryForm />} />
           <Route path="history" element={<WeigherHistoryPage />} />
+          <Route path="settings" element={<AccountSettingsPage />} />
         </Route>
         <Route path="/dashboard/lab" element={
           <ProtectedRoute allowedRoles={["Laboratory Staff"]}><LabLayout /></ProtectedRoute>
         }>
           <Route index element={<InspectionQueuePage />} />
           <Route path="history" element={<LabHistoryPage />} />
+          <Route path="settings" element={<AccountSettingsPage />} />
         </Route>
 
         <Route path="/unauthorized" element={

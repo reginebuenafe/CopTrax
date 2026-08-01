@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
@@ -6,6 +6,19 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = loading
   const [profile, setProfile] = useState(null);
+  // Track if we need to force a redirect to /login due to expired/invalid session
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const profileRef = useRef(null);
+
+  const fetchProfile = useCallback(async (userId) => {
+    const { data } = await supabase
+      .from("users")
+      .select("*, roles(role_name)")
+      .eq("user_id", userId)
+      .single();
+    setProfile(data);
+    profileRef.current = data;
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -13,23 +26,27 @@ export function AuthProvider({ children }) {
       if (session) fetchProfile(session.user.id);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (session) fetchProfile(session.user.id);
-      else setProfile(null);
+
+      if (session) {
+        fetchProfile(session.user.id);
+        setSessionExpired(false);
+      } else {
+        setProfile(null);
+        profileRef.current = null;
+        // TOKEN_REFRESHED_ERROR or explicit SIGNED_OUT means session is dead
+        if (event === "TOKEN_REFRESHED" && !session) {
+          setSessionExpired(true);
+        }
+        if (event === "SIGNED_OUT") {
+          setSessionExpired(false); // normal sign-out, handled by navigation in layout
+        }
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  async function fetchProfile(userId) {
-    const { data } = await supabase
-      .from("users")
-      .select("*, roles(role_name)")
-      .eq("user_id", userId)
-      .single();
-    setProfile(data);
-  }
+  }, [fetchProfile]);
 
   const value = {
     session,
@@ -38,7 +55,9 @@ export function AuthProvider({ children }) {
     role: profile?.roles?.role_name ?? null,
     accountStatus: profile?.account_status ?? null,
     isLoading: session === undefined,
+    sessionExpired,
     signOut: () => supabase.auth.signOut(),
+    refreshProfile: () => session?.user?.id ? fetchProfile(session.user.id) : Promise.resolve(),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

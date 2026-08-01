@@ -3,7 +3,7 @@ import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuUsers, LuLogOut, LuMenu, LuX, LuChevronRight,
   LuLayoutDashboard, LuFileText, LuTruck, LuFlaskConical,
-  LuWallet, LuPackage, LuStar, LuMessageSquare, LuFileChartColumn,
+  LuWallet, LuPackage, LuStar, LuMessageSquare, LuFileChartColumn, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { to: "/dashboard/owner/inventory", label: "Inventory", icon: LuPackage },
   { to: "/dashboard/owner/suppliers", label: "Supplier Ratings", icon: LuStar },
   { to: "/dashboard/owner/reports", label: "Reports", icon: LuFileChartColumn },
+  { to: "/dashboard/owner/settings", label: "Settings", icon: LuSettings },
 ];
 
 export default function OwnerLayout() {

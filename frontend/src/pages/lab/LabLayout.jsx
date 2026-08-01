@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuLogOut, LuMenu, LuX, LuChevronRight,
-  LuFlaskConical, LuClipboardList,
+  LuFlaskConical, LuClipboardList, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -10,6 +10,7 @@ import NotificationBell from "../../components/NotificationBell";
 const NAV_ITEMS = [
   { to: "/dashboard/lab", label: "Inspection Queue", icon: LuFlaskConical, end: true },
   { to: "/dashboard/lab/history", label: "Inspection History", icon: LuClipboardList },
+  { to: "/dashboard/lab/settings", label: "Settings", icon: LuSettings },
 ];
 
 export default function LabLayout() {
