@@ -25,20 +25,21 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // Verify caller is Business Owner
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Missing authorization header" }, 401);
 
-    const anonClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
-      global: { headers: { Authorization: authHeader } },
+    // Use service-role client for everything — verify caller JWT directly
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: { user: caller }, error: authErr } = await anonClient.auth.getUser();
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user: caller }, error: authErr } = await admin.auth.getUser(token);
     if (authErr || !caller) return json({ error: "Unauthorized" }, 401);
 
-    const { data: callerProfile } = await anonClient
+    const { data: callerProfile } = await admin
       .from("users")
-      .select("roles(role_name)")
+      .select("roles!inner(role_name)")
       .eq("user_id", caller.id)
       .single();
 
@@ -50,14 +51,9 @@ Deno.serve(async (req) => {
     const { target_user_id } = await req.json();
     if (!target_user_id) return json({ error: "target_user_id is required" }, 400);
 
-    // Cannot delete yourself
     if (target_user_id === caller.id) {
       return json({ error: "Cannot delete your own account" }, 400);
     }
-
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     // Verify target exists and is not already deleted and is not Business Owner
     const { data: target, error: tErr } = await admin
