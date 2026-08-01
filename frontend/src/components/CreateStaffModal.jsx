@@ -26,20 +26,36 @@ export default function CreateStaffModal({ onClose, onCreated, defaultRole = "We
     setSaving(true);
     setErr("");
     try {
-      const res = await supabase.functions.invoke("create-staff-account", {
-        body: {
-          first_name: form.first_name.trim(),
-          last_name:  form.last_name.trim(),
-          email:      form.email.trim().toLowerCase(),
-          phone:      form.phone.trim() || undefined,
-          address:    form.address.trim() || undefined,
-          role_name:  form.role_name,
-          password:   form.password,
-        },
-      });
-      if (res.error || res.data?.error) {
-        throw new Error(res.data?.error ?? res.error?.message ?? "Unknown error");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated. Please log in again.");
+
+      // Use fetch directly so we always get the full response body regardless of status
+      const res = await fetch(
+        `${supabase.supabaseUrl}/functions/v1/create-staff-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey": supabase.supabaseKey,
+          },
+          body: JSON.stringify({
+            first_name: form.first_name.trim(),
+            last_name:  form.last_name.trim(),
+            email:      form.email.trim().toLowerCase(),
+            phone:      form.phone.trim() || undefined,
+            address:    form.address.trim() || undefined,
+            role_name:  form.role_name,
+            password:   form.password,
+          }),
+        }
+      );
+
+      const json = await res.json();
+      if (!res.ok || json?.error) {
+        throw new Error(json?.error ?? `Server error ${res.status}`);
       }
+
       onCreated(form.first_name, form.last_name, form.role_name);
     } catch (e) {
       setErr(e.message);

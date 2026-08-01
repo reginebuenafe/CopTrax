@@ -286,17 +286,33 @@ export default function UserApprovalsPage() {
 
   async function handleDelete(targetUser) {
     setProcessing(true);
-    const { data, error: fnErr } = await supabase.functions.invoke("delete-user-account", {
-      body: { target_user_id: targetUser.user_id },
-    });
-    setProcessing(false);
-    setDeleteModal(null);
-
-    const errMsg = data?.error ?? fnErr?.message;
-    if (errMsg) { showToast("error", `Delete failed: ${errMsg}`); return; }
-
-    showToast("success", `${targetUser.first_name} ${targetUser.last_name}'s account has been deleted.`);
-    fetchUsers();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${supabase.supabaseUrl}/functions/v1/delete-user-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+            "apikey": supabase.supabaseKey,
+          },
+          body: JSON.stringify({ target_user_id: targetUser.user_id }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json?.error) {
+        showToast("error", `Delete failed: ${json?.error ?? `Server error ${res.status}`}`);
+        return;
+      }
+      showToast("success", `${targetUser.first_name} ${targetUser.last_name}'s account has been deleted.`);
+      fetchUsers();
+    } catch (e) {
+      showToast("error", `Delete failed: ${e.message}`);
+    } finally {
+      setProcessing(false);
+      setDeleteModal(null);
+    }
   }
 
   function showToast(type, message) {
