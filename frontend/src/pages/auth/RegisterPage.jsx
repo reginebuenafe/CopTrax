@@ -307,8 +307,9 @@ export default function RegisterPage() {
           },
         }
       );
-      if (fnErr || fnData?.error) {
-        throw new Error(fnData?.error ?? fnErr?.message ?? "Upload failed");
+      const errMsg = fnData?.error ?? fnErr?.message;
+      if (errMsg) {
+        throw new Error(`Document upload failed: ${errMsg}`);
       }
     } catch (uploadErr) {
       setError(uploadErr.message);

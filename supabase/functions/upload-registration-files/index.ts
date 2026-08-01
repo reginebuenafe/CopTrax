@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Verify the user exists and is in Pending state
+    // Verify the user exists in public.users (trigger should have created the row)
     const { data: userRow, error: userErr } = await admin
       .from("users")
       .select("user_id, account_status")
@@ -71,10 +71,16 @@ Deno.serve(async (req) => {
       .single();
 
     if (userErr || !userRow) {
-      return json({ error: "User not found" }, 404);
-    }
-    if (!["Pending Verification", "Pending"].includes(userRow.account_status)) {
-      return json({ error: "User account is not in Pending state" }, 403);
+      // Trigger may be slightly delayed — wait briefly and retry once
+      await new Promise(r => setTimeout(r, 1500));
+      const { data: retryRow, error: retryErr } = await admin
+        .from("users")
+        .select("user_id, account_status")
+        .eq("user_id", user_id)
+        .single();
+      if (retryErr || !retryRow) {
+        return json({ error: "User profile not found. Please try again." }, 404);
+      }
     }
 
     // Update profile (first_name, last_name, phone, address)
@@ -124,16 +130,27 @@ Deno.serve(async (req) => {
     const _faceIdFileId  = await uploadFile(face_id_data, "Face ID", "face-id.jpg");
     const esignFileId    = await uploadFile(esign_data,   "E-Sign",  "esign.jpg");
 
-    // Create user_verify record (upsert in case a previous partial attempt exists)
-    const { error: verifyErr } = await admin.from("user_verify").upsert({
+    // Create user_verify record.
+    // Use insert with ignoreDuplicates in case a previous partial attempt left a row.
+    const { error: verifyErr } = await admin.from("user_verify").insert({
       user_id,
       gov_id_file_id: govIdFileId,
       esign_file_id:  esignFileId,
       verify_status:  "Pending",
-    }, { onConflict: "user_id" });
+    });
 
     if (verifyErr) {
-      return json({ error: `user_verify insert failed: ${verifyErr.message}` }, 500);
+      // If duplicate (previous partial attempt), update existing row instead
+      if (verifyErr.code === "23505") {
+        const { error: updateErr } = await admin.from("user_verify")
+          .update({ gov_id_file_id: govIdFileId, esign_file_id: esignFileId, verify_status: "Pending" })
+          .eq("user_id", user_id);
+        if (updateErr) {
+          return json({ error: `user_verify update failed: ${updateErr.message}` }, 500);
+        }
+      } else {
+        return json({ error: `user_verify insert failed: ${verifyErr.message} (code: ${verifyErr.code})` }, 500);
+      }
     }
 
     return json({ success: true });
