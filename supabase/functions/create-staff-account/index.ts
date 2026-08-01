@@ -27,31 +27,46 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Missing authorization header" }, 401);
 
-    // Use service-role client for everything — verify caller JWT directly
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Validate the caller's JWT (works even with RLS bypassed)
+    // Step 1: validate the caller's JWT
     const token = authHeader.replace("Bearer ", "");
     const { data: { user: caller }, error: authErr } = await admin.auth.getUser(token);
-    if (authErr || !caller) return json({ error: "Unauthorized" }, 401);
+    if (authErr || !caller) {
+      return json({ error: `Unauthorized: ${authErr?.message ?? "no user"}` }, 401);
+    }
 
-    // Verify caller is Business Owner (no RLS issues with service role)
-    const { data: callerProfile, error: profileErr } = await admin
+    // Step 2: get the caller's role_id from public.users
+    const { data: callerRow, error: callerErr } = await admin
       .from("users")
-      .select("role_id, roles!inner(role_name)")
+      .select("role_id")
       .eq("user_id", caller.id)
       .single();
 
-    if (profileErr || !callerProfile) {
-      return json({ error: `Caller profile not found: ${profileErr?.message}` }, 403);
+    if (callerErr || !callerRow) {
+      return json({ error: `Caller profile not found (user_id=${caller.id}): ${callerErr?.message}` }, 403);
     }
-    // @ts-ignore
-    if (callerProfile.roles?.role_name !== "Business Owner") {
-      return json({ error: "Only the Business Owner can create staff accounts" }, 403);
+    if (!callerRow.role_id) {
+      return json({ error: "Caller has no role assigned — contact database admin" }, 403);
     }
 
+    // Step 3: resolve role_id → role_name
+    const { data: callerRoleRow, error: callerRoleErr } = await admin
+      .from("roles")
+      .select("role_name")
+      .eq("role_id", callerRow.role_id)
+      .single();
+
+    if (callerRoleErr || !callerRoleRow) {
+      return json({ error: `Could not resolve caller role (role_id=${callerRow.role_id}): ${callerRoleErr?.message}` }, 403);
+    }
+    if (callerRoleRow.role_name !== "Business Owner") {
+      return json({ error: `Only the Business Owner can create staff accounts (your role: ${callerRoleRow.role_name})` }, 403);
+    }
+
+    // Step 4: validate request body
     const { first_name, last_name, email, phone, address, role_name, password } = await req.json();
 
     if (!first_name || !last_name || !email || !role_name || !password) {
@@ -64,7 +79,7 @@ Deno.serve(async (req) => {
       return json({ error: "Password must be at least 8 characters" }, 400);
     }
 
-    // Look up role_id
+    // Step 5: look up the target role_id
     const { data: roleRow, error: roleErr } = await admin
       .from("roles")
       .select("role_id")
@@ -72,14 +87,16 @@ Deno.serve(async (req) => {
       .single();
 
     if (roleErr || !roleRow) {
-      return json({ error: `Role '${role_name}' not found: ${roleErr?.message}` }, 500);
+      return json({ error: `Role '${role_name}' not found in roles table: ${roleErr?.message}` }, 500);
     }
 
-    // Create auth user (email_confirm: true — active immediately, no email needed)
+    // Step 6: create auth user — pass role in user_metadata so the trigger
+    // inserts the profile with the correct role, then our upsert overrides it
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
+      user_metadata: { role: role_name },
     });
 
     if (createErr) {
@@ -87,14 +104,14 @@ Deno.serve(async (req) => {
       if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("duplicate")) {
         return json({ error: "An account with that email already exists." }, 409);
       }
-      return json({ error: msg }, 500);
+      return json({ error: `Auth user creation failed: ${msg}` }, 500);
     }
 
     const newUserId = created.user.id;
 
-    // Insert into public.users — the auth trigger (handle_new_auth_user) also fires,
-    // but it uses ON CONFLICT DO NOTHING so our explicit insert wins.
-    const { error: insertErr } = await admin.from("users").upsert({
+    // Step 7: upsert the full profile row — trigger may have already inserted
+    // a partial row (role_id only + Pending status), so we update all fields
+    const { error: upsertErr } = await admin.from("users").upsert({
       user_id:        newUserId,
       role_id:        roleRow.role_id,
       first_name,
@@ -107,9 +124,10 @@ Deno.serve(async (req) => {
       approved_at:    new Date().toISOString(),
     }, { onConflict: "user_id" });
 
-    if (insertErr) {
+    if (upsertErr) {
+      // Roll back the auth user to avoid orphaned auth entries
       await admin.auth.admin.deleteUser(newUserId);
-      return json({ error: `Profile insert failed: ${insertErr.message}` }, 500);
+      return json({ error: `Profile upsert failed: ${upsertErr.message}` }, 500);
     }
 
     return json({ success: true, user_id: newUserId });
