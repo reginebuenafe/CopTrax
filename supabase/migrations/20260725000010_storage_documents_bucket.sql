@@ -19,6 +19,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ── Storage RLS policies ──────────────────────────────────────────────────
 
 -- Authenticated users can upload to their own folder (path starts with their user_id)
+DROP POLICY IF EXISTS "documents_insert_own" ON storage.objects;
 CREATE POLICY "documents_insert_own"
     ON storage.objects FOR INSERT TO authenticated
     WITH CHECK (
@@ -27,6 +28,7 @@ CREATE POLICY "documents_insert_own"
     );
 
 -- Users can read their own files
+DROP POLICY IF EXISTS "documents_select_own" ON storage.objects;
 CREATE POLICY "documents_select_own"
     ON storage.objects FOR SELECT TO authenticated
     USING (
@@ -35,6 +37,7 @@ CREATE POLICY "documents_select_own"
     );
 
 -- Business Owner can read all files in the bucket (for verification review)
+DROP POLICY IF EXISTS "documents_select_bo" ON storage.objects;
 CREATE POLICY "documents_select_bo"
     ON storage.objects FOR SELECT TO authenticated
     USING (

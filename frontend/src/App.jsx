@@ -29,7 +29,6 @@ import BOReportsPage from "./pages/owner/BOReportsPage";
 import AccountSettingsPage from "./pages/shared/AccountSettingsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
-import SupplierConversationsPage from "./pages/supplier/SupplierConversationsPage";
 import ChatPage from "./pages/supplier/ChatPage";
 import MyRatingPage from "./pages/supplier/MyRatingPage";
 import SupplierOverview from "./pages/supplier/SupplierOverview";
@@ -103,7 +102,7 @@ function App() {
           <ProtectedRoute allowedRoles={["Supplier"]}><SupplierLayout /></ProtectedRoute>
         }>
           <Route index element={<SupplierOverview />} />
-          <Route path="conversations" element={<SupplierConversationsPage />} />
+          <Route path="conversations" element={<ChatPage viewerRole="Supplier" />} />
           <Route path="conversations/:conversationId" element={<ChatPage viewerRole="Supplier" />} />
           <Route path="contracts" element={<MyContractsPage />} />
           <Route path="deliveries" element={<SupplierDeliveriesPage />} />

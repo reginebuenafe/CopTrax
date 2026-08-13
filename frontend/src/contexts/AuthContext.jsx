@@ -4,20 +4,25 @@ import { supabase } from "../lib/supabase";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(undefined); // undefined = loading
+  const [session, setSession] = useState(undefined);
   const [profile, setProfile] = useState(null);
-  // Track if we need to force a redirect to /login due to expired/invalid session
+  const [profileLoading, setProfileLoading] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const profileRef = useRef(null);
 
   const fetchProfile = useCallback(async (userId) => {
-    const { data } = await supabase
-      .from("users")
-      .select("*, roles(role_name)")
-      .eq("user_id", userId)
-      .single();
-    setProfile(data);
-    profileRef.current = data;
+    setProfileLoading(true);
+    try {
+      const { data } = await supabase
+        .from("users")
+        .select("*, roles(role_name)")
+        .eq("user_id", userId)
+        .single();
+      setProfile(data);
+      profileRef.current = data;
+    } finally {
+      setProfileLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -54,7 +59,7 @@ export function AuthProvider({ children }) {
     profile,
     role: profile?.roles?.role_name ?? null,
     accountStatus: profile?.account_status ?? null,
-    isLoading: session === undefined,
+    isLoading: session === undefined || (session !== null && profileLoading),
     sessionExpired,
     signOut: () => supabase.auth.signOut(),
     refreshProfile: () => session?.user?.id ? fetchProfile(session.user.id) : Promise.resolve(),

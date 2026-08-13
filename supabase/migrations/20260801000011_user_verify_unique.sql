@@ -6,5 +6,14 @@
 -- onConflict: "user_id" is specified.
 -- ============================================================
 
-ALTER TABLE public.user_verify
-  ADD CONSTRAINT user_verify_user_id_unique UNIQUE (user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'user_verify_user_id_unique'
+      AND conrelid = 'public.user_verify'::regclass
+  ) THEN
+    ALTER TABLE public.user_verify
+      ADD CONSTRAINT user_verify_user_id_unique UNIQUE (user_id);
+  END IF;
+END$$;
