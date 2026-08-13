@@ -6,6 +6,14 @@
 // session yet if email confirmation is enabled), inserts file_uploads rows,
 // creates the user_verify record, and updates the users profile row.
 //
+// Also supports re-registration (re_registration = true): when signUp() fails with
+// "User already registered" because the email was previously soft-deleted (the
+// auth user is banned but the row still exists), this function reactivates the
+// existing auth user (unban + new password), (re)creates the profile as
+// 'Pending Verification' with the Supplier role, and continues with the normal
+// document upload flow. The existing auth user is resolved via the
+// find_auth_user_by_email RPC against auth.users, which is the source of truth.
+//
 // This Edge Function does NOT require the caller to be authenticated —
 // it verifies legitimacy by checking that the userId exists in users
 // with account_status = 'Pending Verification'.
@@ -44,7 +52,10 @@ Deno.serve(async (req) => {
 
   try {
     const {
-      user_id,
+      user_id: requestedUserId,
+      email,
+      password,
+      re_registration = false,
       first_name,
       last_name,
       phone,
@@ -55,15 +66,106 @@ Deno.serve(async (req) => {
       esign_data,       // base64 data URL
     } = await req.json();
 
-    if (!user_id || !gov_id_data || !face_id_data || !esign_data) {
-      return json({ error: "user_id, gov_id_data, face_id_data, and esign_data are required" }, 400);
+    if (!gov_id_data || !face_id_data || !esign_data) {
+      return json({ error: "gov_id_data, face_id_data, and esign_data are required" }, 400);
+    }
+    if (!re_registration && !requestedUserId) {
+      return json({ error: "user_id is required" }, 400);
+    }
+    if (re_registration && (!email || !password)) {
+      return json({ error: "email and password are required to re-register" }, 400);
     }
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Verify the user exists in public.users (trigger should have created the row)
+    let user_id = requestedUserId;
+
+    // ── Re-registration path ──────────────────────────────────────────────────
+    // auth.signUp() rejects an email that already exists in auth.users, so a
+    // previously-deleted supplier can never sign up again. When the frontend
+    // receives "User already registered", it retries with re_registration = true:
+    // we reuse the existing auth user — unban, set the new password, reset the
+    // profile to 'Pending Verification' — and continue with the normal document
+    // upload + user_verify + email flow below.
+    if (re_registration) {
+      // auth.users is the source of truth — the public.users mirror row may be
+      // missing or out of sync, so resolve the existing account there directly.
+      const { data: authLookup, error: rpcErr } = await admin.rpc("find_auth_user_by_email", {
+        p_email: email,
+      });
+
+      if (rpcErr) {
+        console.error("[upload-registration-files] find_auth_user_by_email failed:", rpcErr);
+        return json({ error: "Account lookup failed. Please ensure the latest database migration is applied (supabase db push) and try again." }, 500);
+      }
+      const authUser = authLookup?.[0];
+      if (!authUser?.user_id) {
+        return json({ error: "No previously registered account found with this email. Please contact NERC Copra Trading if you believe this is a mistake." }, 404);
+      }
+
+      // Check for an existing profile row (may be missing if it was cleaned up).
+      const { data: existing } = await admin
+        .from("users")
+        .select("user_id, account_status")
+        .eq("user_id", authUser.user_id)
+        .maybeSingle();
+
+      if (existing) {
+        switch (existing.account_status) {
+          case "Pending":
+            return json({ error: "This email already has a registration that is still pending review. Please wait for the Business Owner's decision." }, 409);
+          case "Active":
+            return json({ error: "This email is already registered to an active account. Please sign in instead." }, 409);
+          case "Rejected":
+            return json({ error: "This email's previous registration was declined. Please contact NERC Copra Trading for assistance." }, 409);
+        }
+      } else if (!(authUser.banned_until && new Date(authUser.banned_until) > new Date())) {
+        // No profile row and the auth user is not banned — this is an active
+        // account with a missing profile, not a deleted one.
+        return json({ error: "This email is already registered to an existing account. Please sign in instead." }, 409);
+      }
+
+      // Reactivate the auth user: clear the ban and set the new password.
+      const { error: reactErr } = await admin.auth.admin.updateUserById(authUser.user_id, {
+        password,
+        ban_duration: "none",
+        user_metadata: { role: "Supplier" },
+      });
+      if (reactErr) {
+        return json({ error: `Failed to reactivate account: ${reactErr.message}` }, 500);
+      }
+
+      // Re-registration is always the supplier flow: (re)create the profile
+      // row as Pending Verification with the Supplier role.
+      const { data: supplierRole } = await admin
+        .from("roles")
+        .select("role_id")
+        .eq("role_name", "Supplier")
+        .single();
+
+      const { error: profileErr } = await admin.from("users").upsert({
+        user_id:        authUser.user_id,
+        email:          authUser.auth_email ?? email,
+        role_id:        supplierRole?.role_id ?? undefined,
+        account_status: "Pending",
+        first_name:     first_name ?? undefined,
+        last_name:      last_name  ?? undefined,
+        phone:          phone      ?? null,
+        address:        address    ?? null,
+        approved_by:    null,
+        approved_at:    null,
+      }, { onConflict: "user_id" });
+      if (profileErr) {
+        return json({ error: `Profile reset failed: ${profileErr.message}` }, 500);
+      }
+
+      user_id = authUser.user_id;
+    }
+
+    // Verify the user exists in public.users (fresh signup: trigger should have
+    // created the row; re-registration: it was just reset above)
     const { data: userRow, error: userErr } = await admin
       .from("users")
       .select("user_id, account_status")
@@ -143,7 +245,13 @@ Deno.serve(async (req) => {
       // If duplicate (previous partial attempt), update existing row instead
       if (verifyErr.code === "23505") {
         const { error: updateErr } = await admin.from("user_verify")
-          .update({ gov_id_file_id: govIdFileId, esign_file_id: esignFileId, verify_status: "Pending" })
+          .update({
+            gov_id_file_id: govIdFileId,
+            esign_file_id:  esignFileId,
+            verify_status:  "Pending",
+            review_by:      null,
+            reviewed_at:    null,
+          })
           .eq("user_id", user_id);
         if (updateErr) {
           return json({ error: `user_verify update failed: ${updateErr.message}` }, 500);
@@ -151,8 +259,6 @@ Deno.serve(async (req) => {
       } else {
         return json({ error: `user_verify insert failed: ${verifyErr.message} (code: ${verifyErr.code})` }, 500);
       }
-    }
-
     return json({ success: true });
   } catch (err) {
     return json({ error: String(err) }, 500);

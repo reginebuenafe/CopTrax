@@ -95,9 +95,9 @@ export default function SupplierLayout() {
                 `flex items-center rounded-xl text-sm font-medium
                  transition-all duration-200 group overflow-hidden
                  ${collapsed
-                    ? "gap-3 px-3 py-2.5 lg:gap-0 lg:p-0 lg:w-11 lg:h-11 lg:mx-auto lg:justify-center"
-                    : "gap-3 px-3 py-2.5"
-                 }
+                  ? "gap-3 px-3 py-2.5 lg:gap-0 lg:p-0 lg:w-11 lg:h-11 lg:mx-auto lg:justify-center"
+                  : "gap-3 px-3 py-2.5"
+                }
                  ${isActive
                   ? "bg-[#2E7D32] text-white font-semibold"
                   : "text-white/70 hover:bg-white/10 hover:text-white"}`

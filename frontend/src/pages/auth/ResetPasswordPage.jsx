@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { LuLeaf, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuCircleCheck } from "react-icons/lu";
+import { Link, useNavigate } from "react-router-dom";
+import { LuLeaf, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuCircleCheck, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
 export default function ResetPasswordPage() {
@@ -61,6 +61,15 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      {/* Back to home */}
+      <Link
+        to="/"
+        aria-label="Back to home"
+        className="fixed top-5 left-5 z-20 w-10 h-10 rounded-full bg-white/70 backdrop-blur border border-white/60 shadow-md flex items-center justify-center text-green-dark hover:bg-white hover:shadow-glow-green transition-all duration-300"
+      >
+        <LuArrowLeft className="w-5 h-5" />
+      </Link>
+
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />

@@ -1,7 +1,11 @@
-import { Link } from "react-router-dom";
-import { LuLeaf, LuClock, LuMail } from "react-icons/lu";
+import { Link, useLocation } from "react-router-dom";
+import { LuLeaf, LuClock, LuMail, LuCircleAlert } from "react-icons/lu";
 
 export default function PendingApprovalPage() {
+  const { state } = useLocation();
+  const registeredEmail = state?.email ?? null;
+  const emailWarning = state?.emailWarning ?? null;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -34,13 +38,13 @@ export default function PendingApprovalPage() {
           </p>
 
           <div className="bg-green-pale rounded-2xl px-4 py-3 flex items-start gap-3 text-left mb-6">
-            <LuMail className="w-4 h-4 text-green-mid mt-0.5 shrink-0" />
+            <LuClock className="w-4 h-4 text-green-mid mt-0.5 shrink-0" />
             <p className="text-green-dark text-sm">
               You may close this page. Come back and{" "}
               <Link to="/login" className="font-semibold underline underline-offset-2">
                 try logging in
               </Link>{" "}
-              after your account has been approved.
+              after your account has been approved by the Business Owner.
             </p>
           </div>
 

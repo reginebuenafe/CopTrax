@@ -1,11 +1,26 @@
 import { useState, useEffect, useRef } from "react";
 import {
   LuX, LuPaperclip, LuSend, LuFileText,
-  LuMessageSquare, LuCheckCheck,
+  LuMessageSquare, LuCheckCheck, LuLeaf,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import ProposePriceModal from "./ProposePriceModal";
+
+function getDateLabel(dateInput) {
+  if (!dateInput) return "";
+  const d = new Date(dateInput);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return `Today, ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) {
+    return "Yesterday";
+  }
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 export default function NegotiationChatWidget() {
   const { user } = useAuth();
@@ -225,8 +240,8 @@ export default function NegotiationChatWidget() {
         <div className="bg-[#2E7D32] text-white px-4 py-3 flex items-center justify-between shrink-0 shadow-md">
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-[#1b5e20] text-white font-bold text-xs flex items-center justify-center border-2 border-white/20">
-                {boInitials}
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-dark to-green-light text-white flex items-center justify-center shadow-sm border border-white/20 shrink-0">
+                <LuLeaf className="w-5 h-5 text-white" />
               </div>
               <span className="w-3 h-3 bg-emerald-400 border-2 border-[#2E7D32] rounded-full absolute -bottom-0.5 -right-0.5"></span>
             </div>
@@ -258,7 +273,7 @@ export default function NegotiationChatWidget() {
           {/* Centered Date Pill */}
           <div className="flex justify-center my-1">
             <span className="px-3.5 py-0.5 rounded-full bg-[#A38D80] text-white text-[11px] font-medium shadow-xs">
-              Today
+              {getDateLabel(combinedItems[combinedItems.length - 1]?.date || new Date())}
             </span>
           </div>
 
@@ -393,14 +408,12 @@ export default function NegotiationChatWidget() {
             onSubmit={handleSendMessage}
             className="bg-[#EFE8D8] rounded-full px-3.5 py-1.5 flex items-center gap-2 border border-[#E0D5C1]"
           >
-            <button type="button" className="text-[#5D4037] hover:text-[#3E2723] p-1 transition-colors">
-              <LuPaperclip className="w-5 h-5" />
-            </button>
+
             <input
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Message Ed..."
+              placeholder="Type your message here..."
               className="flex-1 bg-transparent text-xs text-brown-dark placeholder-[#8D6E63] focus:outline-none"
             />
             <button

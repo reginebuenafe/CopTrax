@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
-  LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw,
+  LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuArrowLeft,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
@@ -261,7 +261,10 @@ export default function RegisterPage() {
     setLoading(true);
     setStep("uploading");
 
-    // 1. Create auth user
+    // 1. Create auth user. If this email was previously used by an account that
+    //    was deleted, signUp() rejects it with "User already registered" — in
+    //    that case we re-register the existing account server-side instead
+    //    (see re_registration below).
     setUploadProgress("Creating account…");
     const { data, error: authError } = await supabase.auth.signUp({
       email:    form.email,
@@ -269,8 +272,14 @@ export default function RegisterPage() {
       options:  { data: { role: "Supplier" } },
     });
 
-    if (authError) { setError(authError.message); setLoading(false); setStep("form"); return; }
-    const userId = data.user.id;
+    const isReRegistration = !!authError && /already registered/i.test(authError.message ?? "");
+    if (authError && !isReRegistration) {
+      setError(authError.message);
+      setLoading(false);
+      setStep("form");
+      return;
+    }
+    const userId = data?.user?.id ?? null;
 
     // 2. Convert photos to base64 data URLs (camera captures already have dataUrl;
     //    file-picker uploads need to be read via FileReader)
@@ -295,19 +304,40 @@ export default function RegisterPage() {
         "upload-registration-files",
         {
           body: {
-            user_id:      userId,
-            first_name:   form.firstName.trim(),
-            last_name:    form.lastName.trim(),
-            phone:        form.phone.trim() || null,
-            address:      form.address.trim() || null,
-            gov_id_type:  form.govIdType,
-            gov_id_data:  govIdData,
-            face_id_data: faceIdData,
-            esign_data:   esignData,
+            user_id:         userId ?? undefined,
+            email:           form.email,
+            password:        isReRegistration ? form.password : undefined,
+            re_registration: isReRegistration,
+            first_name:      form.firstName.trim(),
+            last_name:       form.lastName.trim(),
+            phone:           form.phone.trim() || null,
+            address:         form.address.trim() || null,
+            gov_id_type:     form.govIdType,
+            gov_id_data:     govIdData,
+            face_id_data:    faceIdData,
+            esign_data:      esignData,
           },
         }
       );
-      const errMsg = fnData?.error ?? fnErr?.message;
+      // The client wraps non-2xx responses in a generic "non-2xx status code"
+      // error — read the response body so the real server-side error shows up.
+      let errMsg = fnData?.error ?? null;
+      if (!errMsg && fnErr) {
+        errMsg = fnErr.message ?? null;
+        try {
+          const resBody = await fnErr.context?.text();
+          if (resBody) {
+            try {
+              const parsed = JSON.parse(resBody);
+              errMsg = parsed?.error ?? resBody;
+            } catch {
+              errMsg = resBody;
+            }
+          }
+        } catch {
+          /* keep the generic message */
+        }
+      }
       if (errMsg) {
         throw new Error(`Document upload failed: ${errMsg}`);
       }
@@ -319,7 +349,7 @@ export default function RegisterPage() {
     // 4. Sign out and redirect to pending screen
     await supabase.auth.signOut();
     setLoading(false);
-    navigate("/pending-approval");
+    navigate("/pending-approval", { state: { email: form.email } });
   }
 
   const inputClass = `w-full py-2.5 rounded-xl border border-beige-dark bg-white/70
@@ -355,6 +385,15 @@ export default function RegisterPage() {
       )}
 
       <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+        {/* Back to home */}
+        <Link
+          to="/"
+          aria-label="Back to home"
+          className="fixed top-5 left-5 z-20 w-10 h-10 rounded-full bg-white/70 backdrop-blur border border-white/60 shadow-md flex items-center justify-center text-green-dark hover:bg-white hover:shadow-glow-green transition-all duration-300"
+        >
+          <LuArrowLeft className="w-5 h-5" />
+        </Link>
+
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
           <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />
@@ -433,7 +472,7 @@ export default function RegisterPage() {
                     <div className="relative">
                       <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
                       <input type="tel" value={form.phone} onChange={set("phone")}
-                        placeholder="+63 9XX XXX XXXX" className={`${inputClass} pl-10`} />
+                        placeholder="09XX XXX XXXX" className={`${inputClass} pl-10`} />
                     </div>
                   </div>
 

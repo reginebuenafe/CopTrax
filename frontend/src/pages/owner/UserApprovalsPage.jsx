@@ -275,6 +275,7 @@ export default function UserApprovalsPage() {
 
     if (error) { showToast("error", "Something went wrong. Please try again."); return; }
 
+
     showToast(
       "success",
       action === "approve"

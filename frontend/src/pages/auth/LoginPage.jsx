@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert } from "react-icons/lu";
+import { LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
 const ROLE_REDIRECT = {
@@ -92,6 +92,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      {/* Back to home */}
+      <Link
+        to="/"
+        aria-label="Back to home"
+        className="fixed top-5 left-5 z-20 w-10 h-10 rounded-full bg-white/70 backdrop-blur border border-white/60 shadow-md flex items-center justify-center text-green-dark hover:bg-white hover:shadow-glow-green transition-all duration-300"
+      >
+        <LuArrowLeft className="w-5 h-5" />
+      </Link>
+
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
