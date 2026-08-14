@@ -64,6 +64,9 @@ Deno.serve(async (req) => {
       gov_id_data,      // base64 data URL
       face_id_data,     // base64 data URL
       esign_data,       // base64 data URL
+      bank_name,        // NEW: for Xendit disbursements
+      account_name,     // NEW
+      account_number,   // NEW
     } = await req.json();
 
     if (!gov_id_data || !face_id_data || !esign_data) {
@@ -74,6 +77,9 @@ Deno.serve(async (req) => {
     }
     if (re_registration && (!email || !password)) {
       return json({ error: "email and password are required to re-register" }, 400);
+    }
+    if (!bank_name || !account_name || !account_number) {
+      return json({ error: "bank_name, account_name, and account_number are required" }, 400);
     }
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -259,6 +265,34 @@ Deno.serve(async (req) => {
       } else {
         return json({ error: `user_verify insert failed: ${verifyErr.message} (code: ${verifyErr.code})` }, 500);
       }
+<<<<<<< HEAD
+=======
+    }
+
+    // Seed the supplier's bank account (used for Xendit disbursements).
+    // Suppliers cannot self-edit this later — they must submit a
+    // bank_change_requests row for the BO to approve.
+    const { error: bankErr } = await admin.from("bank_accounts").insert({
+      user_id,
+      bank_name:      bank_name.trim(),
+      account_name:   account_name.trim(),
+      account_number: account_number.trim(),
+    });
+
+    if (bankErr && bankErr.code !== "23505") { // ignore duplicate on retry
+      return json({ error: `bank_accounts insert failed: ${bankErr.message}` }, 500);
+    }
+    if (bankErr?.code === "23505") {
+      // Retry / previous partial attempt — overwrite
+      await admin.from("bank_accounts").update({
+        bank_name:      bank_name.trim(),
+        account_name:   account_name.trim(),
+        account_number: account_number.trim(),
+        updated_at:     new Date().toISOString(),
+      }).eq("user_id", user_id);
+    }
+
+>>>>>>> origin/main
     return json({ success: true });
   } catch (err) {
     return json({ error: String(err) }, 500);

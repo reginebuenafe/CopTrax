@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   LuLayoutDashboard, LuTrendingUp, LuPencil, LuCheck, LuX, LuCircleAlert,
   LuUserPlus, LuScale, LuFlaskConical,
@@ -8,7 +7,6 @@ import { supabase } from "../../lib/supabase";
 import CreateStaffModal from "../../components/CreateStaffModal";
 
 export default function OwnerOverview() {
-  const navigate = useNavigate();
   const [spotPrice, setSpotPrice] = useState(null);
   const [editing, setEditing] = useState(false);
   const [newPrice, setNewPrice] = useState("");

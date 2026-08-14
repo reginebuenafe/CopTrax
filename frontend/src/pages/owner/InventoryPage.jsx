@@ -8,9 +8,6 @@ import { useAuth } from "../../contexts/AuthContext";
 
 const TABS = ["Resecada Pool", "Walk-in Holding", "Ready to Merge"];
 
-function peso(n) {
-  return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
-}
 function fmt3(n) { return Number(n ?? 0).toFixed(3); }
 function fmtDate(d) {
   if (!d) return "—";

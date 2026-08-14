@@ -19,6 +19,7 @@ import OwnerLayout from "./pages/owner/OwnerLayout";
 import OwnerOverview from "./pages/owner/OwnerOverview";
 import UserApprovalsPage from "./pages/owner/UserApprovalsPage";
 import BOConversationsPage from "./pages/owner/BOConversationsPage";
+import BOChatLayout from "./pages/owner/BOChatLayout";
 import BOContractsPage from "./pages/owner/BOContractsPage";
 import BODeliveriesPage from "./pages/owner/BODeliveriesPage";
 import BOQualityPage from "./pages/owner/BOQualityPage";
@@ -29,6 +30,11 @@ import BOReportsPage from "./pages/owner/BOReportsPage";
 import AccountSettingsPage from "./pages/shared/AccountSettingsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
+<<<<<<< HEAD
+=======
+import SupplierConversationsPage from "./pages/supplier/SupplierConversationsPage";
+import SupplierChatLayout from "./pages/supplier/SupplierChatLayout";
+>>>>>>> origin/main
 import MyRatingPage from "./pages/supplier/MyRatingPage";
 import SupplierOverview from "./pages/supplier/SupplierOverview";
 import MyContractsPage from "./pages/supplier/MyContractsPage";
@@ -75,7 +81,12 @@ function App() {
         }>
           <Route index element={<OwnerOverview />} />
           <Route path="users" element={<UserApprovalsPage />} />
+<<<<<<< HEAD
           <Route path="conversations" element={<BOConversationsPage />} />
+=======
+          <Route path="conversations" element={<BOChatLayout />} />
+          <Route path="conversations/:conversationId" element={<BOChatLayout />} />
+>>>>>>> origin/main
           <Route path="contracts" element={<BOContractsPage />} />
           <Route path="deliveries" element={<BODeliveriesPage />} />
           <Route path="quality" element={<BOQualityPage />} />
@@ -91,6 +102,11 @@ function App() {
           <ProtectedRoute allowedRoles={["Supplier"]}><SupplierLayout /></ProtectedRoute>
         }>
           <Route index element={<SupplierOverview />} />
+<<<<<<< HEAD
+=======
+          <Route path="conversations" element={<SupplierChatLayout />} />
+          <Route path="conversations/:conversationId" element={<SupplierChatLayout />} />
+>>>>>>> origin/main
           <Route path="contracts" element={<MyContractsPage />} />
           <Route path="deliveries" element={<SupplierDeliveriesPage />} />
           <Route path="payments" element={<SupplierPaymentsPage />} />

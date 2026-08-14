@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
+<<<<<<< HEAD
   LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuArrowLeft,
+=======
+  LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuLandmark,
+  LuChevronLeft, LuChevronRight, LuScanLine,
+>>>>>>> origin/main
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
@@ -65,7 +70,6 @@ function CameraModal({ onCapture, onClose, facing = "user", title, instructions 
   function retake() { setCaptured(null); }
 
   function confirm() {
-    // Convert dataURL to File
     const arr  = captured.split(",");
     const mime = arr[0].match(/:(.*?);/)[1];
     const bstr = atob(arr[1]);
@@ -80,7 +84,6 @@ function CameraModal({ onCapture, onClose, facing = "user", title, instructions 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <div className="bg-white rounded-3xl shadow-card w-full max-w-md overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-beige-dark/20">
           <div className="flex items-center gap-2">
             <LuCamera className="w-4 h-4 text-green-dark" />
@@ -90,28 +93,20 @@ function CameraModal({ onCapture, onClose, facing = "user", title, instructions 
             <LuX className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Body */}
         <div className="p-5">
           {instructions && (
-            <div className="bg-beige rounded-xl px-4 py-3 text-xs text-brown-mid mb-4">
-              {instructions}
-            </div>
+            <div className="bg-beige rounded-xl px-4 py-3 text-xs text-brown-mid mb-4">{instructions}</div>
           )}
-
           {camErr ? (
             <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
-              <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              {camErr}
+              <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />{camErr}
             </div>
           ) : (
             <>
               <div className="relative bg-black rounded-2xl overflow-hidden mb-4" style={{ aspectRatio: "16/9" }}>
-                {!captured ? (
-                  <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                ) : (
-                  <img src={captured} alt="Captured" className="w-full h-full object-cover" />
-                )}
+                {!captured
+                  ? <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                  : <img src={captured} alt="Captured" className="w-full h-full object-cover" />}
                 {!ready && !captured && (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin" />
@@ -121,7 +116,6 @@ function CameraModal({ onCapture, onClose, facing = "user", title, instructions 
               <canvas ref={canvasRef} className="hidden" />
             </>
           )}
-
           {!camErr && (
             <div className="flex gap-3">
               {!captured ? (
@@ -150,16 +144,14 @@ function CameraModal({ onCapture, onClose, facing = "user", title, instructions 
 }
 
 // ── Image upload / camera card ────────────────────────────────────────────────
-function ImageField({ label, required, hint, preview, onFile, onCamera, cameraFacing, cameraTitle, cameraInstructions, accept = "image/*" }) {
+function ImageField({ label, required, hint, preview, onFile, onCamera, accept = "image/*" }) {
   const fileRef = useRef(null);
-
   return (
     <div>
       <label className="block text-sm font-medium text-brown-dark mb-1.5">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {hint && <p className="text-xs text-brown-light mb-2">{hint}</p>}
-
       {preview ? (
         <div className="relative rounded-2xl overflow-hidden border-2 border-green-mid/40 mb-2">
           <img src={preview} alt={label} className="w-full object-cover max-h-52" />
@@ -200,44 +192,110 @@ function ImageField({ label, required, hint, preview, onFile, onCamera, cameraFa
   );
 }
 
+// ── Step progress indicator ───────────────────────────────────────────────────
+const STEPS = [
+  { label: "Gov ID",      icon: LuIdCard },
+  { label: "Personal",    icon: LuUser },
+  { label: "Selfie",      icon: LuCamera },
+  { label: "Signature",   icon: LuPenLine },
+  { label: "Bank",        icon: LuLandmark },
+];
+
+function StepIndicator({ current }) {
+  return (
+    <div className="flex items-center justify-between mb-8 px-1">
+      {STEPS.map((s, i) => {
+        const done    = i < current;
+        const active  = i === current;
+        const Icon    = s.icon;
+        return (
+          <div key={i} className="flex flex-col items-center gap-1 flex-1">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all
+              ${done   ? "bg-green-dark text-white"
+              : active ? "bg-green-pale border-2 border-green-dark text-green-dark"
+              : "bg-beige text-brown-light"}`}>
+              {done ? <LuCheck className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+            </div>
+            <span className={`text-[10px] font-semibold ${active ? "text-green-dark" : done ? "text-green-dark/70" : "text-brown-light"}`}>
+              {s.label}
+            </span>
+            {i < STEPS.length - 1 && (
+              <div className={`absolute h-0.5 w-full hidden`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main registration page ────────────────────────────────────────────────────
 export default function RegisterPage() {
   const navigate = useNavigate();
 
+  const [currentStep, setCurrentStep] = useState(0); // 0-4
+
   const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    address: "",
-    password: "",
-    confirmPassword: "",
-    govIdType: "",
+    firstName: "", lastName: "", email: "", phone: "", address: "",
+    password: "", confirmPassword: "", govIdType: "",
+    bankName: "", accountName: "", accountNumber: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm,  setShowConfirm]  = useState(false);
 
-  // File state: each entry is { file: File, dataUrl: string } | null
-  const [govIdPhoto,   setGovIdPhoto]   = useState(null);
-  const [selfiePhoto,  setSelfiePhoto]  = useState(null);
-  const [signaturePhoto, setSignaturePhoto] = useState(null);
+  const [govIdPhoto,      setGovIdPhoto]      = useState(null);
+  const [selfiePhoto,     setSelfiePhoto]     = useState(null);
+  const [signaturePhoto,  setSignaturePhoto]  = useState(null);
+  const [idExtracting,    setIdExtracting]    = useState(false);
 
-  // Camera modal state
-  const [camera, setCamera] = useState(null); // { facing, title, instructions, onCapture }
-
+  const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
   const [loading, setLoading] = useState(false);
-  const [step,    setStep]    = useState("form"); // "form" | "uploading" | "done"
   const [uploadProgress, setUploadProgress] = useState("");
 
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
 
-  // Convert File to base64 data URL (for file-picker uploads that come in as File objects)
+  async function extractIdInfo(photoObj) {
+    setIdExtracting(true);
+    setError("");
+    try {
+      const dataUrl = photoObj.dataUrl ?? await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = e => res(e.target.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(photoObj.file);
+      });
+      const { data, error: fnError } = await supabase.functions.invoke("extract-id-info", {
+        body: { image_data_url: dataUrl },
+      });
+      // supabase-js buries the response body inside fnError.context for non-2xx returns
+      if (fnError) {
+        let msg = fnError.message;
+        try {
+          const body = await fnError.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      if (data?.first_name || data?.last_name || data?.address) {
+        setForm(f => ({
+          ...f,
+          firstName: data.first_name || f.firstName,
+          lastName:  data.last_name  || f.lastName,
+          address:   data.address    || f.address,
+        }));
+      }
+    } catch (err) {
+      setError("ID scan failed: " + err.message + " — you can still fill in your details manually.");
+    }
+    setIdExtracting(false);
+  }
+
   function fileToDataUrl(fileObj) {
     return new Promise((resolve, reject) => {
-      // If dataUrl is already available (from camera capture), use it directly
       if (fileObj.dataUrl) { resolve(fileObj.dataUrl); return; }
       const reader = new FileReader();
       reader.onload = e => resolve(e.target.result);
@@ -246,32 +304,63 @@ export default function RegisterPage() {
     });
   }
 
+  // Per-step validation before advancing
+  function validateStep(step) {
+    setError("");
+    if (step === 0) {
+      if (!form.govIdType) { setError("Please select your ID type."); return false; }
+      if (!govIdPhoto)     { setError("Please provide a photo of your government ID."); return false; }
+    }
+    if (step === 1) {
+      if (!form.firstName.trim()) { setError("First name is required."); return false; }
+      if (!form.lastName.trim())  { setError("Last name is required."); return false; }
+      if (!form.email.trim())     { setError("Email address is required."); return false; }
+      if (form.password.length < 8) { setError("Password must be at least 8 characters."); return false; }
+      if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return false; }
+    }
+    if (step === 2) {
+      if (!selfiePhoto) { setError("Please provide a selfie holding your ID."); return false; }
+    }
+    if (step === 3) {
+      if (!signaturePhoto) { setError("Please provide a photo of your handwritten signature."); return false; }
+    }
+    if (step === 4) {
+      if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
+      if (!form.accountName.trim())   { setError("Account holder name is required."); return false; }
+      if (!form.accountNumber.trim()) { setError("Account number is required."); return false; }
+    }
+    return true;
+  }
+
+  function goNext() {
+    if (!validateStep(currentStep)) return;
+    setCurrentStep(s => s + 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goBack() {
+    setError("");
+    setCurrentStep(s => s - 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    setError("");
-
-    // Validation
-    if (form.password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return; }
-    if (!form.govIdType) { setError("Please select the type of your government ID."); return; }
-    if (!govIdPhoto)     { setError("Please provide a photo of your government ID."); return; }
-    if (!selfiePhoto)    { setError("Please provide a photo of yourself holding your government ID."); return; }
-    if (!signaturePhoto) { setError("Please provide a photo of your handwritten e-signature."); return; }
+    if (!validateStep(4)) return;
 
     setLoading(true);
+<<<<<<< HEAD
     setStep("uploading");
 
     // 1. Create auth user. If this email was previously used by an account that
     //    was deleted, signUp() rejects it with "User already registered" — in
     //    that case we re-register the existing account server-side instead
     //    (see re_registration below).
+=======
+>>>>>>> origin/main
     setUploadProgress("Creating account…");
-    const { data, error: authError } = await supabase.auth.signUp({
-      email:    form.email,
-      password: form.password,
-      options:  { data: { role: "Supplier" } },
-    });
 
+<<<<<<< HEAD
     const isReRegistration = !!authError && /already registered/i.test(authError.message ?? "");
     if (authError && !isReRegistration) {
       setError(authError.message);
@@ -280,9 +369,15 @@ export default function RegisterPage() {
       return;
     }
     const userId = data?.user?.id ?? null;
+=======
+    const { data, error: authError } = await supabase.auth.signUp({
+      email: form.email, password: form.password,
+      options: { data: { role: "Supplier" } },
+    });
+    if (authError) { setError(authError.message); setLoading(false); return; }
+    const userId = data.user.id;
+>>>>>>> origin/main
 
-    // 2. Convert photos to base64 data URLs (camera captures already have dataUrl;
-    //    file-picker uploads need to be read via FileReader)
     let govIdData, faceIdData, esignData;
     try {
       setUploadProgress("Preparing documents…");
@@ -291,15 +386,14 @@ export default function RegisterPage() {
         fileToDataUrl(selfiePhoto),
         fileToDataUrl(signaturePhoto),
       ]);
-    } catch (convErr) {
+    } catch {
       setError("Failed to read photo files. Please try again.");
-      setLoading(false); setStep("form"); return;
+      setLoading(false); return;
     }
 
-    // 3. Call the Edge Function (service-role, bypasses RLS — needed because
-    //    signUp with email confirmation enabled returns no session)
     try {
       setUploadProgress("Uploading documents…");
+<<<<<<< HEAD
       const { data: fnData, error: fnErr } = await supabase.functions.invoke(
         "upload-registration-files",
         {
@@ -341,12 +435,31 @@ export default function RegisterPage() {
       if (errMsg) {
         throw new Error(`Document upload failed: ${errMsg}`);
       }
+=======
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("upload-registration-files", {
+        body: {
+          user_id:        userId,
+          first_name:     form.firstName.trim(),
+          last_name:      form.lastName.trim(),
+          phone:          form.phone.trim() || null,
+          address:        form.address.trim() || null,
+          gov_id_type:    form.govIdType,
+          gov_id_data:    govIdData,
+          face_id_data:   faceIdData,
+          esign_data:     esignData,
+          bank_name:      form.bankName.trim(),
+          account_name:   form.accountName.trim(),
+          account_number: form.accountNumber.trim(),
+        },
+      });
+      const errMsg = fnData?.error ?? fnErr?.message;
+      if (errMsg) throw new Error(`Document upload failed: ${errMsg}`);
+>>>>>>> origin/main
     } catch (uploadErr) {
       setError(uploadErr.message);
-      setLoading(false); setStep("form"); return;
+      setLoading(false); return;
     }
 
-    // 4. Sign out and redirect to pending screen
     await supabase.auth.signOut();
     setLoading(false);
     navigate("/pending-approval", { state: { email: form.email } });
@@ -357,7 +470,8 @@ export default function RegisterPage() {
     focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid
     transition-all duration-200`;
 
-  if (step === "uploading") {
+  // ── Uploading overlay ────────────────────────────────────────────────────
+  if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4">
         <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-card border border-white/60 p-10 text-center max-w-sm w-full">
@@ -371,9 +485,259 @@ export default function RegisterPage() {
     );
   }
 
+  // ── Step content ─────────────────────────────────────────────────────────
+  function renderStep() {
+    switch (currentStep) {
+
+      // STEP 1 — Government ID
+      case 0: return (
+        <div className="space-y-5">
+          <div className="flex items-start gap-3 bg-green-pale/60 border border-green-light/40 rounded-2xl px-4 py-3">
+            <LuScanLine className="w-4 h-4 text-green-dark shrink-0 mt-0.5" />
+            <p className="text-xs text-green-dark leading-relaxed">
+              <span className="font-semibold">Smart auto-fill:</span> Upload your ID and CopTrax will automatically read and fill in your name and address in the next step.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              ID type <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <LuChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+              <select value={form.govIdType} onChange={set("govIdType")}
+                className={`${inputClass} pl-4 pr-10 appearance-none`}>
+                <option value="">Select ID type…</option>
+                {GOV_ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <ImageField
+            label="Front of your government ID"
+            required
+            hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
+            preview={govIdPhoto?.dataUrl ?? null}
+            onFile={v => { setGovIdPhoto(v); if (v) extractIdInfo(v); }}
+            onCamera={() => setCamera({
+              facing: "environment",
+              title: "Photograph your Government ID",
+              instructions: "Place your ID on a flat surface in good lighting. Make sure all four corners are visible and the text is sharp.",
+              onCapture: v => { setGovIdPhoto(v); extractIdInfo(v); },
+            })}
+          />
+          {idExtracting && (
+            <div className="flex items-center gap-2 text-xs text-green-dark animate-pulse">
+              <div className="w-3.5 h-3.5 border-2 border-green-dark border-t-transparent rounded-full animate-spin" />
+              Reading your ID… your details will be filled in automatically
+            </div>
+          )}
+          {govIdPhoto && !idExtracting && (
+            <div className="flex items-center gap-2 text-xs text-green-dark">
+              <LuCheck className="w-3.5 h-3.5" />
+              ID scanned — your information will be pre-filled in the next step
+            </div>
+          )}
+        </div>
+      );
+
+      // STEP 2 — Personal Information
+      case 1: return (
+        <div className="space-y-4">
+          {(form.firstName || form.lastName || form.address) && (
+            <div className="flex items-start gap-3 bg-green-pale/60 border border-green-light/40 rounded-2xl px-4 py-3">
+              <LuScanLine className="w-4 h-4 text-green-dark shrink-0 mt-0.5" />
+              <p className="text-xs text-green-dark leading-relaxed">
+                <span className="font-semibold">Auto-filled from your ID.</span> Please review and correct if needed.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-brown-dark mb-1.5">
+                First name <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <LuUser className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+                <input type="text" value={form.firstName} onChange={set("firstName")}
+                  placeholder="Juan" className={`${inputClass} pl-10`} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brown-dark mb-1.5">
+                Last name <span className="text-red-500">*</span>
+              </label>
+              <input type="text" value={form.lastName} onChange={set("lastName")}
+                placeholder="dela Cruz" className={`${inputClass} px-4`} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Email address <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <LuMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+              <input type="email" value={form.email} onChange={set("email")}
+                placeholder="you@example.com" className={`${inputClass} pl-10`} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">Phone number</label>
+            <div className="relative">
+              <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+              <input type="tel" value={form.phone} onChange={set("phone")}
+                placeholder="+63 9XX XXX XXXX" className={`${inputClass} pl-10`} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">Address</label>
+            <div className="relative">
+              <LuMapPin className="absolute left-3.5 top-3 w-4 h-4 text-brown-light" />
+              <textarea rows={2} value={form.address} onChange={set("address")}
+                placeholder="Barangay, Municipality, Province"
+                className={`${inputClass} pl-10 resize-none`} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Password <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+              <input type={showPassword ? "text" : "password"} value={form.password} onChange={set("password")}
+                placeholder="Min. 8 characters" className={`${inputClass} pl-10 pr-10`} />
+              <button type="button" onClick={() => setShowPassword(p => !p)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+                {showPassword ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Confirm password <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+              <input type={showConfirm ? "text" : "password"} value={form.confirmPassword} onChange={set("confirmPassword")}
+                placeholder="Re-enter password" className={`${inputClass} pl-10 pr-10`} />
+              <button type="button" onClick={() => setShowConfirm(p => !p)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+                {showConfirm ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+
+      // STEP 3 — Selfie with ID
+      case 2: return (
+        <div className="space-y-4">
+          <div className="bg-beige rounded-2xl px-4 py-3 text-xs text-brown-mid">
+            Take a clear photo of yourself holding your government ID beside your face. Both your face and the ID must be visible and legible.
+          </div>
+          <ImageField
+            label="Selfie holding your government ID"
+            required
+            preview={selfiePhoto?.dataUrl ?? null}
+            onFile={v => setSelfiePhoto(v)}
+            onCamera={() => setCamera({
+              facing: "user",
+              title: "Selfie holding your Government ID",
+              instructions: "Hold your government ID clearly beside your face. Make sure your face and the ID text are both visible and in focus.",
+              onCapture: v => setSelfiePhoto(v),
+            })}
+          />
+        </div>
+      );
+
+      // STEP 4 — E-Signature
+      case 3: return (
+        <div className="space-y-4">
+          <div className="bg-beige rounded-2xl px-4 py-4 space-y-2">
+            <p className="text-sm font-semibold text-brown-dark">How to prepare your signature:</p>
+            <ol className="text-xs text-brown-mid space-y-1.5 list-decimal list-inside">
+              <li>Use a plain <strong>white sheet of bond paper</strong> (any size).</li>
+              <li>Write your <strong>full signature three (3) times</strong> using a black or blue pen.</li>
+              <li>Make sure all three signatures are clearly written and not cut off.</li>
+              <li>Place the paper on a flat, well-lit surface.</li>
+              <li>Take a clear, straight-on photo — avoid shadows and blurriness.</li>
+            </ol>
+            <div className="mt-3 border border-beige-dark rounded-xl px-4 py-3 bg-white text-xs text-brown-light text-center italic">
+              ✦ Your handwritten signature will be used on all contracts you sign in CopTrax ✦
+            </div>
+          </div>
+          <ImageField
+            label="Photo of your handwritten signature (3× on white paper)"
+            required
+            preview={signaturePhoto?.dataUrl ?? null}
+            onFile={v => setSignaturePhoto(v)}
+            onCamera={() => setCamera({
+              facing: "environment",
+              title: "Photograph your Signature Sheet",
+              instructions: "Point the camera at the white paper with your 3 signatures. Make sure all three are fully visible, well-lit, and in focus.",
+              onCapture: v => setSignaturePhoto(v),
+            })}
+          />
+        </div>
+      );
+
+      // STEP 5 — Bank Account
+      case 4: return (
+        <div className="space-y-4">
+          <p className="text-xs text-brown-light">
+            This account will receive electronic payments after every accepted delivery.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Bank name <span className="text-red-500">*</span>
+            </label>
+            <input type="text" value={form.bankName} onChange={set("bankName")}
+              placeholder="e.g. BDO, BPI, Metrobank, GCash…" className={`${inputClass} px-4`} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Account holder name <span className="text-red-500">*</span>
+            </label>
+            <input type="text" value={form.accountName} onChange={set("accountName")}
+              placeholder="Exactly as it appears on the account" className={`${inputClass} px-4`} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Account number <span className="text-red-500">*</span>
+            </label>
+            <input type="text" value={form.accountNumber} onChange={set("accountNumber")}
+              placeholder="e.g. 001234567890" className={`${inputClass} px-4`} />
+          </div>
+        </div>
+      );
+
+      default: return null;
+    }
+  }
+
+  const stepTitles = [
+    "Government ID",
+    "Personal Information",
+    "Selfie with ID",
+    "E-Signature",
+    "Bank Account",
+  ];
+  const stepSubtitles = [
+    "Upload your ID — we'll read and fill in your details automatically",
+    "Review and complete your personal details",
+    "Take a selfie holding your government ID",
+    "Provide a photo of your handwritten signature",
+    "Where you'll receive your payments",
+  ];
+
   return (
     <>
-      {/* Camera modal */}
       {camera && (
         <CameraModal
           facing={camera.facing}
@@ -410,23 +774,35 @@ export default function RegisterPage() {
           </div>
 
           {/* Card */}
-          <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-card border border-white/60 p-8 space-y-8">
-            <div>
-              <h2 className="text-xl font-bold text-brown-dark mb-1">Create supplier account</h2>
-              <p className="text-brown-light text-sm">
-                Your account will be reviewed by NERC before you can log in.
-              </p>
+          <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-card border border-white/60 p-8">
+
+            {/* Step indicator */}
+            <StepIndicator current={currentStep} />
+
+            {/* Step title */}
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold text-brown-light uppercase tracking-widest">
+                  Step {currentStep + 1} of {STEPS.length}
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-brown-dark">{stepTitles[currentStep]}</h2>
+              <p className="text-brown-light text-sm mt-0.5">{stepSubtitles[currentStep]}</p>
             </div>
 
+            {/* Error */}
             {error && (
-              <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm">
+              <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm mb-5">
                 <LuCircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Step content */}
+            <form onSubmit={handleSubmit}>
+              {renderStep()}
 
+<<<<<<< HEAD
               {/* ── Section 1: Personal Info ─────────────────────── */}
               <section>
                 <h3 className="text-xs font-bold text-brown-light uppercase tracking-widest mb-4">
@@ -642,9 +1018,31 @@ export default function RegisterPage() {
                   </span>
                 ) : "Submit Registration"}
               </button>
+=======
+              {/* Navigation buttons */}
+              <div className="flex gap-3 mt-7">
+                {currentStep > 0 && (
+                  <button type="button" onClick={goBack}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
+                    <LuChevronLeft className="w-4 h-4" /> Back
+                  </button>
+                )}
+                {currentStep < STEPS.length - 1 ? (
+                  <button type="button" onClick={goNext}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
+                    Next <LuChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button type="submit"
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
+                    <LuCheck className="w-4 h-4" /> Submit Registration
+                  </button>
+                )}
+              </div>
+>>>>>>> origin/main
             </form>
 
-            <p className="text-center text-sm text-brown-light">
+            <p className="text-center text-sm text-brown-light mt-6">
               Already have an account?{" "}
               <Link to="/login" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
                 Sign in
@@ -656,3 +1054,4 @@ export default function RegisterPage() {
     </>
   );
 }
+

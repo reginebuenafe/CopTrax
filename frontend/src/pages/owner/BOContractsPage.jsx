@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuCheck, LuX, LuClock, LuArrowRight,
-  LuCircleAlert, LuLoader, LuMessageSquare,
+  LuCircleAlert, LuLoader, LuMessageSquare, LuPenLine, LuExternalLink,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import ContractReviewModal from "../../components/ContractReviewModal";
 
 const STATUS_META = {
   Pending:   { label: "Pending",   color: "bg-amber-50 text-amber-700",      dot: "bg-amber-400" },
@@ -35,7 +36,9 @@ export default function BOContractsPage() {
   const [contracts, setContracts] = useState([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
-  const [actionModal, setActionModal] = useState(null); // { contract, action }
+  const [actionModal, setActionModal]       = useState(null); // { contract, action }
+  const [reviewModal, setReviewModal]       = useState(null); // contract for DocuSeal generation
+  const [docusealUrl, setDocusealUrl]       = useState(null); // BO signing URL after generation
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -51,6 +54,7 @@ export default function BOContractsPage() {
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, due_date, status, created_at,
+        docuseal_submission_id, docuseal_bo_slug, delivery_location, special_notes,
         supplier:supplier_id(user_id, first_name, last_name, email),
         conversations(conversation_id),
         deliveries(delivery_id, delivery_status)
@@ -265,7 +269,23 @@ export default function BOContractsPage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-1 border-t border-beige-dark/20 mt-1 flex-wrap">
-                  {c.status === "Pending" && (
+                  {c.status === "Pending" && !c.docuseal_submission_id && (
+                    <button onClick={() => setReviewModal(c)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all">
+                      <LuPenLine className="w-3.5 h-3.5" /> Review & Generate Contract
+                    </button>
+                  )}
+                  {c.status === "Pending" && c.docuseal_submission_id && c.docuseal_bo_slug && (
+                    <a
+                      href={`https://docuseal.com/s/${c.docuseal_bo_slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-all">
+                      <LuExternalLink className="w-3.5 h-3.5" /> Sign via DocuSeal
+                    </a>
+                  )}
+                  {c.status === "Pending" && c.docuseal_submission_id && !c.docuseal_bo_slug && (
+                    // Fallback: manual activate if DocuSeal slug is missing
                     <button onClick={() => setActionModal({ contract: c, action: "activate" })}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all">
                       <LuCheck className="w-3.5 h-3.5" /> Activate Contract
@@ -348,6 +368,47 @@ export default function BOContractsPage() {
                 Confirm
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ContractReviewModal — BO reviews and generates DocuSeal package */}
+      {reviewModal && (
+        <ContractReviewModal
+          contract={reviewModal}
+          onClose={() => setReviewModal(null)}
+          onGenerated={(boSignUrl) => {
+            setReviewModal(null);
+            setDocusealUrl(boSignUrl);
+            fetchContracts();
+          }}
+        />
+      )}
+
+      {/* DocuSeal success overlay — show BO signing link */}
+      {docusealUrl && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-card w-full max-w-md p-6 text-center">
+            <div className="w-14 h-14 bg-green-pale rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <LuCheck className="w-7 h-7 text-green-dark" />
+            </div>
+            <h2 className="text-xl font-bold text-brown-dark mb-2">Contract Sent!</h2>
+            <p className="text-brown-light text-sm mb-5">
+              The contract has been sent to both parties via DocuSeal.
+              Click below to sign it on your end.
+            </p>
+            <a
+              href={docusealUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all mb-3"
+            >
+              <LuExternalLink className="w-4 h-4" /> Sign via DocuSeal
+            </a>
+            <button onClick={() => setDocusealUrl(null)}
+              className="w-full py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
+              Close
+            </button>
           </div>
         </div>
       )}

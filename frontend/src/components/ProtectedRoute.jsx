@@ -1,9 +1,8 @@
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/login" }) {
-  const { session, role, accountStatus, isLoading } = useAuth();
-  const location = useLocation();
+  const { session, role, accountStatus, isLoading, sessionExpired } = useAuth();
 
   if (isLoading) {
     return (
@@ -13,15 +12,17 @@ export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/
     );
   }
 
-  // No session — may be expired or never logged in
   if (!session) {
-    const wasAuthed = !!location.state?.from;
-    return <Navigate to={`${redirectTo}?reason=expired`} replace />;
+    // Distinguish between "never logged in" and "session was terminated"
+    const loginUrl = sessionExpired
+      ? `${redirectTo}?reason=expired`
+      : redirectTo;
+    return <Navigate to={loginUrl} replace />;
   }
 
-  if (accountStatus === "Pending") return <Navigate to="/pending-approval" replace />;
+  if (accountStatus === "Pending")  return <Navigate to="/pending-approval" replace />;
   if (accountStatus === "Rejected") return <Navigate to="/login?reason=rejected" replace />;
-  if (accountStatus === "Deleted") return <Navigate to="/login?reason=deleted" replace />;
+  if (accountStatus === "Deleted")  return <Navigate to="/login?reason=deleted" replace />;
 
   if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to="/unauthorized" replace />;
