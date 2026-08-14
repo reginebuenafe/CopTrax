@@ -81,9 +81,6 @@ export default function LabHistoryPage() {
                     const result = r.quality_results?.[0]?.result ?? "—";
                     const netKg = d?.weighing_records?.[0]?.net_weight_kg ?? 0;
                     const mc = r.moisture_content_pct;
-                    const discount = mc >= 5.0 && mc <= 20.2
-                      ? null  // already stored, show from remarks or re-derive
-                      : 0;
 
                     // Parse discount from remarks: "Discount: X%"
                     const remarksMatch = r.quality_results?.[0]?.remarks?.match(/Discount: ([\d.]+)%/);

@@ -214,7 +214,6 @@ export default function PaymentsPage() {
   // ── release payment (calls Edge Function) ───────────────────────────────
   async function releasePayment() {
     setProcessing(true);
-    const { data: { session } } = await supabase.auth.getSession();
 
     const res = await supabase.functions.invoke("process-payment", {
       body: { payment_id: releaseModal.payment.payment_id },

@@ -100,7 +100,6 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
       reviewed_by: user.id,
     }).eq("proposal_id", proposal.proposal_id);
 
-    // Notify via message
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
@@ -108,7 +107,15 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
       message_text: `✅ Proposal accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons. A contract will be prepared.`,
     });
 
-    // Auto-create contract
+    // Notify supplier that their proposal was accepted
+    await supabase.from("notifications").insert({
+      user_id:             conversation.supplier_id,
+      notification_type:   "Contract Signed",
+      message:             `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. A contract is being prepared.`,
+      related_entity_type: "proposal_forms",
+      related_entity_id:   proposal.proposal_id,
+    });
+
     await createContract(proposal);
     loadProposals();
   }
@@ -126,52 +133,67 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
       message_type: "Text",
       message_text: `❌ Proposal declined: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
     });
+
+    // Notify the submitter that their proposal was rejected
+    const recipientId = isBO ? conversation.supplier_id : conversation.business_owner_id;
+    await supabase.from("notifications").insert({
+      user_id:             recipientId,
+      notification_type:   "Proposal Rejected",
+      message:             `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was declined. Negotiation has ended.`,
+      related_entity_type: "proposal_forms",
+      related_entity_id:   proposal.proposal_id,
+    });
+
     loadProposals();
   }
 
-  // Auto-create contract from accepted proposal
+  // Auto-create contract from accepted proposal (due_date computed by DB trigger after activation)
   async function createContract(proposal) {
-    // Generate contract number: CTR-XXXXX
     const { data: numData } = await supabase.rpc("generate_contract_number");
     const contractNumber = numData;
 
-    // Due date = 30 days from today as default
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 30);
-
     const { data: contract, error } = await supabase.from("contracts").insert({
-      contract_number: contractNumber,
-      supplier_id: conversation.supplier_id,
-      business_owner_id: conversation.business_owner_id,
-      negotiated_price_per_kg: proposal.proposed_price_per_kg,
-      contracted_tons: proposal.proposed_volume_tons,
-      signing_date: new Date().toISOString().split("T")[0],
-      due_date: dueDate.toISOString().split("T")[0],
-      status: "Pending",
+      contract_number:          contractNumber,
+      supplier_id:              conversation.supplier_id,
+      business_owner_id:        conversation.business_owner_id,
+      negotiated_price_per_kg:  proposal.proposed_price_per_kg,
+      contracted_tons:          proposal.proposed_volume_tons,
+      signing_date:             new Date().toISOString().split("T")[0],
+      status:                   "Pending",
     }).select("contract_id").single();
 
     if (!error && contract) {
-      // Link conversation to contract
       await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
 
       await supabase.from("messages").insert({
         conversation_id: conversationId,
         sender_id: user.id,
         message_type: "Contract Form",
-        message_text: `📄 Contract ${contractNumber} has been created. Both parties must sign to activate it.`,
+        message_text: `📄 Contract ${contractNumber} created. Go to the Contracts page to review and send it for signing via DocuSeal.`,
       });
     }
   }
 
-  // Supplier: accept counteroffer (flip it to Accepted)
+  // Supplier: accept counteroffer
   async function acceptCounter(proposal) {
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
+
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
       message_type: "Contract Form",
       message_text: `✅ Counteroffer accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
     });
+
+    // Notify BO that the supplier accepted their counteroffer
+    await supabase.from("notifications").insert({
+      user_id:             conversation.business_owner_id,
+      notification_type:   "Contract Signed",
+      message:             `Supplier accepted your counteroffer (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons). A contract is being prepared.`,
+      related_entity_type: "proposal_forms",
+      related_entity_id:   proposal.proposal_id,
+    });
+
     await createContract(proposal);
     loadProposals();
   }
@@ -320,6 +342,16 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
               message_type: "Contract Form",
               message_text: msg,
             });
+            // Notify BO about new proposal from supplier
+            if (isSupplier && conversation?.business_owner_id) {
+              await supabase.from("notifications").insert({
+                user_id:             conversation.business_owner_id,
+                notification_type:   "New Proposal",
+                message:             `${profile?.first_name ?? "Supplier"} submitted a new price proposal. Review it in the chat.`,
+                related_entity_type: "conversations",
+                related_entity_id:   conversationId,
+              });
+            }
             loadProposals();
           }}
         />
@@ -347,6 +379,19 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
               message_type: "Contract Form",
               message_text: msg,
             });
+
+            // Notify the other party about the counteroffer
+            const counterRecipientId = isBO ? conversation.supplier_id : conversation.business_owner_id;
+            if (counterRecipientId) {
+              await supabase.from("notifications").insert({
+                user_id:             counterRecipientId,
+                notification_type:   "Counteroffer",
+                message:             `${isBO ? "NERC Copra Trading" : (profile?.first_name ?? "Supplier")} sent a counteroffer. Review it in the chat.`,
+                related_entity_type: "conversations",
+                related_entity_id:   conversationId,
+              });
+            }
+
             setCounterModal(null);
             loadProposals();
           }}

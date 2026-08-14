@@ -39,7 +39,7 @@ export default function SupplierConversationsPage() {
     setStarting(true);
 
     // Look up the Business Owner via the roles join
-    const { data: boRows, error: boErr } = await supabase
+    const { data: boRows } = await supabase
       .from("users")
       .select("user_id, roles!inner(role_name)")
       .eq("roles.role_name", "Business Owner")
