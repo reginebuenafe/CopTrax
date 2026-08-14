@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   LuMessageSquare, LuSend, LuPaperclip, LuFileText, LuPhone,
   LuVideo, LuEllipsisVertical, LuStar, LuCoins, LuCheck, LuX,
-  LuPencil, LuClock, LuCheckCheck, LuPlus, LuFileCheck,
+  LuPencil, LuClock, LuCheckCheck, LuFileCheck,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -16,7 +16,6 @@ export default function BOConversationsPage() {
 
   const [conversations, setConversations] = useState([]);
   const [selectedConvId, setSelectedConvId] = useState(urlConvId || null);
-  const [filterTab, setFilterTab] = useState("All"); // "All" | "Unread"
   const [loading, setLoading] = useState(true);
   const [lastMsgMap, setLastMsgMap] = useState({});
 
@@ -331,11 +330,6 @@ export default function BOConversationsPage() {
   const supplierAddress = activeConv?.supplier?.address || "Tagbilaran, Bohol";
   const supplierCode = `SUP-${activeConv?.supplier_id?.substring(0, 4)?.toUpperCase() || "2026-0192"}`;
 
-  // Filtered conversations
-  const filteredConvs = filterTab === "Unread"
-    ? conversations.filter(c => c.unread_count > 0)
-    : conversations;
-
   return (
     <div className="h-[calc(100vh-100px)] flex flex-col lg:flex-row gap-5 overflow-hidden">
       {/* ── LEFT COLUMN: Conversations List ── */}
@@ -350,42 +344,18 @@ export default function BOConversationsPage() {
           </div>
         </div>
 
-        {/* Filter Tabs */}
-        <div className="px-4 pt-3 pb-2">
-          <div className="bg-[#EFE8D8] p-1 rounded-2xl flex gap-1">
-            <button
-              onClick={() => setFilterTab("All")}
-              className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${filterTab === "All"
-                ? "bg-white text-brown-dark shadow-xs"
-                : "text-brown-light hover:text-brown-dark font-medium"
-                }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilterTab("Unread")}
-              className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${filterTab === "Unread"
-                ? "bg-white text-brown-dark shadow-xs"
-                : "text-brown-light hover:text-brown-dark font-medium"
-                }`}
-            >
-              Unread
-            </button>
-          </div>
-        </div>
-
         {/* Conversations List */}
         <div className="flex-1 overflow-y-auto divide-y divide-beige-dark/10">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-6 h-6 border-2 border-green-dark border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : filteredConvs.length === 0 ? (
+          ) : conversations.length === 0 ? (
             <div className="p-8 text-center text-brown-light text-xs">
               No conversations found.
             </div>
           ) : (
-            filteredConvs.map(c => {
+            conversations.map(c => {
               const isSelected = c.conversation_id === selectedConvId;
               const sName = c.supplier
                 ? `${c.supplier.first_name} ${c.supplier.last_name}`
@@ -434,13 +404,6 @@ export default function BOConversationsPage() {
                       {lastMsgText}
                     </p>
                   </div>
-
-                  {/* Unread badge if any */}
-                  {c.unread_count > 0 && (
-                    <span className="w-4 h-4 rounded-full bg-[#024023] text-white font-bold text-[10px] flex items-center justify-center shrink-0 mt-1">
-                      {c.unread_count}
-                    </span>
-                  )}
                 </button>
               );
             })

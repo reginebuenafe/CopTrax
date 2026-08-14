@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  LuX, LuPaperclip, LuSend, LuFileText,
+  LuX, LuSend, LuFileText,
   LuMessageSquare, LuCheckCheck, LuLeaf,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
@@ -34,16 +34,18 @@ export default function NegotiationChatWidget() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showProposeModal, setShowProposeModal] = useState(false);
+  const [businessOwnerId, setBusinessOwnerId] = useState(null); 
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem("coptrax_chat_widget_open", String(isOpen));
   }, [isOpen]);
 
-  // Initialize or fetch the active negotiation conversation when user is loaded or widget opens
+  // Initialize by loading the Business Owner ID and checking for existing conversation
+  // Do NOT create a conversation on widget open
   useEffect(() => {
     if (user?.id) {
-      initActiveConversation();
+      initializeWidget();
     }
   }, [user?.id]);
 
@@ -104,7 +106,7 @@ export default function NegotiationChatWidget() {
     }
   }, [messages, proposals, isOpen]);
 
-  async function initActiveConversation() {
+  async function initializeWidget() {
     setLoading(true);
 
     // 1. Get the Business Owner ID
@@ -122,8 +124,10 @@ export default function NegotiationChatWidget() {
       return;
     }
 
-    // 2. Fetch existing conversation or create a new one
-    let { data: convData } = await supabase
+    setBusinessOwnerId(boId);
+
+    // 2. Check for existing conversation (do NOT create if missing)
+    const { data: convData } = await supabase
       .from("conversations")
       .select("*, business_owner:business_owner_id(first_name, last_name)")
       .eq("supplier_id", user.id)
@@ -132,15 +136,6 @@ export default function NegotiationChatWidget() {
       .limit(1)
       .single();
 
-    if (!convData) {
-      const { data: newConv } = await supabase
-        .from("conversations")
-        .insert({ supplier_id: user.id, business_owner_id: boId, status: "Open" })
-        .select("*, business_owner:business_owner_id(first_name, last_name)")
-        .single();
-      convData = newConv;
-    }
-
     if (convData) {
       setConversation(convData);
       await Promise.all([
@@ -148,7 +143,43 @@ export default function NegotiationChatWidget() {
         fetchProposals(convData.conversation_id),
       ]);
     }
+    // If no existing conversation, leave conversation as null
+    // It will be created when the user sends their first message or proposal
+    
     setLoading(false);
+  }
+
+  // Helper: Ensure a conversation exists, creating one if needed
+  async function ensureConversationExists() {
+    if (conversation?.conversation_id) {
+      return conversation; // Already exists
+    }
+
+    if (!businessOwnerId) {
+      console.error("Business Owner ID not available");
+      return null;
+    }
+
+    // Create a new conversation
+    const { data: newConv, error } = await supabase
+      .from("conversations")
+      .insert({ 
+        supplier_id: user.id, 
+        business_owner_id: businessOwnerId, 
+        status: "Open" 
+      })
+      .select("*, business_owner:business_owner_id(first_name, last_name)")
+      .single();
+
+    if (error) {
+      console.error("Failed to create conversation:", error);
+      return null;
+    }
+
+    if (newConv) {
+      setConversation(newConv);
+      return newConv;
+    }
   }
 
   async function fetchMessages(convId) {
@@ -171,14 +202,23 @@ export default function NegotiationChatWidget() {
 
   async function handleSendMessage(e) {
     if (e) e.preventDefault();
-    if (!inputText.trim() || !conversation || sending) return;
+    if (!inputText.trim() || sending) return;
+
+    setSending(true);
+
+    // Ensure conversation exists before sending message
+    const conv = await ensureConversationExists();
+    if (!conv) {
+      setSending(false);
+      alert("Unable to start conversation. Please try again.");
+      return;
+    }
 
     const textToSend = inputText.trim();
     setInputText("");
-    setSending(true);
 
     const { error } = await supabase.from("messages").insert({
-      conversation_id: conversation.conversation_id,
+      conversation_id: conv.conversation_id,
       sender_id: user.id,
       message_type: "Text",
       message_text: textToSend,
@@ -186,7 +226,7 @@ export default function NegotiationChatWidget() {
 
     setSending(false);
     if (!error) {
-      fetchMessages(conversation.conversation_id);
+      fetchMessages(conv.conversation_id);
     }
   }
 
@@ -270,107 +310,138 @@ export default function NegotiationChatWidget() {
 
         {/* ── Chat Feed Body ── */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-white">
-          {/* Centered Date Pill */}
-          <div className="flex justify-center my-1">
-            <span className="px-3.5 py-0.5 rounded-full bg-[#A38D80] text-white text-[11px] font-medium shadow-xs">
-              {getDateLabel(combinedItems[combinedItems.length - 1]?.date || new Date())}
-            </span>
-          </div>
-
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="w-6 h-6 border-2 border-[#2E7D32] border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : !conversation ? (
+            // No conversation yet - show welcome state
+            <div className="h-full flex flex-col items-center justify-center text-center py-8 px-3">
+              <div className="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center mb-4">
+                <LuMessageSquare className="w-6 h-6 text-[#2E7D32]" />
+              </div>
+              <h4 className="font-bold text-brown-dark text-sm mb-2">Start Your First Message</h4>
+              <p className="text-brown-light text-xs leading-relaxed mb-4">
+                Send a message or submit a price proposal to begin negotiating with NERC Copra Trading.
+              </p>
+              <div className="space-y-2 w-full">
+                <p className="text-[11px] font-medium text-brown-dark uppercase opacity-70">Quick Actions:</p>
+                <button
+                  onClick={() => setInputText("I'd like to propose a price.")}
+                  className="text-[11px] w-full px-3 py-2 rounded-lg bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors"
+                >
+                  Send First Message
+                </button>
+                <button
+                  onClick={async () => {
+                    const conv = await ensureConversationExists();
+                    if (conv) setShowProposeModal(true);
+                  }}
+                  className="text-[11px] w-full px-3 py-2 rounded-lg bg-green-50 text-green-700 font-medium hover:bg-green-100 transition-colors"
+                >
+                  Submit Price Proposal
+                </button>
+              </div>
+            </div>
           ) : (
-            combinedItems.map((item, idx) => {
-              if (item.type === "message") {
-                const m = item.data;
-                const isMe = m.sender_id === user?.id;
-                return (
-                  <div
-                    key={m.message_id || idx}
-                    className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
-                  >
+            <>
+              {/* Centered Date Pill */}
+              <div className="flex justify-center my-1">
+                <span className="px-3.5 py-0.5 rounded-full bg-[#A38D80] text-white text-[11px] font-medium shadow-xs">
+                  {getDateLabel(combinedItems[combinedItems.length - 1]?.date || new Date())}
+                </span>
+              </div>
+
+              {combinedItems.map((item, idx) => {
+                if (item.type === "message") {
+                  const m = item.data;
+                  const isMe = m.sender_id === user?.id;
+                  return (
                     <div
-                      className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-sm ${isMe
-                        ? "bg-[#024023] text-white rounded-tr-none"
-                        : "bg-[#FDF7E7] text-brown-dark border border-[#E8DCC8] rounded-tl-none"
-                        }`}
+                      key={m.message_id || idx}
+                      className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                     >
-                      {m.message_text}
                       <div
-                        className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMe ? "text-emerald-200/80" : "text-brown-light"
+                        className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-sm ${isMe
+                          ? "bg-[#024023] text-white rounded-tr-none"
+                          : "bg-[#FDF7E7] text-brown-dark border border-[#E8DCC8] rounded-tl-none"
                           }`}
                       >
-                        <span>{formatTime(m.sent_at)}</span>
-                        {isMe && <LuCheckCheck className="w-3 h-3 text-emerald-300 inline" />}
-                      </div>
-                    </div>
-                  </div>
-                );
-              } else {
-                /* Render Price Proposal Card matching uploaded design */
-                const p = item.data;
-                const status = p.proposal_status || "Pending";
-                const isMine = p.supplier_id === user?.id;
-
-                return (
-                  <div key={p.proposal_id || idx} className="my-2">
-                    <div className="bg-[#EDF7EF] border-2 border-[#A2D5AB] rounded-2xl p-3.5 shadow-sm">
-                      {/* Card Header */}
-                      <div className="flex items-center gap-2 text-[#024023] font-bold text-xs uppercase mb-2.5">
-                        <LuFileText className="w-4 h-4 text-[#024023]" />
-                        <span>PRICE PROPOSAL SUBMITTED</span>
-                      </div>
-
-                      {/* Card Fields */}
-                      <div className="space-y-1.5 text-xs mb-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-brown-light font-medium">Proposed Price</span>
-                          <span className="font-extrabold text-brown-dark text-sm">
-                            ₱{Number(p.proposed_price_per_kg).toFixed(2)}/kg
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-brown-light font-medium">Proposed Volume</span>
-                          <span className="font-extrabold text-brown-dark text-sm">
-                            {p.proposed_volume_tons} tons
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Card Footer: Status Badge & Time */}
-                      <div className="flex items-center justify-between pt-2 border-t border-[#A2D5AB]/40">
-                        <span
-                          className={`text-[11px] font-bold px-3 py-0.5 rounded-full ${status === "Accepted"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : status === "Rejected"
-                              ? "bg-red-100 text-red-700"
-                              : isMine
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-amber-100 text-amber-800"
+                        {m.message_text}
+                        <div
+                          className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMe ? "text-emerald-200/80" : "text-brown-light"
                             }`}
                         >
-                          {status === "Pending"
-                            ? isMine ? "Offer Received" : "Offer Sent"
-                            : status}
-                        </span>
-                        <span className="text-[10px] text-brown-light font-medium">
-                          {formatTime(p.submitted_at)}
-                        </span>
+                          <span>{formatTime(m.sent_at)}</span>
+                          {isMe && <LuCheckCheck className="w-3 h-3 text-emerald-300 inline" />}
+                        </div>
                       </div>
                     </div>
+                  );
+                } else {
+                  /* Render Price Proposal Card matching uploaded design */
+                  const p = item.data;
+                  const status = p.proposal_status || "Pending";
+                  const isMine = p.supplier_id === user?.id;
 
-                    {/* Editor note under card if counter/edited */}
-                    {p.supersedes_proposal_id && (
-                      <p className="text-[11px] italic text-[#2E7D32] text-center my-1 font-medium">
-                        {boName} edited your proposal form.
-                      </p>
-                    )}
-                  </div>
-                );
-              }
-            })
+                  return (
+                    <div key={p.proposal_id || idx} className="my-2">
+                      <div className="bg-[#EDF7EF] border-2 border-[#A2D5AB] rounded-2xl p-3.5 shadow-sm">
+                        {/* Card Header */}
+                        <div className="flex items-center gap-2 text-[#024023] font-bold text-xs uppercase mb-2.5">
+                          <LuFileText className="w-4 h-4 text-[#024023]" />
+                          <span>PRICE PROPOSAL SUBMITTED</span>
+                        </div>
+
+                        {/* Card Fields */}
+                        <div className="space-y-1.5 text-xs mb-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-brown-light font-medium">Proposed Price</span>
+                            <span className="font-extrabold text-brown-dark text-sm">
+                              ₱{Number(p.proposed_price_per_kg).toFixed(2)}/kg
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-brown-light font-medium">Proposed Volume</span>
+                            <span className="font-extrabold text-brown-dark text-sm">
+                              {p.proposed_volume_tons} tons
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Card Footer: Status Badge & Time */}
+                        <div className="flex items-center justify-between pt-2 border-t border-[#A2D5AB]/40">
+                          <span
+                            className={`text-[11px] font-bold px-3 py-0.5 rounded-full ${status === "Accepted"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : status === "Rejected"
+                                ? "bg-red-100 text-red-700"
+                                : isMine
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                          >
+                            {status === "Pending"
+                              ? isMine ? "Offer Received" : "Offer Sent"
+                              : status}
+                          </span>
+                          <span className="text-[10px] text-brown-light font-medium">
+                            {formatTime(p.submitted_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Editor note under card if counter/edited */}
+                      {p.supersedes_proposal_id && (
+                        <p className="text-[11px] italic text-[#2E7D32] text-center my-1 font-medium">
+                          {boName} edited your proposal form.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+              })}
+            </>
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -395,7 +466,14 @@ export default function NegotiationChatWidget() {
 
           {/* Prominent Submit Price Proposal Button */}
           <button
-            onClick={() => setShowProposeModal(true)}
+            onClick={async () => {
+              const conv = await ensureConversationExists();
+              if (conv) {
+                setShowProposeModal(true);
+              } else {
+                alert("Unable to start conversation. Please try again.");
+              }
+            }}
             className="w-full bg-[#2E7D32] hover:bg-[#1b5e20] text-white font-bold text-xs sm:text-sm py-2.5 px-4
               rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99]"
           >
@@ -448,7 +526,7 @@ export default function NegotiationChatWidget() {
       )}
 
       {/* ── Modal to Propose Price ── */}
-      {showProposeModal && conversation && (
+      {showProposeModal && conversation?.conversation_id && (
         <ProposePriceModal
           conversationId={conversation.conversation_id}
           userId={user.id}

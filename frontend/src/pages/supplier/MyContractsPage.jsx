@@ -99,7 +99,7 @@ export default function MyContractsPage() {
             {filter === "All" ? "Start a negotiation to get your first contract." : "Try a different filter."}
           </p>
           {filter === "All" && (
-            <button onClick={() => navigate("/dashboard/supplier/conversations")}
+            <button
               className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
               <LuMessageSquare className="w-4 h-4" /> Start a Negotiation
             </button>
@@ -130,10 +130,9 @@ export default function MyContractsPage() {
                   </div>
                   {conversationId && (
                     <button
-                      onClick={() => navigate(`/dashboard/supplier/conversations/${conversationId}`)}
                       className="flex items-center gap-1.5 text-xs text-green-dark font-semibold hover:underline shrink-0"
                     >
-                      <LuMessageSquare className="w-3.5 h-3.5" /> View Chat
+                      <LuMessageSquare className="w-3.5 h-3.5" /> View Contract
                     </button>
                   )}
                 </div>

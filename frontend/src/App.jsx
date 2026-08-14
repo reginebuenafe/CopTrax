@@ -29,7 +29,6 @@ import BOReportsPage from "./pages/owner/BOReportsPage";
 import AccountSettingsPage from "./pages/shared/AccountSettingsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
-import ChatPage from "./pages/supplier/ChatPage";
 import MyRatingPage from "./pages/supplier/MyRatingPage";
 import SupplierOverview from "./pages/supplier/SupplierOverview";
 import MyContractsPage from "./pages/supplier/MyContractsPage";
@@ -50,15 +49,6 @@ function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return null;
-}
-
-function ComingSoon({ label }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-10 text-center">
-      <p className="text-xl font-bold text-brown-dark mb-2">{label}</p>
-      <p className="text-brown-light text-sm">Coming soon…</p>
-    </div>
-  );
 }
 
 function App() {
@@ -86,7 +76,6 @@ function App() {
           <Route index element={<OwnerOverview />} />
           <Route path="users" element={<UserApprovalsPage />} />
           <Route path="conversations" element={<BOConversationsPage />} />
-          <Route path="conversations/:conversationId" element={<ChatPage viewerRole="Business Owner" />} />
           <Route path="contracts" element={<BOContractsPage />} />
           <Route path="deliveries" element={<BODeliveriesPage />} />
           <Route path="quality" element={<BOQualityPage />} />
@@ -102,8 +91,6 @@ function App() {
           <ProtectedRoute allowedRoles={["Supplier"]}><SupplierLayout /></ProtectedRoute>
         }>
           <Route index element={<SupplierOverview />} />
-          <Route path="conversations" element={<ChatPage viewerRole="Supplier" />} />
-          <Route path="conversations/:conversationId" element={<ChatPage viewerRole="Supplier" />} />
           <Route path="contracts" element={<MyContractsPage />} />
           <Route path="deliveries" element={<SupplierDeliveriesPage />} />
           <Route path="payments" element={<SupplierPaymentsPage />} />
