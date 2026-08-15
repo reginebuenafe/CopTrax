@@ -111,7 +111,7 @@ export default function SupplierOverview() {
   return (
     <div>
       {/* Header section with Welcome text & Spot Price */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 mb-6">
         <div>
           <p className="text-xs font-medium text-brown-light mb-3">
             {todayFormatted}

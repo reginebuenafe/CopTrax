@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
-  LuClock, LuFileText, LuStar, LuLoader, LuPaperclip,
-  LuCheckCheck, LuCircleAlert,
+  LuSend, LuCoins, LuCheck, LuX, LuPencil,
+  LuClock, LuFileText, LuStar, LuLoader,
+  LuArrowLeft, LuCheckCheck, LuCircleAlert,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -41,41 +41,42 @@ function ContractCard({ contractData, onTapPreview, signed }) {
   return (
     <div className="flex justify-end my-2 px-4">
       <div
-        className={`text-white rounded-2xl rounded-br-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${contractData.preview_url ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
+        className={`w-72 max-w-full overflow-hidden rounded-2xl rounded-br-sm border border-[#A2D5AB] bg-[#EDF7EF] shadow-sm ${contractData.preview_url ? "cursor-pointer transition-shadow hover:shadow-md" : ""}`}
         onClick={() => contractData.preview_url && onTapPreview?.(contractData.preview_url)}
       >
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
+        <div className="flex items-center gap-2 bg-[#2E7D32] px-4 py-3 text-white">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15">
             <LuFileText className="w-4 h-4" />
           </div>
-          <div>
-            <p className="font-bold text-sm">{contractData.contract_number}</p>
-            <p className="text-white/70 text-xs">
-              {signed ? "Signed & Active" : "Awaiting supplier signature"}
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium leading-tight text-white/75">
+              {signed ? "Contract active" : "Contract sent"}
             </p>
+            <p className="truncate text-sm font-bold leading-tight">{contractData.contract_number}</p>
           </div>
         </div>
-        <div className="space-y-1.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-white/70">Price/kg</span>
-            <span className="font-semibold">{peso(contractData.price_per_kg)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-white/70">Volume</span>
-            <span className="font-bold">{contractData.contracted_tons} tons</span>
-          </div>
-          {contractData.due_date && (
-            <div className="flex justify-between">
-              <span className="text-white/70">Due Date</span>
-              <span className="font-semibold">{fmtDate(contractData.due_date)}</span>
+        <div className="px-4 py-3 text-[#3D2B1F]">
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div>
+              <p className="text-[10px] text-[#8B7355]">Price</p>
+              <p className="font-bold">{peso(contractData.price_per_kg)}/kg</p>
             </div>
-          )}
+            <div>
+              <p className="text-[10px] text-[#8B7355]">Quantity</p>
+              <p className="font-bold">{contractData.contracted_tons} tons</p>
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center justify-between border-t border-[#A2D5AB]/60 pt-2 text-[10px]">
+            <span className="text-[#8B7355]">
+              Due {contractData.due_date ? fmtDate(contractData.due_date) : "after activation"}
+            </span>
+            {contractData.preview_url && (
+              <span className="font-bold text-[#17682D] underline underline-offset-2">
+                Review document
+              </span>
+            )}
+          </div>
         </div>
-        {contractData.preview_url && (
-          <p className="text-white/70 text-[10px] text-center mt-3 underline">
-            Tap to review document
-          </p>
-        )}
       </div>
     </div>
   );
@@ -137,7 +138,7 @@ export default function BOChatLayout() {
 
   // Left panel
   const [conversations, setConversations] = useState([]);
-  const [search, setSearch] = useState("");
+  const [conversationFilter, setConversationFilter] = useState("all");
   const [convLoading, setConvLoading] = useState(true);
 
   // Middle panel
@@ -148,7 +149,7 @@ export default function BOChatLayout() {
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [counterModal, setCounterModal] = useState(null);
-  const bottomRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const isInitialLoad = useRef(false);
 
   // Right panel
@@ -156,7 +157,10 @@ export default function BOChatLayout() {
   const [contracts, setContracts] = useState([]);
   const [sendingContract, setSendingContract] = useState(false);
   const [contractError, setContractError] = useState(null);
+  const [contractDraft, setContractDraft] = useState(null);
+  const [contractDraftError, setContractDraftError] = useState("");
   const [toast, setToast] = useState(null);
+  const [onlineSupplierIds, setOnlineSupplierIds] = useState(() => new Set());
 
   function showToast(msg, type = "success") {
     setToast({ msg, type });
@@ -186,7 +190,53 @@ export default function BOChatLayout() {
     setConvLoading(false);
   }, [user.id]);
 
-  useEffect(() => { fetchConversations(); }, [fetchConversations]);
+  useEffect(() => {
+    const timer = window.setTimeout(fetchConversations, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchConversations]);
+
+  // Track which Suppliers currently have an authenticated dashboard session.
+  useEffect(() => {
+    const channel = supabase
+      .channel("online-suppliers")
+      .on("presence", { event: "sync" }, () => {
+        const presences = Object.values(channel.presenceState()).flat();
+        setOnlineSupplierIds(new Set(presences.map(presence => presence.user_id).filter(Boolean)));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // Keep the open chat and every conversation preview current without refresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`bo-live-messages:${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        ({ new: incoming }) => {
+          if (incoming.conversation_id === conversationId) {
+            setMessages(previous => previous.some(message => message.message_id === incoming.message_id)
+              ? previous
+              : [...previous, incoming]);
+          }
+
+          setConversations(previous => previous
+            .map(conversation => conversation.conversation_id === incoming.conversation_id
+              ? {
+                  ...conversation,
+                  lastMsg: incoming,
+                  unread: incoming.sender_id !== user.id && incoming.conversation_id !== conversationId,
+                }
+              : conversation)
+            .sort((a, b) => new Date(b.lastMsg?.sent_at ?? b.created_at) - new Date(a.lastMsg?.sent_at ?? a.created_at)));
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [conversationId, user.id]);
 
   // ── Middle panel: load chat on conversationId change ──────────────────────
   const loadChat = useCallback(async (convId) => {
@@ -237,15 +287,15 @@ export default function BOChatLayout() {
   }, [user.id]);
 
   useEffect(() => {
-    if (conversationId) loadChat(conversationId);
+    if (!conversationId) return undefined;
+    const timer = window.setTimeout(() => loadChat(conversationId), 0);
+    return () => window.clearTimeout(timer);
   }, [conversationId, loadChat]);
 
   // ── Realtime subscription for selected chat ───────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase.channel(`bo-chat:${conversationId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-        payload => setMessages(prev => [...prev, payload.new]))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
@@ -258,16 +308,20 @@ export default function BOChatLayout() {
 
   // Auto-scroll to bottom — instant on initial load, smooth for live messages
   useEffect(() => {
-    if (!bottomRef.current) return;
+    const container = messagesContainerRef.current;
+    if (!container) return undefined;
+
     if (isInitialLoad.current) {
       // Use a small timeout so the DOM finishes rendering before scrolling
-      setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      const timer = window.setTimeout(() => {
+        container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
         isInitialLoad.current = false;
       }, 50);
-    } else {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      return () => window.clearTimeout(timer);
     }
+
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    return undefined;
   }, [messages]);
 
   // ── Latest pending proposal logic ─────────────────────────────────────────
@@ -308,7 +362,7 @@ export default function BOChatLayout() {
     });
     // Notify supplier
     await supabase.from("notifications").insert({
-      user_id: currentConv?.supplier?.user_id, notification_type: "Contract Signed",
+      user_id: currentConv?.supplier?.user_id, notification_type: "Proposal Accepted",
       message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. A contract is being prepared.`,
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
@@ -350,23 +404,93 @@ export default function BOChatLayout() {
 
   // ── Send Contract (DocuSeal generation) ───────────────────────────────────
   async function handleSendContract() {
-    if (!pendingContract) return;
+    setSendingContract(true);
+    setContractDraftError("");
+
+    const supplierProposal = [...proposals].reverse().find(proposal =>
+      proposal.proposed_price_per_kg && proposal.proposed_volume_tons,
+    );
+    let contractNumber = pendingContract?.contract_number;
+
+    if (!contractNumber) {
+      const { data, error } = await supabase.rpc("generate_contract_number");
+      if (error || !data) {
+        showToast(error?.message ?? "Could not generate a contract ID.", "error");
+        setSendingContract(false);
+        return;
+      }
+      contractNumber = data;
+    }
+
+    const projectedDue = new Date();
+    projectedDue.setMonth(projectedDue.getMonth() + 1);
+    projectedDue.setDate(projectedDue.getDate() + 1);
+
+    setContractDraft({
+      contractId: pendingContract?.contract_id ?? null,
+      contractNumber,
+      supplierName: `${supplierData?.first_name ?? ""} ${supplierData?.last_name ?? ""}`.trim(),
+      price: String(pendingContract?.negotiated_price_per_kg ?? supplierProposal?.proposed_price_per_kg ?? ""),
+      volume: String(pendingContract?.contracted_tons ?? supplierProposal?.proposed_volume_tons ?? ""),
+      dueDate: pendingContract?.due_date ?? projectedDue.toISOString().slice(0, 10),
+    });
+    setSendingContract(false);
+  }
+
+  async function submitContractDraft(e) {
+    e.preventDefault();
+    const price = Number(contractDraft.price);
+    const volume = Number(contractDraft.volume);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(volume) || volume <= 0) {
+      setContractDraftError("Enter a valid price and quantity greater than zero.");
+      return;
+    }
+
     setSendingContract(true);
     setContractError(null);
+    setContractDraftError("");
+
+    const contractValues = {
+      contract_number: contractDraft.contractNumber,
+      supplier_id: currentConv.supplier.user_id,
+      business_owner_id: currentConv.business_owner_id ?? user.id,
+      negotiated_price_per_kg: price,
+      contracted_tons: volume,
+      signing_date: new Date().toISOString().split("T")[0],
+      due_date: contractDraft.dueDate,
+      status: "Pending",
+    };
+
+    const contractQuery = contractDraft.contractId
+      ? supabase.from("contracts").update(contractValues).eq("contract_id", contractDraft.contractId)
+      : supabase.from("contracts").insert(contractValues);
+    const { data: contract, error: saveError } = await contractQuery
+      .select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date")
+      .single();
+
+    if (saveError || !contract) {
+      setContractDraftError(saveError?.message ?? "Failed to save the contract.");
+      setSendingContract(false);
+      return;
+    }
+
+    await supabase.from("conversations")
+      .update({ contract_id: contract.contract_id })
+      .eq("conversation_id", conversationId);
 
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setContractError("Session expired. Please log in again."); setSendingContract(false); return; }
+    if (!session) { setContractDraftError("Session expired. Please log in again."); setSendingContract(false); return; }
 
     const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ contract_id: pendingContract.contract_id }),
+      body: JSON.stringify({ contract_id: contract.contract_id }),
     });
 
     const data = await res.json();
 
     if (!res.ok) {
-      setContractError(data.error ?? "Failed to generate contract.");
+      setContractDraftError(data.error ?? "Failed to generate contract.");
       setSendingContract(false);
       return;
     }
@@ -377,10 +501,11 @@ export default function BOChatLayout() {
       sender_id: user.id,
       message_type: "Contract Form",
       message_text: `CONTRACT_CARD:${JSON.stringify({
-        contract_number: pendingContract.contract_number,
-        price_per_kg:    pendingContract.negotiated_price_per_kg,
-        contracted_tons: pendingContract.contracted_tons,
-        due_date:        pendingContract.due_date,
+        contract_id:     contract.contract_id,
+        contract_number: contract.contract_number,
+        price_per_kg:    contract.negotiated_price_per_kg,
+        contracted_tons: contract.contracted_tons,
+        due_date:        contract.due_date,
         preview_url:     data.preview_url,
       })}`,
     });
@@ -391,32 +516,53 @@ export default function BOChatLayout() {
     });
 
     showToast("Contract sent to supplier for review & signature.");
+    setContractDraft(null);
     await loadChat(conversationId);
     setSendingContract(false);
   }
 
+  function handlePriceAction() {
+    if (!latestProposal) {
+      showToast("The supplier must submit the initial price and volume before you can counteroffer.", "error");
+      return;
+    }
+    if (latestProposal.proposal_status !== "Pending") {
+      showToast("There is no pending proposal to counteroffer.", "error");
+      return;
+    }
+    if (latestSubmittedByBO) {
+      showToast("Your counteroffer is awaiting the supplier's response.", "error");
+      return;
+    }
+    setCounterModal(latestProposal);
+  }
+
   // ── Filtered conversations list ────────────────────────────────────────────
-  const filtered = conversations.filter(c => {
-    const name = `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.toLowerCase();
-    return name.includes(search.toLowerCase());
-  });
+  const filtered = conversations.filter(c => conversationFilter === "all" || c.unread);
+  const selectedSupplierOnline = onlineSupplierIds.has(currentConv?.supplier?.user_id);
 
   return (
-    <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
+    <div className="flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px] xl:flex-row xl:overflow-hidden">
 
       {/* ── LEFT PANEL — Conversations list ──────────────────────────────── */}
-      <div className="w-[280px] shrink-0 bg-white flex flex-col border-r border-[#e8e0d0]">
-        {/* Search */}
-        <div className="px-4 pt-4 pb-3 border-b border-[#f0e8d8]">
-          <div className="relative">
-            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#b09a7a]" />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-full bg-[#f5f0e8] border-0 text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none focus:ring-2 focus:ring-[#2d5a27]/20"
-            />
+      <div className={`${conversationId ? "hidden xl:flex" : "flex"} h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:h-auto xl:w-[280px]`}>
+        {/* Header and filters */}
+        <div className="px-5 pt-4 pb-3 border-b border-[#E7DCC9]">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[15px] font-extrabold text-[#5D4037]">Conversations</h2>
+            <span className="w-6 h-6 rounded-full bg-[#BBD8B9] text-[#285D2E] font-extrabold text-xs flex items-center justify-center">
+              {conversations.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 rounded-xl bg-[#E9DECA] p-1 text-[11px] text-[#6D5147]">
+            <button type="button" onClick={() => setConversationFilter("all")} aria-pressed={conversationFilter === "all"}
+              className={`rounded-lg py-1.5 font-semibold transition-colors ${conversationFilter === "all" ? "bg-white shadow-sm" : "hover:bg-white/40"}`}>
+              All
+            </button>
+            <button type="button" onClick={() => setConversationFilter("unread")} aria-pressed={conversationFilter === "unread"}
+              className={`rounded-lg py-1.5 font-semibold transition-colors ${conversationFilter === "unread" ? "bg-white shadow-sm" : "hover:bg-white/40"}`}>
+              Unread
+            </button>
           </div>
         </div>
 
@@ -437,10 +583,10 @@ export default function BOChatLayout() {
               return (
                 <button key={c.conversation_id}
                   onClick={() => navigate(`/dashboard/owner/conversations/${c.conversation_id}`)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors duration-150 relative
-                    ${isActive ? "bg-[#f0ebe0] border-l-4 border-[#2d5a27]" : "hover:bg-[#faf7f2] border-l-4 border-transparent"}`}>
+                  className={`w-full min-h-[84px] flex items-center gap-3 px-4 py-4 text-left transition-colors duration-150 relative border-b border-[#EEE4D4]
+                    ${isActive ? "bg-[#E9DDC7] border-l-[3px] border-l-[#17682D]" : "bg-[#FFFEFB] hover:bg-[#FAF5EA] border-l-[3px] border-l-transparent"}`}>
                   {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${isActive ? "bg-[#2d5a27]" : "bg-[#4a7c40]"}`}>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 bg-[#35AB50]">
                     {ini}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -468,7 +614,7 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── MIDDLE PANEL — Chat ──────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-[#faf7f4] min-w-0">
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} h-[70vh] min-h-[560px] min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:h-auto xl:min-h-0`}>
         {!conversationId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
             <div className="w-16 h-16 bg-[#e8f0e5] rounded-2xl flex items-center justify-center mb-4">
@@ -484,26 +630,34 @@ export default function BOChatLayout() {
         ) : (
           <>
             {/* Chat header */}
-            <div className="flex items-center gap-3 px-5 py-3.5 bg-white border-b border-[#e8e0d0] shrink-0">
-              <div className="w-10 h-10 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-sm">
+            <div className="flex items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7 shrink-0">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard/owner/conversations")}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#E4D5BD] text-[#5D4037] hover:bg-[#FAF5EA] xl:hidden"
+                aria-label="Return to conversations"
+              >
+                <LuArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="relative w-11 h-11 rounded-full bg-[#35AB50] flex items-center justify-center text-white font-bold text-xs">
                 {initials(currentConv?.supplier?.first_name, currentConv?.supplier?.last_name)}
+                <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${selectedSupplierOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
               </div>
               <div className="flex-1">
-                <p className="font-bold text-[#3d2b1f]">
+                <p className="truncate text-base font-extrabold leading-tight text-[#5D4037] sm:text-[18px]">
                   {currentConv?.supplier?.first_name} {currentConv?.supplier?.last_name}
                 </p>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full" />
+                <div className="flex items-center">
                   <p className="text-[#8b7355] text-xs">
-                    {currentConv?.status === "Open" ? "Active negotiation" : "Closed"}
-                    {currentConv?.supplier?.email && <span className="ml-2">· {currentConv.supplier.email}</span>}
+                    {selectedSupplierOnline ? "Online" : "Offline"}
+                    {currentConv?.supplier?.email && <span className="ml-2 hidden sm:inline">· {currentConv.supplier.email}</span>}
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto py-4 space-y-1">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-1 bg-[#FFFEFB]">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
                   <p>No messages yet. Waiting for the supplier to start.</p>
@@ -541,10 +695,10 @@ export default function BOChatLayout() {
                 // Regular chat bubble
                 return (
                   <div key={msg.message_id} className={`flex px-4 ${isMine ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                  <div className={`max-w-[85%] px-4 py-2.5 text-sm leading-relaxed sm:max-w-[65%] rounded-2xl ${
                       isMine
-                        ? "bg-[#2d5a27] text-white rounded-br-sm"
-                        : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
+                        ? "bg-[#17682D] text-white rounded-br-sm"
+                        : "bg-[#FBF3E2] text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#E8DCC8]"
                     }`}>
                       {msg.message_text}
                       <p className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMine ? "text-white/60" : "text-[#b09a7a]"}`}>
@@ -567,29 +721,25 @@ export default function BOChatLayout() {
                   onCounter={() => setCounterModal(latestProposal)}
                 />
               )}
-              <div ref={bottomRef} />
             </div>
 
             {/* Quick action chips */}
             {currentConv?.status === "Open" && (
-              <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
-                {pendingContract && (
-                  <button onClick={handleSendContract} disabled={sendingContract}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#3d2b1f] text-white font-semibold text-xs hover:bg-[#2d1f15] transition-all disabled:opacity-60">
-                    {sendingContract ? <LuLoader className="w-3.5 h-3.5 animate-spin" /> : <LuFileText className="w-3.5 h-3.5" />}
-                    Send Contract
-                  </button>
-                )}
+              <div className="grid grid-cols-2 gap-1.5 px-3 pt-2 bg-[#FFFEFB] border-t border-[#E7DCC9] shrink-0">
+                <button onClick={handleSendContract} disabled={sendingContract}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#A78D80] text-white font-medium text-[10px] hover:bg-[#8D756A] transition-all disabled:opacity-60">
+                  {sendingContract ? <LuLoader className="w-3.5 h-3.5 animate-spin" /> : <LuFileText className="w-3.5 h-3.5" />}
+                  Send Contract
+                </button>
                 {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
                   <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-all">
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#FBF3E2] text-[#5D4037] font-medium text-[10px] hover:bg-[#F5EBD7] transition-all">
                     <LuFileText className="w-3.5 h-3.5" /> View Contract Document
                   </a>
                 )}
-                <button onClick={() => setCounterModal(latestProposal ?? null)}
-                  disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all disabled:opacity-40">
-                  <LuCoins className="w-3.5 h-3.5" /> Propose Price
+                <button onClick={handlePriceAction}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#FBF3E2] text-[#5D4037] font-medium text-[10px] hover:bg-[#F5EBD7] transition-all">
+                  <LuCoins className="w-3.5 h-3.5" /> Counteroffer
                 </button>
               </div>
             )}
@@ -605,17 +755,14 @@ export default function BOChatLayout() {
 
             {/* Message input */}
             {currentConv?.status === "Open" && (
-              <form onSubmit={sendMessage} className="flex items-center gap-3 px-4 py-3 bg-white border-t border-[#e8e0d0] shrink-0">
-                <button type="button" className="text-[#b09a7a] hover:text-[#8b7355] transition-colors">
-                  <LuPaperclip className="w-5 h-5" />
-                </button>
+              <form onSubmit={sendMessage} className="flex items-center gap-3 mx-3 mb-3 mt-2 px-4 py-2.5 bg-[#EDE3D1] rounded-full shrink-0">
                 <input
                   type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder={`Message ${currentConv?.supplier?.first_name ?? ""}…`}
-                  className="flex-1 px-4 py-2.5 rounded-full bg-[#f5f0e8] text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none focus:ring-2 focus:ring-[#2d5a27]/20 border-0"
+                  className="flex-1 min-w-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none border-0"
                 />
                 <button type="submit" disabled={!text.trim() || sending}
-                  className="w-9 h-9 rounded-full bg-[#2d5a27] text-white flex items-center justify-center hover:bg-[#234820] transition-all disabled:opacity-50">
+                  className="w-9 h-9 rounded-full bg-[#17682D] text-white flex items-center justify-center hover:bg-[#105523] transition-all disabled:opacity-50">
                   <LuSend className="w-4 h-4" />
                 </button>
               </form>
@@ -625,16 +772,16 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── RIGHT PANEL — Supplier info ───────────────────────────────────── */}
-      <div className="w-[200px] shrink-0 bg-white border-l border-[#e8e0d0] flex flex-col overflow-y-auto">
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[250px]`}>
         {!conversationId || !supplierData ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see supplier details</p>
           </div>
         ) : (
-          <div className="p-4 space-y-4">
+          <div className="space-y-5">
             {/* Avatar + name + location */}
-            <div className="flex flex-col items-center text-center pt-2">
-              <div className="w-14 h-14 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-lg mb-2">
+            <div className="flex flex-col items-center text-center px-5 pt-12 pb-7 border-b border-[#E7DCC9]">
+              <div className="w-11 h-11 rounded-full bg-[#35AB50] flex items-center justify-center text-white font-bold text-xs mb-3">
                 {initials(supplierData.first_name, supplierData.last_name)}
               </div>
               <p className="font-bold text-[#3d2b1f] text-sm">{supplierData.first_name} {supplierData.last_name}</p>
@@ -644,7 +791,7 @@ export default function BOChatLayout() {
                 </p>
               )}
               {supplierData.rating !== null && (
-                <div className="flex items-center gap-1 mt-1.5">
+                <div className="flex items-center gap-1 mt-2 bg-[#F2E8D3] text-[#796156] px-3 py-1 rounded-full">
                   <LuStar className="w-3 h-3 text-amber-400 fill-amber-400" />
                   <span className="text-xs font-semibold text-[#3d2b1f]">{Number(supplierData.rating).toFixed(1)}</span>
                 </div>
@@ -652,29 +799,29 @@ export default function BOChatLayout() {
             </div>
 
             {/* Send Contract / Sign button */}
-            {pendingContract && !pendingContract.docuseal_submission_id && (
+            {!sentContract?.docuseal_supplier_slug && (
               <button onClick={handleSendContract} disabled={sendingContract}
-                className="w-full py-2.5 rounded-xl bg-[#2d5a27] text-white font-bold text-sm hover:bg-[#234820] transition-all disabled:opacity-60 flex items-center justify-center gap-2">
-                {sendingContract ? <LuLoader className="w-4 h-4 animate-spin" /> : null}
+                className="w-[calc(100%-2.5rem)] mx-auto px-4 py-3 rounded-[9px] bg-[#17682D] text-white font-bold text-xs hover:bg-[#105523] transition-all disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap">
+                {sendingContract ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuFileText className="w-4 h-4" />}
                 Send Contract
               </button>
             )}
             {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
               <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
-                className="block w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm text-center hover:bg-blue-700 transition-all">
+                className="block mx-5 py-2.5 rounded-[9px] bg-[#17682D] text-white font-bold text-xs text-center hover:bg-[#105523] transition-all">
                 View Contract Document
               </a>
             )}
             {sentContract?.status === "Pending" && (
-              <div className="text-[11px] text-amber-700 bg-amber-50 rounded-xl px-3 py-2 text-center">
+              <div className="mx-5 text-[11px] text-amber-700 bg-amber-50 rounded-xl px-3 py-2 text-center">
                 Awaiting supplier signature…
               </div>
             )}
 
             {/* Negotiation summary */}
-            <div>
-              <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Negotiation Summary</p>
-              <div className="space-y-2">
+            <div className="px-5">
+              <p className="text-xs font-semibold text-[#6B4A40] uppercase mb-3">Negotiation Summary</p>
+              <div className="space-y-3.5 bg-[#FAF5EC] rounded-xl p-4">
                 <div className="flex justify-between text-xs">
                   <span className="text-[#8b7355]">Proposed volume</span>
                   <span className="font-semibold text-[#3d2b1f]">
@@ -695,10 +842,10 @@ export default function BOChatLayout() {
             </div>
 
             {/* Signed contracts */}
-            <div>
-              <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Signed Contracts</p>
+            <div className="px-5 pb-5">
+              <p className="text-xs font-semibold text-[#6B4A40] uppercase mb-3">Signed Contracts</p>
               {contracts.filter(c => c.status !== "Pending" || c.docuseal_submission_id).length === 0 ? (
-                <div className="bg-[#f5f0e8] rounded-xl p-3 text-[11px] text-[#8b7355] leading-relaxed">
+                <div className="bg-[#FAF5EC] rounded-xl p-5 text-[11px] text-[#8b7355] text-center leading-relaxed">
                   No contracts yet. Agree on price and volume, then send one.
                 </div>
               ) : (
@@ -736,6 +883,85 @@ export default function BOChatLayout() {
         </div>
       )}
 
+      {/* Contract-making modal */}
+      {contractDraft && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onMouseDown={() => !sendingContract && setContractDraft(null)}>
+          <div className="w-full max-w-3xl rounded-[28px] bg-[#FBF7EF] shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+            <form onSubmit={submitContractDraft} className="p-7 sm:p-9">
+              <div className="flex items-center justify-between border-b border-[#DFCDB2] pb-5">
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-full bg-[#B8DCB5] text-[#17682D] flex items-center justify-center">
+                    <LuFileText className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-[#8b7355]">Contract Making</p>
+                    <h2 className="text-xl font-extrabold text-[#402413]">New Contract</h2>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setContractDraft(null)} disabled={sendingContract}
+                  className="p-2 rounded-full text-[#8b7355] hover:bg-[#EFE5D5] disabled:opacity-50">
+                  <LuX className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-x-10 gap-y-5 py-6">
+                <label className="block">
+                  <span className="block mb-2 text-sm font-bold text-[#4B2814]">Supplier</span>
+                  <input value={contractDraft.supplierName} readOnly
+                    className="w-full rounded-full border border-[#B98661] bg-white/60 px-5 py-2.5 text-sm text-[#8b7355] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="block mb-2 text-sm font-bold text-[#4B2814]">Contract ID</span>
+                  <input value={contractDraft.contractNumber} readOnly
+                    className="w-full rounded-full border border-[#B98661] bg-white/60 px-5 py-2.5 text-sm text-[#8b7355] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="block mb-2 text-sm font-bold text-[#4B2814]">Negotiated Price (₱/kg)</span>
+                  <div className="relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-bold text-[#4B2814]">₱</span>
+                    <input type="number" min="0.01" step="0.01" required value={contractDraft.price}
+                      onChange={e => setContractDraft(draft => ({ ...draft, price: e.target.value }))}
+                      placeholder="Enter price per kilogram"
+                      className="w-full rounded-full border border-[#B98661] bg-white px-10 py-2.5 text-sm text-[#4B2814] outline-none focus:ring-2 focus:ring-[#17682D]/20" />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="block mb-2 text-sm font-bold text-[#4B2814]">Quantity (Tons)</span>
+                  <input type="number" min="0.01" step="0.01" required value={contractDraft.volume}
+                    onChange={e => setContractDraft(draft => ({ ...draft, volume: e.target.value }))}
+                    placeholder="Enter quantity in tons"
+                    className="w-full rounded-full border border-[#B98661] bg-white px-5 py-2.5 text-sm text-[#4B2814] outline-none focus:ring-2 focus:ring-[#17682D]/20" />
+                </label>
+                <label className="block">
+                  <span className="block mb-2 text-sm font-bold text-[#4B2814]">Due Date</span>
+                  <input value={fmtDate(contractDraft.dueDate)} readOnly
+                    className="w-full rounded-full border border-[#B98661] bg-white/60 px-5 py-2.5 text-sm text-[#8b7355] outline-none" />
+                  <span className="block mt-1.5 text-[10px] text-[#8b7355]">Automatically calculated as one month and one day from contract creation.</span>
+                </label>
+              </div>
+
+              {contractDraftError && (
+                <div className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+                  <LuCircleAlert className="w-4 h-4 shrink-0" /> {contractDraftError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-4 pt-2">
+                <button type="button" onClick={() => setContractDraft(null)} disabled={sendingContract}
+                  className="rounded-lg border border-[#D8C5A8] bg-[#FFFDF8] px-7 py-2.5 text-xs font-bold text-[#402413] shadow-sm hover:bg-white disabled:opacity-50">
+                  Cancel
+                </button>
+                <button type="submit" disabled={sendingContract}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-[#17682D] px-7 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#105523] disabled:opacity-60">
+                  {sendingContract && <LuLoader className="w-4 h-4 animate-spin" />}
+                  {sendingContract ? "Sending…" : "Send Contract"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Counteroffer modal */}
       {counterModal !== undefined && counterModal !== null && currentConv && (
         <ProposePriceModal
@@ -752,7 +978,7 @@ export default function BOChatLayout() {
             await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify supplier
             await supabase.from("notifications").insert({
-              user_id: currentConv.supplier?.user_id, notification_type: "Counteroffer",
+              user_id: currentConv.supplier?.user_id, notification_type: "Counteroffer Received",
               message: "NERC Copra Trading sent a counteroffer. Review it in the chat.",
               related_entity_type: "conversations", related_entity_id: conversationId,
             });

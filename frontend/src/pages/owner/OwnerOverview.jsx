@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  LuLayoutDashboard, LuTrendingUp, LuPencil, LuCheck, LuX, LuCircleAlert,
+  LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
   LuUserPlus, LuScale, LuFlaskConical,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -64,17 +64,96 @@ export default function OwnerOverview() {
     { label: "Pending Payments", value: stats.pendingPayments, color: "bg-blue-50 text-blue-600", path: "/dashboard/owner/payments" },
   ] : [];
 
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const today = now.toLocaleDateString("en-PH", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
-          <LuLayoutDashboard className="w-5 h-5 text-green-dark" />
+      <section className="mt-6 mb-6 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-[#8B7355]">{today}</p>
+          <h1 className="mt-2 text-2xl font-extrabold leading-tight text-[#60463D] sm:text-[28px]">
+            {greeting}, Admin
+          </h1>
+          <p className="mt-1 text-xs text-[#9A857A]">
+            Here&apos;s what&apos;s moving through your trading operation today.
+          </p>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-brown-dark">Dashboard Overview</h1>
-          <p className="text-brown-light text-sm">Welcome back to CopTrax</p>
+
+        <div className={`w-full transition-[width] ${editing ? "sm:w-[320px]" : "sm:w-[220px]"}`}>
+          <div className="flex items-center gap-3.5 rounded-2xl border-2 border-[#2E7D32] bg-[#024023] px-4 py-4 text-white shadow-sm">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10">
+              <LuTrendingUp className="h-5 w-5 text-emerald-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+            <p className="text-[9px] font-medium uppercase tracking-wider text-white/80">Current Spot Price</p>
+            {editing ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="font-bold">₱</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  autoFocus
+                  value={newPrice}
+                  onChange={e => { setNewPrice(e.target.value); setError(""); }}
+                  placeholder={String(spotPrice)}
+                  className="w-20 rounded-lg border border-white/40 bg-white px-2 py-1 text-center text-sm font-bold text-[#3E2723] focus:outline-none focus:ring-2 focus:ring-white/60"
+                />
+                <span className="text-sm text-white/80">/kg</span>
+                <button
+                  type="button"
+                  onClick={saveSpotPrice}
+                  disabled={saving}
+                  className="rounded-md p-1 text-white/85 hover:bg-white/15 hover:text-white disabled:opacity-50"
+                  aria-label="Save spot price"
+                >
+                  <LuCheck className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditing(false); setNewPrice(""); setError(""); }}
+                  className="rounded-md p-1 text-white/70 hover:bg-white/15 hover:text-white"
+                  aria-label="Cancel spot price update"
+                >
+                  <LuX className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-0.5 flex items-center gap-2">
+                <p className="text-xl font-extrabold leading-tight">
+                  {spotPrice !== null
+                    ? `₱${Number(spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : "—"}
+                  <span className="ml-1 text-xs font-normal text-emerald-200/80">/kg</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setEditing(true); setNewPrice(String(spotPrice ?? "")); }}
+                  className="rounded-md p-1 text-white/80 transition-colors hover:bg-white/15 hover:text-white"
+                  aria-label="Update spot price"
+                  title="Update spot price"
+                >
+                  <LuPencil className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            </div>
+          </div>
+          {error && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-red-600 sm:justify-end">
+              <LuCircleAlert className="h-3.5 w-3.5" /> {error}
+            </p>
+          )}
         </div>
-      </div>
+      </section>
 
       {/* Stat cards */}
       {stats && (
@@ -89,61 +168,6 @@ export default function OwnerOverview() {
           ))}
         </div>
       )}
-
-      {/* Spot Price card */}
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-              <LuTrendingUp className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-0.5">Today's Spot Price</p>
-              {editing ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-brown-dark font-bold">₱</span>
-                  <input
-                    type="number" step="0.01" min="0" autoFocus
-                    value={newPrice}
-                    onChange={e => { setNewPrice(e.target.value); setError(""); }}
-                    placeholder={String(spotPrice)}
-                    className="w-32 px-3 py-1.5 rounded-lg border border-beige-dark text-brown-dark font-bold text-lg
-                      focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
-                  />
-                  <span className="text-brown-light text-sm">/kg</span>
-                  <button onClick={saveSpotPrice} disabled={saving}
-                    className="p-1.5 rounded-lg bg-green-pale text-green-dark hover:bg-green-mid/20 transition-colors">
-                    <LuCheck className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => { setEditing(false); setNewPrice(""); setError(""); }}
-                    className="p-1.5 rounded-lg hover:bg-beige text-brown-light hover:text-brown-mid transition-colors">
-                    <LuX className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <p className="text-2xl font-extrabold text-brown-dark">
-                  {spotPrice !== null ? `₱${Number(spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "—"}
-                  <span className="text-brown-light text-base font-normal ml-1">/kg</span>
-                </p>
-              )}
-              {error && (
-                <p className="flex items-center gap-1.5 text-red-600 text-xs mt-1">
-                  <LuCircleAlert className="w-3.5 h-3.5" /> {error}
-                </p>
-              )}
-            </div>
-          </div>
-          {!editing && (
-            <button onClick={() => { setEditing(true); setNewPrice(String(spotPrice ?? "")); }}
-              className="flex items-center gap-1.5 text-xs text-brown-light hover:text-brown-mid transition-colors mt-1 px-3 py-1.5 rounded-lg hover:bg-beige">
-              <LuPencil className="w-3.5 h-3.5" /> Update
-            </button>
-          )}
-        </div>
-        <p className="text-xs text-brown-light mt-3">
-          This is the current spot price used for late deliveries. Updating it takes effect immediately on all future payment computations.
-        </p>
-      </div>
 
       {/* Quick Actions — Staff Account Creation */}
       <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">

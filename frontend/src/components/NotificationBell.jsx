@@ -4,6 +4,10 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
 const TYPE_STYLES = {
+  "Proposal Accepted":   "bg-green-pale text-green-dark",
+  "Proposal Rejected":   "bg-red-50 text-red-600",
+  "Counteroffer Received":"bg-blue-50 text-blue-600",
+  "Counteroffer":        "bg-blue-50 text-blue-600",
   "Contract Signed":     "bg-green-pale text-green-dark",
   "Contract Activated":  "bg-green-pale text-green-dark",
   "Contract Completed":  "bg-green-pale text-green-dark",
@@ -18,6 +22,19 @@ const TYPE_STYLES = {
   "Merge Completed":     "bg-green-pale text-green-dark",
   "Other":               "bg-beige text-brown-mid",
 };
+
+function getDisplayType(notification) {
+  if (
+    notification.notification_type === "Contract Signed"
+    && /^Your proposal\b/i.test(notification.message)
+  ) {
+    return "Proposal Accepted";
+  }
+  if (notification.notification_type === "Counteroffer") {
+    return "Counteroffer Received";
+  }
+  return notification.notification_type;
+}
 
 function fmtRelative(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -52,9 +69,9 @@ export default function NotificationBell() {
   }, [user]);
 
   useEffect(() => {
-    fetchNotifications();
+    const initialFetchTimer = window.setTimeout(fetchNotifications, 0);
 
-    if (!user) return;
+    if (!user) return () => window.clearTimeout(initialFetchTimer);
 
     // Real-time subscription
     const channel = supabase
@@ -69,7 +86,10 @@ export default function NotificationBell() {
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      window.clearTimeout(initialFetchTimer);
+      supabase.removeChannel(channel);
+    };
   }, [user, fetchNotifications]);
 
   // Close on outside click
@@ -113,7 +133,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-card border border-beige-dark/30 z-50 overflow-hidden">
+        <div className="fixed left-3 right-3 top-[68px] z-50 w-auto overflow-hidden rounded-2xl border border-beige-dark/30 bg-white shadow-card sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-beige-dark/20">
             <div className="flex items-center gap-2">
@@ -137,15 +157,17 @@ export default function NotificationBell() {
                 <LuBell className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 No notifications yet
               </li>
-            ) : notifications.map(n => (
-              <li
-                key={n.notification_id}
-                className={`px-4 py-3 transition-colors ${n.is_read ? "bg-white" : "bg-green-pale/30"}`}
-              >
-                <div className="flex items-start gap-3">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 ${TYPE_STYLES[n.notification_type] ?? TYPE_STYLES["Other"]}`}>
-                    {n.notification_type}
-                  </span>
+            ) : notifications.map(n => {
+              const displayType = getDisplayType(n);
+              return (
+                <li
+                  key={n.notification_id}
+                  className={`px-4 py-3 transition-colors ${n.is_read ? "bg-white" : "bg-green-pale/30"}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 ${TYPE_STYLES[displayType] ?? TYPE_STYLES["Other"]}`}>
+                      {displayType}
+                    </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-brown-dark text-xs leading-relaxed">{n.message}</p>
                     <p className="text-brown-light text-[11px] mt-1">{fmtRelative(n.created_at)}</p>
@@ -157,9 +179,10 @@ export default function NotificationBell() {
                       <LuCheck className="w-3.5 h-3.5" />
                     </button>
                   )}
-                </div>
-              </li>
-            ))}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

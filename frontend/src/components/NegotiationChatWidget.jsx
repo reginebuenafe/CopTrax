@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuX, LuSend, LuFileText,
-  LuMessageSquare, LuCheckCheck, LuLeaf,
+  LuMessageSquare, LuCheckCheck, LuLeaf, LuMaximize2,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -22,8 +23,49 @@ function getDateLabel(dateInput) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function getSupplierProposalEvent(message = "", isMine = false) {
+  const rawMessage = message.trim();
+
+  if (
+    /^You accepted .+['’]s proposal form\./i.test(rawMessage)
+    || /^NERC accepted your proposal form\./i.test(rawMessage)
+  ) {
+    return {
+      tone: "accepted",
+      text: rawMessage.replace(
+        /^(?:You accepted .+['’]s proposal form|NERC accepted your proposal form)\./i,
+        "NERC accepted your proposal form.",
+      ),
+    };
+  }
+
+  const rejected = rawMessage.match(
+    /^❌\s*Proposal declined:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
+  );
+  if (rejected && !isMine) {
+    return {
+      tone: "rejected",
+      text: `NERC rejected your proposal form.\nPrice: ₱${rejected[1]}/kg Volume: ${rejected[2]} tons`,
+    };
+  }
+
+  const counteroffer = rawMessage.match(
+    /^🔄\s*Counteroffer:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
+  );
+  if (counteroffer && !isMine) {
+    return {
+      tone: "counteroffer",
+      text: `NERC sent you a counteroffer.\nPrice: ₱${counteroffer[1]}/kg Volume: ${counteroffer[2]} tons`,
+    };
+  }
+
+  return null;
+}
+
 export default function NegotiationChatWidget() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isOpen, setIsOpen] = useState(() => {
     return localStorage.getItem("coptrax_chat_widget_open") === "true";
   });
@@ -44,9 +86,42 @@ export default function NegotiationChatWidget() {
   // Initialize by loading the Business Owner ID and checking for existing conversation
   // Do NOT create a conversation on widget open
   useEffect(() => {
-    if (user?.id) {
-      initializeWidget();
+    if (!user?.id) return;
+
+    async function initialize() {
+      setLoading(true);
+      const { data: boRows } = await supabase
+        .from("users")
+        .select("user_id, first_name, last_name, roles!inner(role_name)")
+        .eq("roles.role_name", "Business Owner")
+        .eq("account_status", "Active");
+
+      const boUser = boRows?.[0];
+      if (!boUser?.user_id) { setLoading(false); return; }
+      setBusinessOwnerId(boUser.user_id);
+
+      const { data: convData } = await supabase
+        .from("conversations")
+        .select("*, business_owner:business_owner_id(first_name, last_name)")
+        .eq("supplier_id", user.id)
+        .eq("business_owner_id", boUser.user_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (convData) {
+        setConversation(convData);
+        const [{ data: messageRows }, { data: proposalRows }] = await Promise.all([
+          supabase.from("messages").select("*").eq("conversation_id", convData.conversation_id).order("sent_at", { ascending: true }),
+          supabase.from("proposal_forms").select("*").eq("conversation_id", convData.conversation_id).order("submitted_at", { ascending: true }),
+        ]);
+        setMessages(messageRows ?? []);
+        setProposals(proposalRows ?? []);
+      }
+      setLoading(false);
     }
+
+    initialize();
   }, [user?.id]);
 
   // Subscribe to realtime messages & proposals when active conversation is ready
@@ -54,6 +129,12 @@ export default function NegotiationChatWidget() {
     if (!conversation?.conversation_id) return;
 
     const convId = conversation.conversation_id;
+
+    const refreshProposals = async () => {
+      const { data } = await supabase.from("proposal_forms").select("*")
+        .eq("conversation_id", convId).order("submitted_at", { ascending: true });
+      setProposals(data ?? []);
+    };
 
     const channel = supabase
       .channel(`chat_widget:${convId}`)
@@ -80,7 +161,7 @@ export default function NegotiationChatWidget() {
           table: "proposal_forms",
           filter: `conversation_id=eq.${convId}`,
         },
-        () => fetchProposals(convId)
+        refreshProposals
       )
       .on(
         "postgres_changes",
@@ -90,7 +171,7 @@ export default function NegotiationChatWidget() {
           table: "proposal_forms",
           filter: `conversation_id=eq.${convId}`,
         },
-        () => fetchProposals(convId)
+        refreshProposals
       )
       .subscribe();
 
@@ -105,49 +186,6 @@ export default function NegotiationChatWidget() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, proposals, isOpen]);
-
-  async function initializeWidget() {
-    setLoading(true);
-
-    // 1. Get the Business Owner ID
-    const { data: boRows } = await supabase
-      .from("users")
-      .select("user_id, first_name, last_name, roles!inner(role_name)")
-      .eq("roles.role_name", "Business Owner")
-      .eq("account_status", "Active");
-
-    const boUser = boRows?.[0];
-    const boId = boUser?.user_id;
-
-    if (!boId) {
-      setLoading(false);
-      return;
-    }
-
-    setBusinessOwnerId(boId);
-
-    // 2. Check for existing conversation (do NOT create if missing)
-    const { data: convData } = await supabase
-      .from("conversations")
-      .select("*, business_owner:business_owner_id(first_name, last_name)")
-      .eq("supplier_id", user.id)
-      .eq("business_owner_id", boId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (convData) {
-      setConversation(convData);
-      await Promise.all([
-        fetchMessages(convData.conversation_id),
-        fetchProposals(convData.conversation_id),
-      ]);
-    }
-    // If no existing conversation, leave conversation as null
-    // It will be created when the user sends their first message or proposal
-    
-    setLoading(false);
-  }
 
   // Helper: Ensure a conversation exists, creating one if needed
   async function ensureConversationExists() {
@@ -230,7 +268,7 @@ export default function NegotiationChatWidget() {
     }
   }
 
-  async function handleProposalSubmitted(msgText) {
+  async function handleProposalSubmitted() {
     setShowProposeModal(false);
     if (conversation?.conversation_id) {
       await fetchMessages(conversation.conversation_id);
@@ -243,19 +281,25 @@ export default function NegotiationChatWidget() {
     return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  function maximizeChat() {
+    setIsOpen(false);
+    const path = conversation?.conversation_id
+      ? `/dashboard/supplier/conversations/${conversation.conversation_id}`
+      : "/dashboard/supplier/conversations";
+    navigate(path, {
+      state: { returnTo: `${location.pathname}${location.search}` },
+    });
+  }
+
   const boName = conversation?.business_owner
     ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
     : "Edison Buenafe";
-  const boInitials = conversation?.business_owner
-    ? `${conversation.business_owner.first_name?.[0] || ""}${conversation.business_owner.last_name?.[0] || ""}`.toUpperCase()
-    : "EB";
-
   // Merge messages and proposal cards chronologically for chat feed display
   const combinedItems = [];
   messages.forEach((m) => {
     combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
   });
-  proposals.forEach((p) => {
+  proposals.filter(p => p.proposal_status === "Pending").forEach((p) => {
     combinedItems.push({ type: "proposal", date: new Date(p.submitted_at), data: p });
   });
   combinedItems.sort((a, b) => a.date - b.date);
@@ -298,6 +342,14 @@ export default function NegotiationChatWidget() {
           </div>
 
           <div className="flex items-center gap-1.5 text-white/80">
+            <button
+              onClick={maximizeChat}
+              className="p-1.5 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              title="Maximize chat"
+              aria-label="Open full negotiation chat"
+            >
+              <LuMaximize2 className="w-4.5 h-4.5 text-white" />
+            </button>
             <button
               onClick={() => setIsOpen(false)}
               className="p-1.5 hover:text-white hover:bg-white/10 rounded-lg transition-colors ml-1"
@@ -356,6 +408,66 @@ export default function NegotiationChatWidget() {
                 if (item.type === "message") {
                   const m = item.data;
                   const isMe = m.sender_id === user?.id;
+                  const rawMessage = m.message_text?.trimStart() ?? "";
+                  const proposalEvent = getSupplierProposalEvent(rawMessage, isMe);
+
+                  if (proposalEvent) {
+                    const eventColor = proposalEvent.tone === "accepted"
+                      ? "text-[#17682D]"
+                      : proposalEvent.tone === "rejected"
+                        ? "text-[#C62828]"
+                        : "text-[#2563EB]";
+                    return (
+                      <div key={m.message_id || idx} className="flex justify-center px-3 py-2">
+                        <p className={`max-w-[90%] whitespace-pre-line text-center text-xs italic leading-relaxed ${eventColor}`}>
+                          {proposalEvent.text}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  if (rawMessage.startsWith("CONTRACT_CARD:")) {
+                    try {
+                      const contract = JSON.parse(rawMessage.replace(/^CONTRACT_CARD:\s*/, ""));
+                      return (
+                        <div key={m.message_id || idx} className="flex justify-start my-2">
+                          <div className="w-[90%] overflow-hidden rounded-2xl rounded-tl-none border border-[#2E7D32]/20 bg-[#EDF7EF] shadow-sm">
+                            <div className="flex items-center gap-2 bg-[#2E7D32] px-3.5 py-2.5 text-white">
+                              <LuFileText className="w-4 h-4 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-medium text-white/70">Contract received</p>
+                                <p className="truncate text-xs font-bold">{contract.contract_number ?? "New Contract"}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 px-3.5 py-3 text-xs">
+                              <div>
+                                <p className="text-[10px] text-brown-light">Price</p>
+                                <p className="font-bold text-brown-dark">₱{Number(contract.price_per_kg ?? 0).toFixed(2)}/kg</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-brown-light">Quantity</p>
+                                <p className="font-bold text-brown-dark">{Number(contract.contracted_tons ?? 0).toLocaleString()} tons</p>
+                              </div>
+                              <div className="col-span-2 flex items-center justify-between border-t border-[#A2D5AB]/50 pt-2">
+                                <span className="text-[10px] text-brown-light">
+                                  Due {contract.due_date
+                                    ? new Date(contract.due_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
+                                    : "after activation"}
+                                </span>
+                                <button type="button" onClick={maximizeChat}
+                                  className="font-bold text-[#2E7D32] hover:underline">
+                                  Review in full chat
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    } catch {
+                      // Fall back to the regular message bubble for malformed legacy data.
+                    }
+                  }
+
                   return (
                     <div
                       key={m.message_id || idx}

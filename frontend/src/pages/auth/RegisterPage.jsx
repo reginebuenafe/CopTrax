@@ -3,12 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
-<<<<<<< HEAD
-  LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuArrowLeft,
-=======
   LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuLandmark,
-  LuChevronLeft, LuChevronRight, LuScanLine,
->>>>>>> origin/main
+  LuChevronLeft, LuChevronRight, LuScanLine, LuArrowLeft, LuQrCode,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
@@ -26,6 +22,109 @@ const GOV_ID_TYPES = [
   "PWD ID",
   "Other Government ID",
 ];
+
+const PH_BANK_OPTIONS = [
+  "Asia United Bank (AUB)",
+  "Bank of Commerce",
+  "Bank of the Philippine Islands (BPI)",
+  "BDO Network Bank",
+  "BDO Unibank",
+  "BPI Direct BanKo",
+  "CIMB Bank Philippines",
+  "China Bank",
+  "China Bank Savings",
+  "City Savings Bank",
+  "Development Bank of the Philippines (DBP)",
+  "EastWest Bank",
+  "Equicom Savings Bank",
+  "GoTyme Bank",
+  "Land Bank of the Philippines",
+  "Maya Bank",
+  "Maybank Philippines",
+  "Metrobank",
+  "Philippine Bank of Communications (PBCOM)",
+  "Philippine Business Bank",
+  "Philippine National Bank (PNB)",
+  "Philippine Savings Bank (PSBank)",
+  "Philippine Veterans Bank",
+  "RCBC",
+  "Security Bank",
+  "SeaBank Philippines",
+  "Sterling Bank of Asia",
+  "Tonik Digital Bank",
+  "UnionBank of the Philippines",
+  "UnionDigital Bank",
+  "UNO Digital Bank",
+  "GCash",
+  "GrabPay",
+  "PalawanPay",
+];
+
+const BANK_QR_ALIASES = [
+  ["BDO NETWORK", "BDO Network Bank"], ["BDO", "BDO Unibank"],
+  ["BPI DIRECT", "BPI Direct BanKo"], ["BPI", "Bank of the Philippine Islands (BPI)"],
+  ["METROPOLITAN BANK", "Metrobank"], ["METROBANK", "Metrobank"],
+  ["LAND BANK", "Land Bank of the Philippines"], ["LANDBANK", "Land Bank of the Philippines"],
+  ["UNIONDIGITAL", "UnionDigital Bank"], ["UNION BANK", "UnionBank of the Philippines"], ["UNIONBANK", "UnionBank of the Philippines"],
+  ["CHINA BANK SAVINGS", "China Bank Savings"], ["CHINA BANK", "China Bank"], ["CHINABANK", "China Bank"],
+  ["RCBC", "RCBC"], ["RIZAL COMMERCIAL", "RCBC"], ["SECURITY BANK", "Security Bank"],
+  ["EAST WEST", "EastWest Bank"], ["EASTWEST", "EastWest Bank"],
+  ["PHILIPPINE NATIONAL BANK", "Philippine National Bank (PNB)"], ["PNB", "Philippine National Bank (PNB)"],
+  ["MAYA", "Maya Bank"], ["GOTYME", "GoTyme Bank"], ["GCASH", "GCash"],
+  ["SEABANK", "SeaBank Philippines"], ["TONIK", "Tonik Digital Bank"], ["UNOBANK", "UNO Digital Bank"],
+  ["AUB", "Asia United Bank (AUB)"], ["ASIA UNITED BANK", "Asia United Bank (AUB)"],
+];
+
+function parseTlv(value) {
+  const fields = {};
+  let cursor = 0;
+  while (cursor + 4 <= value.length) {
+    const tag = value.slice(cursor, cursor + 2);
+    const lengthText = value.slice(cursor + 2, cursor + 4);
+    if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lengthText)) break;
+    const length = Number(lengthText);
+    const start = cursor + 4;
+    const end = start + length;
+    if (end > value.length) break;
+    fields[tag] = value.slice(start, end);
+    cursor = end;
+  }
+  return fields;
+}
+
+function bankDetailsFromQr(payload) {
+  const details = { bankName: "", accountName: "", accountNumber: "" };
+
+  // Some bank/e-wallet QRs use JSON or URL query parameters instead of EMV QR Ph.
+  try {
+    const source = payload.trim().startsWith("{")
+      ? JSON.parse(payload)
+      : Object.fromEntries(new URL(payload).searchParams.entries());
+    const normalized = Object.fromEntries(
+      Object.entries(source).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, ""), String(value)]),
+    );
+    details.bankName = normalized.bankname || normalized.bank || normalized.institution || "";
+    details.accountName = normalized.accountname || normalized.accountholdername || normalized.name || normalized.merchantname || "";
+    details.accountNumber = normalized.accountnumber || normalized.accountno || normalized.account || normalized.mobile || "";
+  } catch { /* EMV payloads are handled below. */ }
+
+  const emv = parseTlv(payload);
+  if (!details.accountName && emv["59"]) details.accountName = emv["59"].trim();
+
+  if (!details.bankName) {
+    const upperPayload = payload.toUpperCase();
+    details.bankName = BANK_QR_ALIASES.find(([alias]) => upperPayload.includes(alias))?.[1] || "";
+  } else if (!PH_BANK_OPTIONS.includes(details.bankName)) {
+    const bankText = details.bankName.toUpperCase();
+    details.bankName = BANK_QR_ALIASES.find(([alias]) => bankText.includes(alias))?.[1] || "";
+  }
+
+  // QR Ph merchant-account templates normally contain a payment token, not a
+  // clearly disclosed account number. Never present that token as bank data.
+  if (!details.accountNumber && Object.keys(emv).length) details.accountNumber = "********";
+
+  return details;
+}
 
 // ── Camera capture modal ──────────────────────────────────────────────────────
 function CameraModal({ onCapture, onClose, facing = "user", title, instructions }) {
@@ -247,14 +346,82 @@ export default function RegisterPage() {
   const [selfiePhoto,     setSelfiePhoto]     = useState(null);
   const [signaturePhoto,  setSignaturePhoto]  = useState(null);
   const [idExtracting,    setIdExtracting]    = useState(false);
+  const [bankQrPreview,   setBankQrPreview]   = useState(null);
+  const [bankQrScanning,  setBankQrScanning]  = useState(false);
+  const [bankQrMessage,   setBankQrMessage]   = useState("");
 
   const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
+  useEffect(() => () => {
+    if (bankQrPreview) URL.revokeObjectURL(bankQrPreview);
+  }, [bankQrPreview]);
+
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
+  }
+
+  function setPhone(e) {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+    const formatted = [
+      digits.slice(0, 4),
+      digits.slice(4, 7),
+      digits.slice(7, 11),
+    ].filter(Boolean).join(" ");
+
+    setForm(f => ({ ...f, phone: formatted }));
+  }
+
+  async function scanBankQr(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setBankQrMessage("Please upload a PNG, JPG, or WebP image containing your bank QR code.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setBankQrMessage("For security, QR images must be 5 MB or smaller.");
+      return;
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    setBankQrPreview(imageUrl);
+    setBankQrScanning(true);
+    setBankQrMessage("");
+
+    try {
+      const { BrowserQRCodeReader } = await import("@zxing/browser");
+      const reader = new BrowserQRCodeReader();
+      const result = await reader.decodeFromImageUrl(imageUrl);
+      const payload = result.getText();
+      if (!payload || payload.length > 4096) throw new Error("Invalid QR payload");
+      const details = bankDetailsFromQr(payload);
+      const found = Object.values(details).filter(Boolean).length;
+
+      if (!found) {
+        setBankQrMessage("QR code read successfully, but it does not expose bank account details. Please enter them manually.");
+        return;
+      }
+
+      setForm(current => ({
+        ...current,
+        bankName: details.bankName || current.bankName,
+        accountName: details.accountName || current.accountName,
+        accountNumber: details.accountNumber || current.accountNumber,
+      }));
+      setBankQrMessage(
+        found === 3
+          ? "Bank details auto-filled. Please verify them before submitting."
+          : "Available details were auto-filled. Complete the missing fields and verify everything before submitting.",
+      );
+    } catch {
+      setBankQrMessage("No readable QR code was found. Try a clearer, uncropped image or enter the details manually.");
+    } finally {
+      setBankQrScanning(false);
+    }
   }
 
   async function extractIdInfo(photoObj) {
@@ -315,6 +482,14 @@ export default function RegisterPage() {
       if (!form.firstName.trim()) { setError("First name is required."); return false; }
       if (!form.lastName.trim())  { setError("Last name is required."); return false; }
       if (!form.email.trim())     { setError("Email address is required."); return false; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+        setError("Please enter a valid email address."); return false;
+      }
+      if (!form.phone.trim()) { setError("Contact number is required."); return false; }
+      const normalizedPhone = form.phone.replace(/[\s()-]/g, "");
+      if (!/^(?:\+63|0)9\d{9}$/.test(normalizedPhone)) {
+        setError("Please enter a valid Philippine mobile number (for example, 0917 123 4567)."); return false;
+      }
       if (form.password.length < 8) { setError("Password must be at least 8 characters."); return false; }
       if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return false; }
     }
@@ -328,6 +503,9 @@ export default function RegisterPage() {
       if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
       if (!form.accountName.trim())   { setError("Account holder name is required."); return false; }
       if (!form.accountNumber.trim()) { setError("Account number is required."); return false; }
+      if (/^\*+$/.test(form.accountNumber.trim())) {
+        setError("The QR code did not disclose the account number. Please enter it manually."); return false;
+      }
     }
     return true;
   }
@@ -349,34 +527,14 @@ export default function RegisterPage() {
     if (!validateStep(4)) return;
 
     setLoading(true);
-<<<<<<< HEAD
-    setStep("uploading");
-
-    // 1. Create auth user. If this email was previously used by an account that
-    //    was deleted, signUp() rejects it with "User already registered" — in
-    //    that case we re-register the existing account server-side instead
-    //    (see re_registration below).
-=======
->>>>>>> origin/main
     setUploadProgress("Creating account…");
 
-<<<<<<< HEAD
-    const isReRegistration = !!authError && /already registered/i.test(authError.message ?? "");
-    if (authError && !isReRegistration) {
-      setError(authError.message);
-      setLoading(false);
-      setStep("form");
-      return;
-    }
-    const userId = data?.user?.id ?? null;
-=======
     const { data, error: authError } = await supabase.auth.signUp({
       email: form.email, password: form.password,
       options: { data: { role: "Supplier" } },
     });
     if (authError) { setError(authError.message); setLoading(false); return; }
     const userId = data.user.id;
->>>>>>> origin/main
 
     let govIdData, faceIdData, esignData;
     try {
@@ -393,49 +551,6 @@ export default function RegisterPage() {
 
     try {
       setUploadProgress("Uploading documents…");
-<<<<<<< HEAD
-      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
-        "upload-registration-files",
-        {
-          body: {
-            user_id:         userId ?? undefined,
-            email:           form.email,
-            password:        isReRegistration ? form.password : undefined,
-            re_registration: isReRegistration,
-            first_name:      form.firstName.trim(),
-            last_name:       form.lastName.trim(),
-            phone:           form.phone.trim() || null,
-            address:         form.address.trim() || null,
-            gov_id_type:     form.govIdType,
-            gov_id_data:     govIdData,
-            face_id_data:    faceIdData,
-            esign_data:      esignData,
-          },
-        }
-      );
-      // The client wraps non-2xx responses in a generic "non-2xx status code"
-      // error — read the response body so the real server-side error shows up.
-      let errMsg = fnData?.error ?? null;
-      if (!errMsg && fnErr) {
-        errMsg = fnErr.message ?? null;
-        try {
-          const resBody = await fnErr.context?.text();
-          if (resBody) {
-            try {
-              const parsed = JSON.parse(resBody);
-              errMsg = parsed?.error ?? resBody;
-            } catch {
-              errMsg = resBody;
-            }
-          }
-        } catch {
-          /* keep the generic message */
-        }
-      }
-      if (errMsg) {
-        throw new Error(`Document upload failed: ${errMsg}`);
-      }
-=======
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("upload-registration-files", {
         body: {
           user_id:        userId,
@@ -454,7 +569,6 @@ export default function RegisterPage() {
       });
       const errMsg = fnData?.error ?? fnErr?.message;
       if (errMsg) throw new Error(`Document upload failed: ${errMsg}`);
->>>>>>> origin/main
     } catch (uploadErr) {
       setError(uploadErr.message);
       setLoading(false); return;
@@ -585,11 +699,15 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-brown-dark mb-1.5">Phone number</label>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Contact number <span className="text-red-500">*</span>
+            </label>
             <div className="relative">
               <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-              <input type="tel" value={form.phone} onChange={set("phone")}
-                placeholder="+63 9XX XXX XXXX" className={`${inputClass} pl-10`} />
+              <input type="tel" value={form.phone} onChange={setPhone}
+                placeholder="0917 123 4567" autoComplete="tel" inputMode="numeric"
+                maxLength={13} required
+                className={`${inputClass} pl-10`} />
             </div>
           </div>
 
@@ -695,10 +813,51 @@ export default function RegisterPage() {
           </p>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">
+              Bank QR code <span className="text-brown-light font-normal">(optional)</span>
+            </label>
+            <p className="text-xs text-brown-light mb-2">
+              Upload your bank or e-wallet QR image to auto-fill any account details encoded in it.
+            </p>
+            <label className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-beige-dark bg-white/60 p-3 cursor-pointer hover:border-green-mid hover:bg-green-pale/30 transition-all">
+              {bankQrPreview ? (
+                <img src={bankQrPreview} alt="Uploaded bank QR code" className="w-16 h-16 rounded-xl object-cover border border-beige-dark" />
+              ) : (
+                <span className="w-16 h-16 rounded-xl bg-green-pale flex items-center justify-center shrink-0">
+                  <LuQrCode className="w-7 h-7 text-green-dark" />
+                </span>
+              )}
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-green-dark">
+                  {bankQrScanning ? "Reading QR code…" : bankQrPreview ? "Choose another QR image" : "Upload bank QR code"}
+                </span>
+                <span className="block text-xs text-brown-light mt-0.5">PNG, JPG, or a screenshot</span>
+              </span>
+              <input type="file" accept="image/*" onChange={scanBankQr} disabled={bankQrScanning} className="sr-only" />
+            </label>
+            {bankQrMessage && (
+              <div className="flex items-start gap-2 mt-2 text-xs text-brown-mid bg-beige rounded-xl px-3 py-2.5">
+                {bankQrScanning
+                  ? <LuRefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                  : <LuCircleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                <span>{bankQrMessage}</span>
+              </div>
+            )}
+            <p className="text-[11px] text-brown-light mt-2 leading-relaxed">
+              Privacy: the QR image is decoded only in this browser. CopTrax does not upload or save the image or its raw QR contents.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-brown-dark mb-1.5">
               Bank name <span className="text-red-500">*</span>
             </label>
-            <input type="text" value={form.bankName} onChange={set("bankName")}
-              placeholder="e.g. BDO, BPI, Metrobank, GCash…" className={`${inputClass} px-4`} />
+            <div className="relative">
+              <LuChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+              <select value={form.bankName} onChange={set("bankName")} required
+                className={`${inputClass} pl-4 pr-10 appearance-none`}>
+                <option value="">Select your bank or e-wallet…</option>
+                {PH_BANK_OPTIONS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">
@@ -712,7 +871,13 @@ export default function RegisterPage() {
               Account number <span className="text-red-500">*</span>
             </label>
             <input type="text" value={form.accountNumber} onChange={set("accountNumber")}
-              placeholder="e.g. 001234567890" className={`${inputClass} px-4`} />
+              onFocus={e => { if (/^\*+$/.test(e.target.value)) e.target.select(); }}
+              placeholder="e.g. 001234567890" autoComplete="off" className={`${inputClass} px-4`} />
+            {/^\*+$/.test(form.accountNumber) && (
+              <p className="text-xs text-amber-700 mt-1.5">
+                The QR code hides the account number. Replace the asterisks with the actual number.
+              </p>
+            )}
           </div>
         </div>
       );
@@ -802,223 +967,6 @@ export default function RegisterPage() {
             <form onSubmit={handleSubmit}>
               {renderStep()}
 
-<<<<<<< HEAD
-              {/* ── Section 1: Personal Info ─────────────────────── */}
-              <section>
-                <h3 className="text-xs font-bold text-brown-light uppercase tracking-widest mb-4">
-                  Personal Information
-                </h3>
-                <div className="space-y-4">
-                  {/* Name */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                        First name <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <LuUser className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-                        <input type="text" required value={form.firstName} onChange={set("firstName")}
-                          placeholder="Juan" className={`${inputClass} pl-10`} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                        Last name <span className="text-red-500">*</span>
-                      </label>
-                      <input type="text" required value={form.lastName} onChange={set("lastName")}
-                        placeholder="dela Cruz" className={`${inputClass} px-4`} />
-                    </div>
-                  </div>
-
-                  {/* Email */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                      Email address <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <LuMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-                      <input type="email" required value={form.email} onChange={set("email")}
-                        placeholder="you@example.com" className={`${inputClass} pl-10`} />
-                    </div>
-                  </div>
-
-                  {/* Phone */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">Phone number</label>
-                    <div className="relative">
-                      <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-                      <input type="tel" value={form.phone} onChange={set("phone")}
-                        placeholder="09XX XXX XXXX" className={`${inputClass} pl-10`} />
-                    </div>
-                  </div>
-
-                  {/* Address */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">Address</label>
-                    <div className="relative">
-                      <LuMapPin className="absolute left-3.5 top-3 w-4 h-4 text-brown-light" />
-                      <textarea rows={2} value={form.address} onChange={set("address")}
-                        placeholder="Barangay, Municipality, Province"
-                        className={`${inputClass} pl-10 resize-none`} />
-                    </div>
-                  </div>
-
-                  {/* Password */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                      Password <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-                      <input type={showPassword ? "text" : "password"} required
-                        value={form.password} onChange={set("password")}
-                        placeholder="Min. 8 characters" className={`${inputClass} pl-10 pr-10`} />
-                      <button type="button" onClick={() => setShowPassword(p => !p)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-                        {showPassword ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Confirm Password */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                      Confirm password <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-                      <input type={showConfirm ? "text" : "password"} required
-                        value={form.confirmPassword} onChange={set("confirmPassword")}
-                        placeholder="Re-enter password" className={`${inputClass} pl-10 pr-10`} />
-                      <button type="button" onClick={() => setShowConfirm(p => !p)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-                        {showConfirm ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* ── Section 2: Government ID ─────────────────────── */}
-              <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <LuIdCard className="w-4 h-4 text-green-dark" />
-                  <h3 className="text-xs font-bold text-brown-light uppercase tracking-widest">
-                    Government-Issued ID
-                  </h3>
-                </div>
-
-                <div className="space-y-4">
-                  {/* ID type */}
-                  <div>
-                    <label className="block text-sm font-medium text-brown-dark mb-1.5">
-                      ID type <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <LuChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
-                      <select required value={form.govIdType} onChange={set("govIdType")}
-                        className={`${inputClass} pl-4 pr-10 appearance-none`}>
-                        <option value="">Select ID type…</option>
-                        {GOV_ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Gov ID photo */}
-                  <ImageField
-                    label="Photo of your government ID"
-                    required
-                    hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
-                    preview={govIdPhoto?.dataUrl ?? null}
-                    onFile={v => setGovIdPhoto(v)}
-                    onCamera={() => setCamera({
-                      facing: "environment",
-                      title: "Photograph your Government ID",
-                      instructions: "Place your ID on a flat surface in good lighting. Make sure all four corners are visible and the text is sharp.",
-                      onCapture: v => setGovIdPhoto(v),
-                    })}
-                  />
-                </div>
-              </section>
-
-              {/* ── Section 3: Selfie with ID ────────────────────── */}
-              <section>
-                <div className="flex items-center gap-2 mb-1">
-                  <LuCamera className="w-4 h-4 text-green-dark" />
-                  <h3 className="text-xs font-bold text-brown-light uppercase tracking-widest">
-                    Photo Holding Your ID
-                  </h3>
-                </div>
-                <p className="text-xs text-brown-light mb-4">
-                  Take a clear photo of yourself holding your government ID beside your face.
-                  Both your face and the ID must be visible and legible.
-                </p>
-
-                <ImageField
-                  label="Selfie with government ID"
-                  required
-                  preview={selfiePhoto?.dataUrl ?? null}
-                  onFile={v => setSelfiePhoto(v)}
-                  onCamera={() => setCamera({
-                    facing: "user",
-                    title: "Selfie holding your Government ID",
-                    instructions: "Hold your government ID clearly beside your face. Make sure your face and the ID text are both visible and in focus.",
-                    onCapture: v => setSelfiePhoto(v),
-                  })}
-                />
-              </section>
-
-              {/* ── Section 4: E-Signature ───────────────────────── */}
-              <section>
-                <div className="flex items-center gap-2 mb-1">
-                  <LuPenLine className="w-4 h-4 text-green-dark" />
-                  <h3 className="text-xs font-bold text-brown-light uppercase tracking-widest">
-                    Handwritten E-Signature
-                  </h3>
-                </div>
-
-                {/* Instructions card */}
-                <div className="bg-beige rounded-2xl px-4 py-4 mb-4 space-y-2">
-                  <p className="text-sm font-semibold text-brown-dark">How to prepare your signature:</p>
-                  <ol className="text-xs text-brown-mid space-y-1.5 list-decimal list-inside">
-                    <li>Use a plain <strong>white sheet of bond paper</strong> (any size).</li>
-                    <li>Write your <strong>full signature three (3) times</strong> using a black or blue pen — one below the other.</li>
-                    <li>Make sure all three signatures are clearly written and not cut off.</li>
-                    <li>Place the paper on a flat, well-lit surface.</li>
-                    <li>Take a clear, straight-on photo — avoid shadows and blurriness.</li>
-                  </ol>
-                  <div className="mt-3 border border-beige-dark rounded-xl px-4 py-3 bg-white text-xs text-brown-light text-center italic">
-                    ✦ Your handwritten signature will be used on all contracts you sign in CopTrax ✦
-                  </div>
-                </div>
-
-                <ImageField
-                  label="Photo of your handwritten signature (3× on white paper)"
-                  required
-                  preview={signaturePhoto?.dataUrl ?? null}
-                  onFile={v => setSignaturePhoto(v)}
-                  onCamera={() => setCamera({
-                    facing: "environment",
-                    title: "Photograph your Signature Sheet",
-                    instructions: "Point the camera at the white paper with your 3 signatures. Make sure all three are fully visible, well-lit, and in focus.",
-                    onCapture: v => setSignaturePhoto(v),
-                  })}
-                />
-              </section>
-
-              {/* ── Submit ───────────────────────────────────────── */}
-              <button type="submit" disabled={loading}
-                className="w-full bg-gradient-to-r from-green-dark to-green-mid text-white font-bold py-3 rounded-xl
-                           shadow-md hover:shadow-glow-green transition-all duration-300 disabled:opacity-60
-                           disabled:cursor-not-allowed text-sm">
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Submitting…
-                  </span>
-                ) : "Submit Registration"}
-              </button>
-=======
               {/* Navigation buttons */}
               <div className="flex gap-3 mt-7">
                 {currentStep > 0 && (
@@ -1039,7 +987,6 @@ export default function RegisterPage() {
                   </button>
                 )}
               </div>
->>>>>>> origin/main
             </form>
 
             <p className="text-center text-sm text-brown-light mt-6">

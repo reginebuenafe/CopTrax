@@ -53,6 +53,7 @@ VALUES ('contracts', 'contracts', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- BO can read/write all contract documents (service role handles inserts)
+DROP POLICY IF EXISTS "contracts_bucket_bo_select" ON storage.objects;
 CREATE POLICY "contracts_bucket_bo_select"
 ON storage.objects FOR SELECT
 USING (
@@ -61,6 +62,7 @@ USING (
 );
 
 -- Suppliers can read their own contract documents
+DROP POLICY IF EXISTS "contracts_bucket_supplier_select" ON storage.objects;
 CREATE POLICY "contracts_bucket_supplier_select"
 ON storage.objects FOR SELECT
 USING (

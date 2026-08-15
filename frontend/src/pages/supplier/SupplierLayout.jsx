@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
-import { NavLink, useNavigate, Outlet } from "react-router-dom";
+import { createElement, useState, useEffect } from "react";
+import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
   LuWallet, LuStar, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
+import { supabase } from "../../lib/supabase";
 import NotificationBell from "../../components/NotificationBell";
 import NegotiationChatWidget from "../../components/NegotiationChatWidget";
 
@@ -30,8 +31,29 @@ export default function SupplierLayout() {
   useEffect(() => {
     localStorage.setItem("coptrax_sidebar_collapsed", String(collapsed));
   }, [collapsed]);
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isFullChat = location.pathname.startsWith("/dashboard/supplier/conversations");
+
+  // Announce Supplier presence from every dashboard page, not only chat.
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    const channel = supabase.channel("online-suppliers", {
+      config: { presence: { key: user.id } },
+    });
+    channel.subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        channel.track({ user_id: user.id, online_at: new Date().toISOString() });
+      }
+    });
+
+    return () => {
+      channel.untrack();
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   async function handleSignOut() {
     await signOut();
@@ -40,8 +62,6 @@ export default function SupplierLayout() {
 
   const initials = [profile?.first_name?.[0], profile?.last_name?.[0]]
     .filter(Boolean).join("").toUpperCase() || "SP";
-
-  const sidebarW = collapsed ? SIDEBAR_MINI : SIDEBAR_FULL;
 
   return (
     <div
@@ -59,25 +79,25 @@ export default function SupplierLayout() {
 
       {/* ── Sidebar ─────────────────────────────────────────── */}
       <aside
-        className={`fixed top-0 left-0 h-screen bg-[#3E2723] border-r border-white/10 z-40
+        className={`fixed top-0 left-0 h-screen bg-[#FFFEFB] border-r border-[#E4D5BD] z-40 shadow-[2px_0_12px_rgba(93,64,55,0.06)]
           flex flex-col overflow-hidden
           w-64 lg:w-[var(--sidebar-w)]
           transition-[width,transform] duration-300 ease-in-out
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10 shrink-0">
+        <div className="flex items-center gap-3 px-4 py-5 border-b border-[#E7DCC9] shrink-0">
           <div className="w-9 h-9 shrink-0 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm">
             <LuLeaf className="w-4.5 h-4.5 text-white" />
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap
             ${collapsed ? "lg:opacity-0 lg:max-w-0" : "opacity-100 max-w-[160px]"}`}>
-            <p className="font-extrabold text-white text-sm leading-none">CopTrax</p>
-            <p className="text-white/50 text-[10px] mt-0.5">Supplier Portal</p>
+            <p className="font-extrabold text-[#4E342E] text-sm leading-none">CopTrax</p>
+            <p className="text-[#9A8176] text-[10px] mt-0.5">Supplier Portal</p>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto lg:hidden text-white/60 hover:text-white shrink-0 p-1"
+            className="ml-auto lg:hidden text-[#8B7368] hover:text-[#4E342E] shrink-0 p-1"
           >
             <LuX className="w-5 h-5" />
           </button>
@@ -97,23 +117,25 @@ export default function SupplierLayout() {
                  ${collapsed
                   ? "gap-3 px-3 py-2.5 lg:gap-0 lg:p-0 lg:w-11 lg:h-11 lg:mx-auto lg:justify-center"
                   : "gap-3 px-3 py-2.5"
-                }
+                 }
                  ${isActive
-                  ? "bg-[#2E7D32] text-white font-semibold"
-                  : "text-white/70 hover:bg-white/10 hover:text-white"}`
+                  ? "bg-[#2E7D32] text-white font-semibold shadow-sm"
+                  : "text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E]"}`
               }
             >
               {({ isActive }) => (
                 <>
-                  <Icon className={`shrink-0 transition-all duration-200
-                    ${collapsed ? "lg:w-6 lg:h-6 w-4.5 h-4.5" : "w-4.5 h-4.5"}
-                    ${isActive ? "text-white" : "text-white/50 group-hover:text-white/80"}`} />
+                  {createElement(Icon, {
+                    className: `shrink-0 transition-all duration-200
+                      ${collapsed ? "lg:w-6 lg:h-6 w-4.5 h-4.5" : "w-4.5 h-4.5"}
+                      ${isActive ? "text-white" : "text-[#A18D82] group-hover:text-[#6D5147]"}`,
+                  })}
                   <span className={`flex-1 whitespace-nowrap transition-[opacity,max-width] duration-300 ease-in-out
                     ${collapsed ? "lg:opacity-0 lg:max-w-0 lg:overflow-hidden" : "opacity-100 max-w-[160px]"}`}>
                     {label}
                   </span>
                   {isActive && (
-                    <LuChevronRight className={`w-3.5 h-3.5 text-white/60 shrink-0
+                    <LuChevronRight className={`w-3.5 h-3.5 text-white/70 shrink-0
                       ${collapsed ? "lg:hidden" : ""}`} />
                   )}
                 </>
@@ -123,14 +145,14 @@ export default function SupplierLayout() {
         </nav>
 
         {/* Sidebar footer — sign out only */}
-        <div className="border-t border-white/10 shrink-0 px-2 py-3 overflow-hidden">
+        <div className="border-t border-[#E7DCC9] shrink-0 px-2 py-3 overflow-hidden">
           <button
             onClick={handleSignOut}
             title={collapsed ? "Sign Out" : undefined}
             className={`flex items-center rounded-xl text-sm font-medium
-              text-white/70 hover:bg-white/10 hover:text-red-300 transition-all duration-200
+              text-[#765D52] hover:bg-red-50 hover:text-red-600 transition-all duration-200
               ${collapsed
-                ? "w-full gap-2.5 px-3.5 py-2.5 lg:w-11 lg:h-11 lg:mx-auto lg:p-0 lg:justify-center"
+                ? "w-full gap-2.5 px-3.5 py-2.5 lg:w-11 lg:h-11 lg:mx-auto lg:gap-0 lg:p-0 lg:justify-center"
                 : "w-full gap-2.5 px-3.5 py-2.5"
               }`}
           >
@@ -167,8 +189,10 @@ export default function SupplierLayout() {
         className="flex flex-col min-h-screen transition-[margin-left] duration-300 ease-in-out
           ml-0 lg:ml-[var(--sidebar-w)]"
       >
-        <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-beige-dark/30
-          px-5 py-3.5 flex items-center gap-3">
+        <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-w)] z-20
+          bg-white/80 backdrop-blur-md border-b border-beige-dark/30
+          px-5 py-3.5 flex items-center gap-3
+          transition-[left] duration-300 ease-in-out">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden text-brown-mid hover:text-brown-dark transition-colors"
@@ -199,13 +223,13 @@ export default function SupplierLayout() {
             </div>
           </div>
         </header>
-        <main className="flex-1 p-5 sm:p-6 lg:p-8">
+        <main className="flex-1 px-5 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">
           <Outlet />
         </main>
       </div>
 
       {/* Floating Chat Bubble Widget */}
-      <NegotiationChatWidget />
+      {!isFullChat && <NegotiationChatWidget />}
     </div>
   );
 }
