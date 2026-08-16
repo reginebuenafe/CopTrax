@@ -1,17 +1,16 @@
 // sign-contract/index.ts
-// Supplier authorization → programmatic signing (REQ-4.3).
+// Supplier authorization → first-stage programmatic signing (REQ-4.3).
 //
 // Called by the Supplier from the "Review & Sign Contract" modal after they
 // tick the authorization checkbox. Flow:
 //   1. Verify caller is the contract's Supplier.
 //   2. Verify `authorized: true` in the request body (checkbox confirmation).
 //   3. Fetch supplier's stored e-signature from user_verify.esign_file_id.
-//   4. Fetch BO's stored e-signature (if any). Skipped gracefully if absent.
-//   5. Complete the DocuSeal submitter with both signatures via PUT /submitters/{id}.
-//   6. Insert audit rows in contract_signatures.
-//   7. Set contract.status = 'Active', activation_date = today, signing_date = today.
-//      (activation trigger auto-computes due_date.)
-//   8. Notify both parties.
+//   4. Apply only the Supplier signature to the pending DocuSeal submitter.
+//   5. Record the Supplier audit row and authorization timestamp.
+//   6. Leave the submission and contract Pending for the Business Owner.
+//   7. Notify both parties. DocuSeal's form.completed webhook activates the
+//      contract only after the Business Owner completes the second signature.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -129,7 +128,8 @@ Deno.serve(async (req) => {
       .from("contracts")
       .select(`
         contract_id, contract_number, status, supplier_id, business_owner_id,
-        docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug
+        docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug,
+        supplier_authorized_at
       `)
       .eq("contract_id", contract_id)
       .single();
@@ -144,6 +144,15 @@ Deno.serve(async (req) => {
     if (!contract.docuseal_submission_id) {
       return json({ error: "This contract has no DocuSeal submission. Ask the Business Owner to send it again." }, 400);
     }
+    if (contract.supplier_authorized_at) {
+      return json({
+        success: true,
+        contract_id,
+        supplier_authorized_at: contract.supplier_authorized_at,
+        awaiting_business_owner: true,
+        already_signed: true,
+      });
+    }
 
     // ── 4. Fetch stored e-signatures ─────────────────────────────────────────
     const supplierSigDataUrl = await fetchSignatureDataUrl(admin, contract.supplier_id as string);
@@ -153,25 +162,19 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    // BO signature is optional for now — new signup flow will require it later
-    const boSigDataUrl = await fetchSignatureDataUrl(admin, contract.business_owner_id as string);
-
-    // ── 5. Complete DocuSeal submitter with filled signatures ────────────────
+    // ── 5. Apply the Supplier signature without completing the BO session ───
     // docuseal_bo_slug is repurposed by generate-contract to hold the SUBMITTER id
     const submitterId = contract.docuseal_bo_slug;
     if (!submitterId) {
       return json({ error: "DocuSeal submitter ID missing on contract." }, 500);
     }
 
-    const values: Record<string, string> = {
-      supplier_signature: supplierSigDataUrl,
-    };
-    if (boSigDataUrl) values.business_owner_signature = boSigDataUrl;
+    const values: Record<string, string> = { supplier_signature: supplierSigDataUrl };
 
     const dsRes = await fetch(`${DOCUSEAL_API_BASE}/submitters/${submitterId}`, {
       method:  "PUT",
       headers: { "X-Auth-Token": DOCUSEAL_API_KEY, "Content-Type": "application/json" },
-      body:    JSON.stringify({ values, completed: true }),
+      body:    JSON.stringify({ values }),
     });
 
     if (!dsRes.ok) {
@@ -179,15 +182,10 @@ Deno.serve(async (req) => {
       return json({ error: `DocuSeal signing failed: ${errText}` }, 502);
     }
 
-    const dsData = await dsRes.json();
-    const documentUrl: string | null =
-      (dsData?.documents?.[0]?.url as string | undefined) ??
-      (dsData?.audit_log_url        as string | undefined) ??
-      null;
+    await dsRes.json();
 
     // ── 6. Insert audit rows in contract_signatures ──────────────────────────
     const now = new Date().toISOString();
-    const today = now.slice(0, 10);
 
     const { data: verifyRow } = await admin
       .from("user_verify")
@@ -195,61 +193,47 @@ Deno.serve(async (req) => {
       .eq("user_id", contract.supplier_id)
       .maybeSingle();
 
-    const signatureRows: Record<string, unknown>[] = [
-      {
+    const { data: existingSupplierSignature } = await admin
+      .from("contract_signatures")
+      .select("signature_id")
+      .eq("contract_id", contract_id)
+      .eq("signer_id", contract.supplier_id)
+      .maybeSingle();
+
+    if (!existingSupplierSignature) {
+      const { error: signatureError } = await admin.from("contract_signatures").insert({
         contract_id,
         signer_id:          contract.supplier_id,
         signer_role:        "Supplier",
         esignature_file_id: verifyRow?.esign_file_id ?? null,
         signature_order:    1,
         signed_at:          now,
-      },
-    ];
-
-    if (boSigDataUrl) {
-      const { data: boVerify } = await admin
-        .from("user_verify")
-        .select("esign_file_id")
-        .eq("user_id", contract.business_owner_id)
-        .maybeSingle();
-
-      signatureRows.push({
-        contract_id,
-        signer_id:          contract.business_owner_id,
-        signer_role:        "Business Owner",
-        esignature_file_id: boVerify?.esign_file_id ?? null,
-        signature_order:    2,
-        signed_at:          now,
       });
+      if (signatureError) {
+        return json({ error: `Supplier signature audit failed: ${signatureError.message}` }, 500);
+      }
     }
 
-    await admin.from("contract_signatures").insert(signatureRows);
-
-    // ── 7. Activate contract ─────────────────────────────────────────────────
+    // Keep the contract Pending. Activation is reserved for form.completed.
     const { error: updateErr } = await admin.from("contracts").update({
-      status:                 "Active",
-      activation_date:        today,        // trigger auto-computes due_date
-      signing_date:           today,
       supplier_authorized_at: now,
-      bo_signed_at:           boSigDataUrl ? now : null,
-      contract_document_url:  documentUrl,
     }).eq("contract_id", contract_id);
 
     if (updateErr) return json({ error: `DB update failed: ${updateErr.message}` }, 500);
 
-    // ── 8. Notifications ─────────────────────────────────────────────────────
+    // ── 7. Notifications ─────────────────────────────────────────────────────
     await admin.from("notifications").insert([
       {
         user_id:             contract.supplier_id as string,
         notification_type:   "Contract Signed",
-        message:             `You've signed contract ${contract.contract_number}. It is now Active.`,
+        message:             `You've signed contract ${contract.contract_number}. It is awaiting the Business Owner's signature.`,
         related_entity_type: "contracts",
         related_entity_id:   contract_id,
       },
       {
         user_id:             contract.business_owner_id as string,
         notification_type:   "Contract Signed",
-        message:             `Contract ${contract.contract_number} has been signed by the Supplier and is now Active.`,
+        message:             `The Supplier signed contract ${contract.contract_number}. Review and sign it to activate the contract.`,
         related_entity_type: "contracts",
         related_entity_id:   contract_id,
       },
@@ -258,8 +242,8 @@ Deno.serve(async (req) => {
     return json({
       success:              true,
       contract_id,
-      contract_document_url: documentUrl,
-      activation_date:      today,
+      supplier_authorized_at: now,
+      awaiting_business_owner: true,
     });
 
   } catch (err) {

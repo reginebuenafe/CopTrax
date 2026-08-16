@@ -8,6 +8,8 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ProposePriceModal from "../../components/ProposePriceModal";
+import BOContractReviewModal from "../../components/BOContractReviewModal";
+import { getNegotiationSystemMessage, isProposalSubmissionMessage, negotiationToneClass } from "../../utils/negotiationMessages";
 
 function initials(first, last) {
   return [(first ?? "")[0], (last ?? "")[0]].filter(Boolean).join("").toUpperCase() || "?";
@@ -36,13 +38,17 @@ function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
 }
 
+function isProposalActionMessage(message = "") {
+  return /^(?:💰\s*Price proposal|🔄\s*Counteroffer):/i.test(message.trim());
+}
+
 // ── Contract card (shown inside the chat message stream) ──────────────────────
-function ContractCard({ contractData, onTapPreview, signed }) {
+function ContractCard({ contractData, onReview, signed }) {
   return (
     <div className="flex justify-end my-2 px-4">
       <div
         className={`w-72 max-w-full overflow-hidden rounded-2xl rounded-br-sm border border-[#A2D5AB] bg-[#EDF7EF] shadow-sm ${contractData.preview_url ? "cursor-pointer transition-shadow hover:shadow-md" : ""}`}
-        onClick={() => contractData.preview_url && onTapPreview?.(contractData.preview_url)}
+        onClick={() => contractData.preview_url && onReview?.()}
       >
         <div className="flex items-center gap-2 bg-[#2E7D32] px-4 py-3 text-white">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15">
@@ -86,32 +92,32 @@ function ContractCard({ contractData, onTapPreview, signed }) {
 function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
   return (
     <div className="flex justify-center my-3 px-4">
-      <div className="bg-white border-2 border-[#2d5a27]/20 rounded-2xl p-4 w-full max-w-xs shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <LuCoins className="w-4 h-4 text-[#2d5a27]" />
-          <p className="text-sm font-bold text-[#2d5a27]">
-            {submittedByMe ? "Your Counteroffer" : "Incoming Proposal"}
+      <div className="w-72 max-w-full overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
+        <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3">
+          <LuCoins className="w-4 h-4 text-[#17682D]" />
+          <p className="text-[10px] font-extrabold uppercase text-[#17682D]">
+            {submittedByMe ? "Counteroffer Submitted" : "Price Proposal Submitted"}
           </p>
-          <span className="ml-auto text-xs bg-amber-50 text-amber-700 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+          <span className="ml-auto flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
             <LuClock className="w-3 h-3" /> Pending
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-[#f5f0e8] rounded-xl px-3 py-2">
+        <div className="grid grid-cols-2 gap-2 px-3.5 py-3">
+          <div>
             <p className="text-xs text-[#8b7355]">Price per kg</p>
             <p className="font-bold text-[#3d2b1f]">₱{Number(proposal.proposed_price_per_kg).toFixed(2)}</p>
           </div>
-          <div className="bg-[#f5f0e8] rounded-xl px-3 py-2">
+          <div className="text-right">
             <p className="text-xs text-[#8b7355]">Volume</p>
             <p className="font-bold text-[#3d2b1f]">{proposal.proposed_volume_tons} tons</p>
           </div>
         </div>
         {submittedByMe ? (
-          <div className="text-center py-2 text-xs text-[#b09a7a] italic">
+          <div className="mx-3.5 border-t border-[#B7DDBD] py-2.5 text-center text-xs italic text-[#b09a7a]">
             Awaiting supplier's response…
           </div>
         ) : (
-          <div className="flex gap-2">
+          <div className="mx-3.5 flex gap-2 border-t border-[#B7DDBD] py-3">
             <button onClick={onAccept}
               className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all">
               <LuCheck className="w-3.5 h-3.5" /> Accept
@@ -140,6 +146,7 @@ export default function BOChatLayout() {
   const [conversations, setConversations] = useState([]);
   const [conversationFilter, setConversationFilter] = useState("all");
   const [convLoading, setConvLoading] = useState(true);
+  const [conversationListError, setConversationListError] = useState("");
 
   // Middle panel
   const [currentConv, setCurrentConv] = useState(null);
@@ -151,6 +158,9 @@ export default function BOChatLayout() {
   const [counterModal, setCounterModal] = useState(null);
   const messagesContainerRef = useRef(null);
   const isInitialLoad = useRef(false);
+  const messageSyncInFlight = useRef(false);
+  const proposalActionInFlight = useRef(new Set());
+  const finalizationHandledRef = useRef(new Set());
 
   // Right panel
   const [supplierData, setSupplierData] = useState(null);
@@ -158,6 +168,7 @@ export default function BOChatLayout() {
   const [sendingContract, setSendingContract] = useState(false);
   const [contractError, setContractError] = useState(null);
   const [contractDraft, setContractDraft] = useState(null);
+  const [reviewContract, setReviewContract] = useState(null);
   const [contractDraftError, setContractDraftError] = useState("");
   const [toast, setToast] = useState(null);
   const [onlineSupplierIds, setOnlineSupplierIds] = useState(() => new Set());
@@ -168,27 +179,51 @@ export default function BOChatLayout() {
   }
 
   // ── Left panel: load conversations ────────────────────────────────────────
-  const fetchConversations = useCallback(async () => {
-    setConvLoading(true);
-    const { data } = await supabase
+  const fetchConversations = useCallback(async (showLoading = true) => {
+    if (showLoading) setConvLoading(true);
+    const { data, error } = await supabase
       .from("conversations")
       .select(`
         conversation_id, status, created_at,
         supplier:supplier_id(user_id, first_name, last_name, address),
-        messages(message_text, sent_at, sender_id)
+        messages(message_text, sent_at, sender_id),
+        proposal_forms!proposal_forms_conversation_id_fkey(proposal_id, proposal_status, submitted_at)
       `)
       .order("created_at", { ascending: false });
+
+    if (error) {
+      setConversationListError(error.message || "Could not load conversations.");
+      if (showLoading) setConvLoading(false);
+      return;
+    }
+    setConversationListError("");
 
     const enriched = (data ?? []).map(c => {
       const sorted = [...(c.messages ?? [])].sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
       const lastMsg = sorted[0] ?? null;
-      const unread = sorted.filter(m => m.sender_id !== user.id).length > 0 &&
-        lastMsg?.sender_id !== user.id;
+      const orderedProposals = [...(c.proposal_forms ?? [])]
+        .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at));
+      const latestPendingProposalIndex = orderedProposals
+        .map((proposal, index) => ({ proposal, index }))
+        .reverse()
+        .find(({ proposal }) => proposal.proposal_status === "Pending")?.index ?? -1;
+      // Negotiations begin with a Supplier proposal and alternate after that;
+      // even indexes are therefore pending actions received from the Supplier.
+      const latestPendingProposal = latestPendingProposalIndex >= 0
+        ? orderedProposals[latestPendingProposalIndex]
+        : null;
+      const hasIncomingPendingProposal = Boolean(latestPendingProposal)
+        && (latestPendingProposal.submitted_by
+          ? latestPendingProposal.submitted_by !== user.id
+          : latestPendingProposalIndex % 2 === 0);
+      const unread = hasIncomingPendingProposal || (c.conversation_id !== conversationId
+        && sorted.filter(m => m.sender_id !== user.id).length > 0 &&
+        lastMsg?.sender_id !== user.id);
       return { ...c, lastMsg, unread };
     });
     setConversations(enriched);
-    setConvLoading(false);
-  }, [user.id]);
+    if (showLoading) setConvLoading(false);
+  }, [conversationId, user.id]);
 
   useEffect(() => {
     const timer = window.setTimeout(fetchConversations, 0);
@@ -207,6 +242,47 @@ export default function BOChatLayout() {
 
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // Reconcile the selected conversation from the database. Realtime remains
+  // the fast path; this makes reconnects, background-tab returns, and a remote
+  // publication that has not yet been enabled recover without a page refresh.
+  const syncOpenMessages = useCallback(async () => {
+    if (!conversationId || messageSyncInFlight.current) return;
+    messageSyncInFlight.current = true;
+
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("sent_at", { ascending: true });
+
+      if (error) return;
+      const incomingMessages = data ?? [];
+      setMessages(previous => {
+        const sameMessages = previous.length === incomingMessages.length
+          && previous.every((message, index) => message.message_id === incomingMessages[index]?.message_id);
+        return sameMessages ? previous : incomingMessages;
+      });
+
+      const latest = incomingMessages.at(-1);
+      if (latest) {
+        setConversations(previous => previous
+          .map(conversation => conversation.conversation_id === conversationId
+            ? {
+                ...conversation,
+                lastMsg: latest,
+                unread: conversation.unread || (
+                  latest.sender_id !== user.id && isProposalActionMessage(latest.message_text)
+                ),
+              }
+            : conversation)
+          .sort((a, b) => new Date(b.lastMsg?.sent_at ?? b.created_at) - new Date(a.lastMsg?.sent_at ?? a.created_at)));
+      }
+    } finally {
+      messageSyncInFlight.current = false;
+    }
+  }, [conversationId, user.id]);
 
   // Keep the open chat and every conversation preview current without refresh.
   useEffect(() => {
@@ -227,16 +303,46 @@ export default function BOChatLayout() {
               ? {
                   ...conversation,
                   lastMsg: incoming,
-                  unread: incoming.sender_id !== user.id && incoming.conversation_id !== conversationId,
+                  unread: incoming.sender_id !== user.id && (
+                    incoming.conversation_id !== conversationId
+                    || isProposalActionMessage(incoming.message_text)
+                  ),
                 }
               : conversation)
             .sort((a, b) => new Date(b.lastMsg?.sent_at ?? b.created_at) - new Date(a.lastMsg?.sent_at ?? a.created_at)));
         },
       )
-      .subscribe();
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") syncOpenMessages();
+      });
 
     return () => { supabase.removeChannel(channel); };
-  }, [conversationId, user.id]);
+  }, [conversationId, syncOpenMessages, user.id]);
+
+  // Safety net for dropped websocket connections. Browsers throttle hidden
+  // tabs, so returning to this tab also triggers an immediate synchronization.
+  useEffect(() => {
+    const syncWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      syncOpenMessages();
+      fetchConversations(false);
+    };
+    const messageTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") syncOpenMessages();
+    }, 5000);
+    const conversationTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") fetchConversations(false);
+    }, 15000);
+
+    window.addEventListener("focus", syncWhenVisible);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () => {
+      window.clearInterval(messageTimer);
+      window.clearInterval(conversationTimer);
+      window.removeEventListener("focus", syncWhenVisible);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
+  }, [fetchConversations, syncOpenMessages]);
 
   // ── Middle panel: load chat on conversationId change ──────────────────────
   const loadChat = useCallback(async (convId) => {
@@ -274,9 +380,8 @@ export default function BOChatLayout() {
       // Load contracts for this conversation
       const { data: contractData } = await supabase
         .from("contracts")
-        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug")
-        .eq("supplier_id", conv.supplier.user_id)
-        .eq("business_owner_id", conv.business_owner_id ?? user.id)
+        .select("contract_id, conversation_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug, contract_document_url, supplier_authorized_at, bo_signed_at")
+        .eq("conversation_id", convId)
         .order("created_at", { ascending: false });
 
       setContracts(contractData ?? []);
@@ -284,7 +389,7 @@ export default function BOChatLayout() {
 
     setChatLoading(false);
     isInitialLoad.current = true;
-  }, [user.id]);
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return undefined;
@@ -292,19 +397,90 @@ export default function BOChatLayout() {
     return () => window.clearTimeout(timer);
   }, [conversationId, loadChat]);
 
+  const openContractDraftForTerms = useCallback(async (terms) => {
+    const price = Number(terms?.proposed_price_per_kg ?? terms?.agreed_price_per_kg);
+    const volume = Number(terms?.proposed_volume_tons ?? terms?.agreed_volume_tons);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(volume) || volume <= 0) {
+      setToast({ msg: "Finalized price and quantity are unavailable.", type: "error" });
+      return;
+    }
+
+    const existingContract = contracts.find(contract =>
+      contract.conversation_id === conversationId
+      || contract.contract_id === currentConv?.contract_id,
+    );
+    if (existingContract?.docuseal_submission_id) return;
+
+    setSendingContract(true);
+    setContractDraftError("");
+    let contractNumber = existingContract?.contract_number;
+    if (!contractNumber) {
+      const { data, error } = await supabase.rpc("generate_contract_number");
+      if (error || !data) {
+        setContractDraftError(error?.message ?? "Could not generate a contract ID.");
+        setSendingContract(false);
+        return;
+      }
+      contractNumber = data;
+    }
+
+    const projectedDue = new Date();
+    projectedDue.setMonth(projectedDue.getMonth() + 1);
+    projectedDue.setDate(projectedDue.getDate() + 1);
+    setContractDraft({
+      contractId: existingContract?.contract_id ?? null,
+      contractNumber,
+      supplierName: `${supplierData?.first_name ?? currentConv?.supplier?.first_name ?? ""} ${supplierData?.last_name ?? currentConv?.supplier?.last_name ?? ""}`.trim(),
+      price: String(price),
+      volume: String(volume),
+      dueDate: existingContract?.due_date ?? projectedDue.toISOString().slice(0, 10),
+    });
+    setSendingContract(false);
+  }, [contracts, conversationId, currentConv, supplierData]);
+
   // ── Realtime subscription for selected chat ───────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
+    const refreshProposals = () => {
+      supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true })
+        .then(({ data }) => setProposals(data ?? []));
+      fetchConversations(false);
+    };
+    const applyProposalChange = ({ new: incoming }) => {
+      setProposals(previous => {
+        const withoutIncoming = previous.filter(
+          proposal => proposal.proposal_id !== incoming.proposal_id,
+        );
+        return [...withoutIncoming, incoming].sort(
+          (a, b) => new Date(a.submitted_at) - new Date(b.submitted_at),
+        );
+      });
+      fetchConversations(false);
+    };
+    const applyProposalUpdate = payload => {
+      applyProposalChange(payload);
+      const acceptedProposalEvent = payload.new?.proposal_status === "Accepted";
+      if (acceptedProposalEvent && !finalizationHandledRef.current.has(conversationId)) {
+        finalizationHandledRef.current.add(conversationId);
+        openContractDraftForTerms(payload.new);
+      }
+    };
     const channel = supabase.channel(`bo-chat:${conversationId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
-        () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
+        applyProposalUpdate)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
-        () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
+        applyProposalChange)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations", filter: `conversation_id=eq.${conversationId}` },
+        ({ new: updatedConversation }) => {
+          setCurrentConv(previous => previous ? { ...previous, ...updatedConversation } : previous);
+        })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
         () => loadChat(conversationId))
-      .subscribe();
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") refreshProposals();
+      });
     return () => supabase.removeChannel(channel);
-  }, [conversationId, loadChat]);
+  }, [conversationId, fetchConversations, loadChat, openContractDraftForTerms]);
 
   // Auto-scroll to bottom — instant on initial load, smooth for live messages
   useEffect(() => {
@@ -329,14 +505,15 @@ export default function BOChatLayout() {
     .map((p, i) => ({ p, i })).reverse()
     .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
-  // odd index = BO's counter (submitted by BO), even = supplier's proposal
-  const latestSubmittedByBO = latestProposalIndex % 2 === 1;
+  const latestSubmittedByBO = latestProposal?.submitted_by
+    ? latestProposal.submitted_by === user.id
+    : latestProposalIndex % 2 === 1;
 
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
+  const negotiationFinalized = Boolean(currentConv?.negotiation_finalized_at || acceptedProposal);
 
   // ── Pending contract (has contract but no DocuSeal yet) ────────────────────
-  const pendingContract = contracts.find(c => c.status === "Pending" && !c.docuseal_submission_id) ?? null;
   const sentContract    = contracts.find(c => c.docuseal_submission_id) ?? null;
 
   // ── Chat actions ──────────────────────────────────────────────────────────
@@ -355,10 +532,21 @@ export default function BOChatLayout() {
   }
 
   async function acceptProposal(proposal) {
-    await supabase.from("proposal_forms").update({ proposal_status: "Accepted", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
+    if (proposalActionInFlight.current.has(proposal.proposal_id)) return;
+    proposalActionInFlight.current.add(proposal.proposal_id);
+    finalizationHandledRef.current.add(conversationId);
+    try {
+    const { data: finalizedRows, error: finalizeError } = await supabase.rpc("finalize_negotiation", {
+      p_proposal_id: proposal.proposal_id,
+    });
+    const finalized = finalizedRows?.[0];
+    if (finalizeError || !finalized) {
+      finalizationHandledRef.current.delete(conversationId);
+      return;
+    }
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
-      message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
+      message_text: `Proposal accepted: ${peso(proposal.proposed_price_per_kg)}/kg for ${proposal.proposed_volume_tons} tons.`,
     });
     // Notify supplier
     await supabase.from("notifications").insert({
@@ -366,75 +554,53 @@ export default function BOChatLayout() {
       message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. A contract is being prepared.`,
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
-    await createContractRecord(proposal);
     await loadChat(conversationId);
+    await openContractDraftForTerms({
+      agreed_price_per_kg: finalized.final_price_per_kg,
+      agreed_volume_tons: finalized.final_volume_tons,
+    });
+    } finally {
+      proposalActionInFlight.current.delete(proposal.proposal_id);
+    }
   }
 
   async function rejectProposal(proposal) {
-    await supabase.from("proposal_forms").update({ proposal_status: "Rejected", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
+    if (proposalActionInFlight.current.has(proposal.proposal_id)) return;
+    proposalActionInFlight.current.add(proposal.proposal_id);
+    try {
+    const { data: decided } = await supabase.from("proposal_forms")
+      .update({ proposal_status: "Rejected", reviewed_by: user.id })
+      .eq("proposal_id", proposal.proposal_id)
+      .eq("proposal_status", "Pending")
+      .select("proposal_id")
+      .maybeSingle();
+    if (!decided) return;
     await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-      message_text: `❌ Proposal declined: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
+      conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
+      message_text: `Proposal rejected: ${peso(proposal.proposed_price_per_kg)}/kg for ${proposal.proposed_volume_tons} tons.`,
     });
     await supabase.from("notifications").insert({
       user_id: currentConv?.supplier?.user_id, notification_type: "Proposal Rejected",
-      message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was declined.`,
+      message: `You rejected a proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons).`,
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
-  }
-
-  async function createContractRecord(proposal) {
-    const { data: numData } = await supabase.rpc("generate_contract_number");
-    const { data: contract } = await supabase.from("contracts").insert({
-      contract_number: numData,
-      supplier_id: currentConv.supplier.user_id,
-      business_owner_id: currentConv.business_owner_id ?? user.id,
-      negotiated_price_per_kg: proposal.proposed_price_per_kg,
-      contracted_tons: proposal.proposed_volume_tons,
-      signing_date: new Date().toISOString().split("T")[0],
-      status: "Pending",
-    }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
-
-    if (contract) {
-      await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-      setContracts(prev => [{ ...contract, status: "Pending", docuseal_submission_id: null, docuseal_bo_slug: null }, ...prev]);
+    } finally {
+      proposalActionInFlight.current.delete(proposal.proposal_id);
     }
   }
 
   // ── Send Contract (DocuSeal generation) ───────────────────────────────────
   async function handleSendContract() {
-    setSendingContract(true);
-    setContractDraftError("");
-
-    const supplierProposal = [...proposals].reverse().find(proposal =>
-      proposal.proposed_price_per_kg && proposal.proposed_volume_tons,
-    );
-    let contractNumber = pendingContract?.contract_number;
-
-    if (!contractNumber) {
-      const { data, error } = await supabase.rpc("generate_contract_number");
-      if (error || !data) {
-        showToast(error?.message ?? "Could not generate a contract ID.", "error");
-        setSendingContract(false);
-        return;
-      }
-      contractNumber = data;
+    const finalTerms = acceptedProposal ?? (currentConv?.negotiation_finalized_at ? {
+      agreed_price_per_kg: currentConv.agreed_price_per_kg,
+      agreed_volume_tons: currentConv.agreed_volume_tons,
+    } : null);
+    if (!finalTerms) {
+      showToast("Accept the latest proposal or counteroffer before sending a contract.", "error");
+      return;
     }
-
-    const projectedDue = new Date();
-    projectedDue.setMonth(projectedDue.getMonth() + 1);
-    projectedDue.setDate(projectedDue.getDate() + 1);
-
-    setContractDraft({
-      contractId: pendingContract?.contract_id ?? null,
-      contractNumber,
-      supplierName: `${supplierData?.first_name ?? ""} ${supplierData?.last_name ?? ""}`.trim(),
-      price: String(pendingContract?.negotiated_price_per_kg ?? supplierProposal?.proposed_price_per_kg ?? ""),
-      volume: String(pendingContract?.contracted_tons ?? supplierProposal?.proposed_volume_tons ?? ""),
-      dueDate: pendingContract?.due_date ?? projectedDue.toISOString().slice(0, 10),
-    });
-    setSendingContract(false);
+    await openContractDraftForTerms(finalTerms);
   }
 
   async function submitContractDraft(e) {
@@ -452,6 +618,7 @@ export default function BOChatLayout() {
 
     const contractValues = {
       contract_number: contractDraft.contractNumber,
+      conversation_id: conversationId,
       supplier_id: currentConv.supplier.user_id,
       business_owner_id: currentConv.business_owner_id ?? user.id,
       negotiated_price_per_kg: price,
@@ -522,6 +689,10 @@ export default function BOChatLayout() {
   }
 
   function handlePriceAction() {
+    if (negotiationFinalized) {
+      showToast("The negotiation is finalized. No further counteroffers can be sent.", "error");
+      return;
+    }
     if (!latestProposal) {
       showToast("The supplier must submit the initial price and volume before you can counteroffer.", "error");
       return;
@@ -571,6 +742,15 @@ export default function BOChatLayout() {
           {convLoading ? (
             <div className="flex items-center justify-center py-10">
               <div className="w-6 h-6 border-2 border-[#2d5a27] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : conversationListError ? (
+            <div className="px-4 py-10 text-center">
+              <p className="text-sm font-semibold text-red-600">Could not load conversations</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[#8b7355]">{conversationListError}</p>
+              <button type="button" onClick={() => fetchConversations()}
+                className="mt-3 rounded-lg bg-[#17682D] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#105523]">
+                Try again
+              </button>
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-10 px-4">
@@ -665,6 +845,13 @@ export default function BOChatLayout() {
               )}
               {messages.map(msg => {
                 const isMine = msg.sender_id === user.id;
+                if (isProposalSubmissionMessage(msg.message_text)) return null;
+                const negotiationEvent = getNegotiationSystemMessage({
+                  message: msg.message_text,
+                  viewer: "owner",
+                  isMine,
+                  supplierName: currentConv?.supplier?.first_name ?? "Supplier",
+                });
 
                 // Contract card message
                 if (msg.message_type === "Contract Form" && msg.message_text?.startsWith("CONTRACT_CARD:")) {
@@ -677,17 +864,31 @@ export default function BOChatLayout() {
                         key={msg.message_id}
                         contractData={cardData}
                         signed={isSigned}
-                        onTapPreview={url => url && window.open(url, "_blank")}
+                        onReview={() => setReviewContract(contractRow ?? {
+                          ...cardData,
+                          docuseal_bo_sign_url: cardData.preview_url,
+                          status: "Pending",
+                        })}
                       />
                     );
                   } catch { /* fall through to system message */ }
                 }
 
-                // System / proposal-accepted message
+                if (negotiationEvent) {
+                  return (
+                    <div key={msg.message_id} className="flex justify-center px-4 py-1.5">
+                      <p className={`max-w-sm whitespace-pre-line text-center text-xs italic leading-relaxed ${negotiationToneClass(negotiationEvent.tone)}`}>
+                        {negotiationEvent.text}
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Other system messages
                 if (msg.message_type === "Contract Form") {
                   return (
                     <div key={msg.message_id} className="flex justify-center px-4">
-                      <p className="text-[#2d5a27] text-xs italic text-center max-w-xs">{msg.message_text}</p>
+                      <p className="max-w-xs whitespace-pre-line text-center text-xs italic text-[#8B7355]">{msg.message_text}</p>
                     </div>
                   );
                 }
@@ -711,7 +912,7 @@ export default function BOChatLayout() {
               })}
 
               {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && (
+              {!negotiationFinalized && latestProposal && latestProposal.proposal_status === "Pending" && (
                 <ProposalCard
                   proposal={latestProposal}
                   submittedByBO={latestSubmittedByBO}
@@ -725,19 +926,19 @@ export default function BOChatLayout() {
 
             {/* Quick action chips */}
             {currentConv?.status === "Open" && (
-              <div className="grid grid-cols-2 gap-1.5 px-3 pt-2 bg-[#FFFEFB] border-t border-[#E7DCC9] shrink-0">
-                <button onClick={handleSendContract} disabled={sendingContract}
+              <div className="grid grid-cols-6 gap-1.5 px-3 pt-2 bg-[#FFFEFB] border-t border-[#E7DCC9] shrink-0">
+                <button onClick={handleSendContract} disabled={sendingContract || !negotiationFinalized}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#A78D80] text-white font-medium text-[10px] hover:bg-[#8D756A] transition-all disabled:opacity-60">
                   {sendingContract ? <LuLoader className="w-3.5 h-3.5 animate-spin" /> : <LuFileText className="w-3.5 h-3.5" />}
                   Send Contract
                 </button>
                 {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
-                  <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
+                  <button type="button" onClick={() => setReviewContract(sentContract)}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#FBF3E2] text-[#5D4037] font-medium text-[10px] hover:bg-[#F5EBD7] transition-all">
-                    <LuFileText className="w-3.5 h-3.5" /> View Contract Document
-                  </a>
+                    <LuFileText className="w-3.5 h-3.5" /> View Contract
+                  </button>
                 )}
-                <button onClick={handlePriceAction}
+                <button onClick={handlePriceAction} disabled={negotiationFinalized}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#FBF3E2] text-[#5D4037] font-medium text-[10px] hover:bg-[#F5EBD7] transition-all">
                   <LuCoins className="w-3.5 h-3.5" /> Counteroffer
                 </button>
@@ -772,7 +973,7 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── RIGHT PANEL — Supplier info ───────────────────────────────────── */}
-      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[250px]`}>
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[280px]`}>
         {!conversationId || !supplierData ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see supplier details</p>
@@ -799,7 +1000,7 @@ export default function BOChatLayout() {
             </div>
 
             {/* Send Contract / Sign button */}
-            {!sentContract?.docuseal_supplier_slug && (
+            {negotiationFinalized && !sentContract?.docuseal_supplier_slug && (
               <button onClick={handleSendContract} disabled={sendingContract}
                 className="w-[calc(100%-2.5rem)] mx-auto px-4 py-3 rounded-[9px] bg-[#17682D] text-white font-bold text-xs hover:bg-[#105523] transition-all disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap">
                 {sendingContract ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuFileText className="w-4 h-4" />}
@@ -807,10 +1008,10 @@ export default function BOChatLayout() {
               </button>
             )}
             {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
-              <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
-                className="block mx-5 py-2.5 rounded-[9px] bg-[#17682D] text-white font-bold text-xs text-center hover:bg-[#105523] transition-all">
+              <button type="button" onClick={() => setReviewContract(sentContract)}
+                className="mx-auto flex w-[calc(100%-2.5rem)] items-center justify-center rounded-[9px] bg-[#17682D] px-3 py-3 text-center text-xs font-bold leading-tight text-white transition-all hover:bg-[#105523]">
                 View Contract Document
-              </a>
+              </button>
             )}
             {sentContract?.status === "Pending" && (
               <div className="mx-5 text-[11px] text-amber-700 bg-amber-50 rounded-xl px-3 py-2 text-center">
@@ -825,13 +1026,13 @@ export default function BOChatLayout() {
                 <div className="flex justify-between text-xs">
                   <span className="text-[#8b7355]">Proposed volume</span>
                   <span className="font-semibold text-[#3d2b1f]">
-                    {acceptedProposal ? `${acceptedProposal.proposed_volume_tons} tons` : "—"}
+                    {negotiationFinalized ? `${acceptedProposal?.proposed_volume_tons ?? currentConv?.agreed_volume_tons} tons` : "—"}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-[#8b7355]">Agreed price</span>
                   <span className="font-semibold text-[#3d2b1f]">
-                    {acceptedProposal ? `₱${Number(acceptedProposal.proposed_price_per_kg).toFixed(2)}` : "—"}
+                    {negotiationFinalized ? `₱${Number(acceptedProposal?.proposed_price_per_kg ?? currentConv?.agreed_price_per_kg).toFixed(2)}` : "—"}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
@@ -861,8 +1062,8 @@ export default function BOChatLayout() {
                           "bg-amber-50 text-amber-700"
                         }`}>{c.status}</span>
                         {c.docuseal_supplier_slug && (
-                          <a href={`https://docuseal.com/s/${c.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
-                            className="text-[10px] text-blue-600 hover:underline">View</a>
+                          <button type="button" onClick={() => setReviewContract(c)}
+                            className="text-[10px] text-blue-600 hover:underline">View</button>
                         )}
                       </div>
                     </div>
@@ -881,6 +1082,18 @@ export default function BOChatLayout() {
           {toast.type !== "error" && <LuCheck className="w-4 h-4" />}
           {toast.msg}
         </div>
+      )}
+
+      {reviewContract && (
+        <BOContractReviewModal
+          contract={reviewContract}
+          onClose={() => setReviewContract(null)}
+          onCompleted={async () => {
+            setReviewContract(null);
+            await loadChat(conversationId);
+            showToast("Business Owner signature submitted. Contract activation is being verified.");
+          }}
+        />
       )}
 
       {/* Contract-making modal */}
@@ -919,18 +1132,16 @@ export default function BOChatLayout() {
                   <span className="block mb-2 text-sm font-bold text-[#4B2814]">Negotiated Price (₱/kg)</span>
                   <div className="relative">
                     <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-bold text-[#4B2814]">₱</span>
-                    <input type="number" min="0.01" step="0.01" required value={contractDraft.price}
-                      onChange={e => setContractDraft(draft => ({ ...draft, price: e.target.value }))}
-                      placeholder="Enter price per kilogram"
-                      className="w-full rounded-full border border-[#B98661] bg-white px-10 py-2.5 text-sm text-[#4B2814] outline-none focus:ring-2 focus:ring-[#17682D]/20" />
+                    <input type="number" min="0.01" step="0.01" required readOnly value={contractDraft.price}
+                      aria-label="Final agreed price per kilogram"
+                      className="w-full cursor-not-allowed rounded-full border border-[#B98661] bg-[#F7F1E8] px-10 py-2.5 text-sm font-semibold text-[#4B2814] outline-none" />
                   </div>
                 </label>
                 <label className="block">
                   <span className="block mb-2 text-sm font-bold text-[#4B2814]">Quantity (Tons)</span>
-                  <input type="number" min="0.01" step="0.01" required value={contractDraft.volume}
-                    onChange={e => setContractDraft(draft => ({ ...draft, volume: e.target.value }))}
-                    placeholder="Enter quantity in tons"
-                    className="w-full rounded-full border border-[#B98661] bg-white px-5 py-2.5 text-sm text-[#4B2814] outline-none focus:ring-2 focus:ring-[#17682D]/20" />
+                  <input type="number" min="0.01" step="0.01" required readOnly value={contractDraft.volume}
+                    aria-label="Final agreed quantity in tons"
+                    className="w-full cursor-not-allowed rounded-full border border-[#B98661] bg-[#F7F1E8] px-5 py-2.5 text-sm font-semibold text-[#4B2814] outline-none" />
                 </label>
                 <label className="block">
                   <span className="block mb-2 text-sm font-bold text-[#4B2814]">Due Date</span>
@@ -963,7 +1174,7 @@ export default function BOChatLayout() {
       )}
 
       {/* Counteroffer modal */}
-      {counterModal !== undefined && counterModal !== null && currentConv && (
+      {counterModal !== undefined && counterModal !== null && currentConv && !negotiationFinalized && (
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
@@ -971,11 +1182,10 @@ export default function BOChatLayout() {
           isCounter
           supersedesId={counterModal?.proposal_id}
           onClose={() => setCounterModal(null)}
-          onSubmitted={async (msg) => {
+          onSubmitted={async () => {
             if (counterModal) {
               await supabase.from("proposal_forms").update({ proposal_status: "Modified", reviewed_by: user.id }).eq("proposal_id", counterModal.proposal_id);
             }
-            await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify supplier
             await supabase.from("notifications").insert({
               user_id: currentConv.supplier?.user_id, notification_type: "Counteroffer Received",

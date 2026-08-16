@@ -8,6 +8,7 @@ export default function ProposePriceModal({
   supplierId,
   isCounter = false,
   supersedesId = null,
+  ensureConversation,
   onClose,
   onSubmitted,
 }) {
@@ -28,9 +29,17 @@ export default function ProposePriceModal({
 
     setSubmitting(true);
 
+    const targetConversationId = conversationId || await ensureConversation?.();
+    if (!targetConversationId) {
+      setSubmitting(false);
+      setError("Unable to start the conversation. Please try again.");
+      return;
+    }
+
     const { error: err } = await supabase.from("proposal_forms").insert({
-      conversation_id: conversationId,
+      conversation_id: targetConversationId,
       supplier_id: supplierId ?? userId,
+      submitted_by: userId,
       proposed_price_per_kg: price,
       proposed_volume_tons: volume,
       proposal_status: "Pending",
@@ -44,11 +53,7 @@ export default function ProposePriceModal({
       return;
     }
 
-    const msg = isCounter
-      ? `🔄 Counteroffer: ₱${price.toFixed(2)}/kg for ${volume} tons`
-      : `💰 Price proposal: ₱${price.toFixed(2)}/kg for ${volume} tons`;
-
-    onSubmitted(msg);
+    onSubmitted(null, targetConversationId);
   }
 
   return (

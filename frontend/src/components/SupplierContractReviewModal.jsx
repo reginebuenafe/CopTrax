@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DocusealForm } from "@docuseal/react";
 import {
   LuX, LuFileText, LuCheck, LuLoader, LuShieldCheck,
 } from "react-icons/lu";
@@ -111,10 +112,15 @@ export default function SupplierContractReviewModal({ contract, onClose, onSigne
           {/* Document preview */}
           {contract.preview_url ? (
             <div className="rounded-2xl overflow-hidden border border-[#e8e0d0]">
-              <iframe
+              <DocusealForm
                 src={contract.preview_url}
-                title="Contract preview"
-                className="w-full h-[420px] bg-white"
+                preview
+                expand
+                withDecline={false}
+                withDownloadButton={false}
+                withSendCopyButton={false}
+                className="block min-h-[520px] w-full bg-white"
+                style={{ minHeight: "520px" }}
               />
             </div>
           ) : (
@@ -129,8 +135,8 @@ export default function SupplierContractReviewModal({ contract, onClose, onSigne
             <div className="text-xs text-[#3d2b1f] leading-relaxed">
               By confirming below, you authorize CopTrax to apply your electronic signature
               submitted during account registration. The date and time of your acceptance
-              will be recorded. Once signed, the contract's status will change to
-              <strong> Active</strong> and it becomes eligible to receive deliveries.
+              will be recorded. The Business Owner must sign afterward. The contract
+              becomes <strong>Active only after both signatures are complete</strong>.
             </div>
           </div>
 

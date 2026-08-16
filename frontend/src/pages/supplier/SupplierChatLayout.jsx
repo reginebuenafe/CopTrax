@@ -1,13 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
-  LuSend, LuCoins, LuCheck, LuX, LuPencil,
-  LuClock, LuFileText, LuStar, LuCheckCheck, LuPaperclip, LuArrowLeft,
+  LuSend, LuCoins, LuFileText, LuStar, LuCheckCheck, LuPaperclip, LuArrowLeft,
+  LuMessageSquare, LuCheck, LuX, LuPencil, LuClock,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ProposePriceModal from "../../components/ProposePriceModal";
 import SupplierContractReviewModal from "../../components/SupplierContractReviewModal";
+import { getNegotiationSystemMessage, isProposalSubmissionMessage, negotiationToneClass } from "../../utils/negotiationMessages";
+
+const SUPPLIER_QUICK_SUGGESTIONS = [
+  "I'll review the contract shortly.",
+  "Can I receive payment earlier?",
+  "What moisture content is acceptable?",
+];
+
+function SupplierChatWelcome({ onFirstMessage, onProposePrice, busy = false, compact = false }) {
+  return (
+    <div className={`flex h-full flex-col items-center justify-center px-3 text-center ${compact ? "py-8" : "py-10"}`}>
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5E9]">
+        <LuMessageSquare className="h-6 w-6 text-[#2E7D32]" />
+      </div>
+      <h4 className="mb-2 text-sm font-bold text-[#3D2B1F]">Start Your First Message</h4>
+      <p className="mb-4 max-w-sm text-xs leading-relaxed text-[#8B7355]">
+        Send a message or submit a price proposal to begin negotiating with NERC Copra Trading.
+      </p>
+      <div className="w-full max-w-sm space-y-2">
+        <p className="text-[11px] font-medium uppercase text-[#3D2B1F]/70">Quick Actions:</p>
+        <button
+          type="button"
+          onClick={onFirstMessage}
+          disabled={busy}
+          className="w-full rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+        >
+          Send First Message
+        </button>
+        <button
+          type="button"
+          onClick={onProposePrice}
+          disabled={busy}
+          className="w-full rounded-lg bg-green-50 px-3 py-2 text-[11px] font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-60"
+        >
+          {busy ? "Starting..." : "Submit Price Proposal"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function fmtDate(d) {
   if (!d) return "—";
@@ -18,15 +58,8 @@ function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
 }
 
-function formatSupplierSystemMessage(message = "") {
-  return message.replace(
-    /^You accepted .+['’]s proposal form\./i,
-    "NERC accepted your proposal form.",
-  );
-}
-
 // ── Contract card shown in chat ───────────────────────────────────────────────
-function ContractCard({ contractData, onReviewSign, signed }) {
+function ContractCard({ contractData, onReviewSign, signed, supplierSigned }) {
   return (
     <div className="flex justify-start my-2 px-4">
       <div className="w-72 max-w-full overflow-hidden rounded-2xl rounded-bl-sm border border-[#A2D5AB] bg-[#EDF7EF] shadow-sm">
@@ -57,13 +90,17 @@ function ContractCard({ contractData, onReviewSign, signed }) {
               Due {contractData.due_date ? fmtDate(contractData.due_date) : "after activation"}
             </p>
           </div>
-          {!signed ? (
+          {!signed && !supplierSigned ? (
             <button
               onClick={onReviewSign}
               className="mt-3 w-full rounded-xl bg-white py-2 text-xs font-bold text-[#17682D] shadow-sm ring-1 ring-[#A2D5AB]/50 transition-colors hover:bg-[#F7FCF8]"
             >
               Review &amp; Sign Contract
             </button>
+          ) : supplierSigned && !signed ? (
+            <div className="mt-3 w-full rounded-xl bg-amber-50 py-2 text-center text-xs font-semibold text-amber-700">
+              Awaiting NERC signature
+            </div>
           ) : (
             <div className="mt-3 w-full rounded-xl bg-[#D9EFDE] py-2 text-center text-xs font-semibold text-[#17682D]">
               ✓ Contract Active
@@ -75,50 +112,83 @@ function ContractCard({ contractData, onReviewSign, signed }) {
   );
 }
 
-// ── Proposal card ─────────────────────────────────────────────────────────────
-function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
+function SupplierProposalReceipt({ proposal }) {
+  const submittedTime = proposal.submitted_at
+    ? new Date(proposal.submitted_at).toLocaleTimeString("en-PH", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
   return (
     <div className="flex justify-center my-3 px-4">
-      <div className="bg-white border-2 border-[#2d5a27]/20 rounded-2xl p-4 w-full max-w-xs shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <LuCoins className="w-4 h-4 text-[#2d5a27]" />
-          <p className="text-sm font-bold text-[#2d5a27]">
-            {submittedByMe ? "Your Proposal" : "Incoming Counteroffer"}
+      <div className="w-56 max-w-full overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
+        <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3 py-2.5 text-[#17682D]">
+          <LuFileText className="h-4 w-4 shrink-0" />
+          <p className="text-[9px] font-extrabold uppercase tracking-wide">
+            Price Proposal Submitted
           </p>
-          <span className="ml-auto text-xs bg-amber-50 text-amber-700 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
-            <LuClock className="w-3 h-3" /> Pending
+        </div>
+        <div className="px-3 py-3 text-[11px] text-[#8B7355]">
+          <div className="flex items-center justify-between gap-4">
+            <span>Proposed Price</span>
+            <strong className="text-[#3D2B1F]">
+              {peso(proposal.proposed_price_per_kg)}/kg
+            </strong>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-4">
+            <span>Proposed Volume</span>
+            <strong className="text-[#3D2B1F]">
+              {proposal.proposed_volume_tons} tons
+            </strong>
+          </div>
+          <div className="mt-2.5 flex items-center justify-between border-t border-[#B7DDBD] pt-2">
+            <span className="rounded-full bg-[#DCE8FF] px-3 py-0.5 text-[9px] font-semibold text-[#3F6FC2]">
+              Offer Received
+            </span>
+            <time className="text-[9px] text-[#A58E72]">{submittedTime}</time>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SupplierCounterofferCard({ proposal, onAccept, onReject, onCounter }) {
+  return (
+    <div className="my-3 flex justify-center px-4">
+      <div className="w-72 max-w-full overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
+        <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3">
+          <LuCoins className="h-4 w-4 text-[#17682D]" />
+          <p className="text-[10px] font-extrabold uppercase text-[#17682D]">Counteroffer Received</p>
+          <span className="ml-auto flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+            <LuClock className="h-3 w-3" /> Pending
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-[#f5f0e8] rounded-xl px-3 py-2">
-            <p className="text-xs text-[#8b7355]">Price per kg</p>
-            <p className="font-bold text-[#3d2b1f]">₱{Number(proposal.proposed_price_per_kg).toFixed(2)}</p>
+        <div className="grid grid-cols-2 gap-3 px-3.5 py-3 text-xs">
+          <div>
+            <p className="text-[#8B7355]">Price per kg</p>
+            <p className="font-bold text-[#3D2B1F]">{peso(proposal.proposed_price_per_kg)}/kg</p>
           </div>
-          <div className="bg-[#f5f0e8] rounded-xl px-3 py-2">
-            <p className="text-xs text-[#8b7355]">Volume</p>
-            <p className="font-bold text-[#3d2b1f]">{proposal.proposed_volume_tons} tons</p>
+          <div className="text-right">
+            <p className="text-[#8B7355]">Volume</p>
+            <p className="font-bold text-[#3D2B1F]">{proposal.proposed_volume_tons} tons</p>
           </div>
         </div>
-        {submittedByMe ? (
-          <div className="text-center py-2 text-xs text-[#b09a7a] italic">
-            Awaiting NERC's response…
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <button onClick={onAccept}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all">
-              <LuCheck className="w-3.5 h-3.5" /> Accept
-            </button>
-            <button onClick={onCounter}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all">
-              <LuPencil className="w-3.5 h-3.5" /> Counter
-            </button>
-            <button onClick={onReject}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 font-semibold text-xs py-2 rounded-xl hover:bg-red-100 transition-all">
-              <LuX className="w-3.5 h-3.5" /> Decline
-            </button>
-          </div>
-        )}
+        <div className="mx-3.5 flex gap-2 border-t border-[#B7DDBD] py-3">
+          <button type="button" onClick={onAccept}
+            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#E8F0E5] py-2 text-[11px] font-semibold text-[#2D5A27] hover:bg-[#D4E5CF]">
+            <LuCheck className="h-3.5 w-3.5" /> Accept
+          </button>
+          <button type="button" onClick={onCounter}
+            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#F5F0E8] py-2 text-[11px] font-semibold text-[#5C4A32] hover:bg-[#EBE5D5]">
+            <LuPencil className="h-3.5 w-3.5" /> Counter
+          </button>
+          <button type="button" onClick={onReject}
+            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-red-50 py-2 text-[11px] font-semibold text-red-600 hover:bg-red-100">
+            <LuX className="h-3.5 w-3.5" /> Reject
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -145,6 +215,9 @@ export default function SupplierChatLayout() {
   const [signContract, setSignContract] = useState(null);
   const messagesContainerRef = useRef(null);
   const isInitialLoad = useRef(false);
+  const conversationCreationRef = useRef(null);
+  const chatLoadRequestRef = useRef(0);
+  const proposalActionInFlight = useRef(new Set());
 
   // Right panel
   const [contracts, setContracts] = useState([]);
@@ -158,15 +231,32 @@ export default function SupplierChatLayout() {
 
     const timer = window.setTimeout(async () => {
       setResolvingConversation(true);
-      const { data } = await supabase.from("conversations")
-        .select("conversation_id")
-        .eq("supplier_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const [{ data }, { data: boRows }] = await Promise.all([
+        supabase.from("conversations")
+          .select("conversation_id")
+          .eq("supplier_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase.from("users")
+          .select("user_id, first_name, last_name, email, roles!inner(role_name)")
+          .eq("roles.role_name", "Business Owner")
+          .eq("account_status", "Active")
+          .limit(1),
+      ]);
       if (data?.conversation_id) {
         navigate(`/dashboard/supplier/conversations/${data.conversation_id}`, { replace: true });
       } else {
+        const businessOwner = boRows?.[0] ?? null;
+        // Display the complete chat layout without persisting a conversation.
+        // The draft becomes an Open conversation only after an actual send.
+        setCurrentConv({
+          conversation_id: null,
+          supplier_id: user.id,
+          business_owner_id: businessOwner?.user_id ?? null,
+          business_owner: businessOwner,
+          status: "Draft",
+        });
         setResolvingConversation(false);
       }
     }, 0);
@@ -175,6 +265,7 @@ export default function SupplierChatLayout() {
 
   // ── Load chat ─────────────────────────────────────────────────────────────
   const loadChat = useCallback(async (convId) => {
+    const requestId = ++chatLoadRequestRef.current;
     setChatLoading(true);
     setMessages([]); setProposals([]); setCurrentConv(null); setContracts([]);
 
@@ -186,6 +277,8 @@ export default function SupplierChatLayout() {
       supabase.from("proposal_forms").select("*").eq("conversation_id", convId).order("submitted_at", { ascending: true }),
     ]);
 
+    if (requestId !== chatLoadRequestRef.current) return;
+
     setCurrentConv(conv);
     setMessages(msgs ?? []);
     setProposals(props ?? []);
@@ -193,15 +286,15 @@ export default function SupplierChatLayout() {
     if (conv) {
       const { data: contractData } = await supabase
         .from("contracts")
-        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, docuseal_supplier_slug, docuseal_bo_slug")
-        .eq("supplier_id", user.id)
+        .select("contract_id, conversation_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, supplier_authorized_at, bo_signed_at, contract_document_url")
+        .eq("conversation_id", convId)
         .order("created_at", { ascending: false });
       setContracts(contractData ?? []);
     }
 
     setChatLoading(false);
     isInitialLoad.current = true;
-  }, [user.id]);
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return undefined;
@@ -212,14 +305,40 @@ export default function SupplierChatLayout() {
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
+    const refreshProposals = async () => {
+      const { data } = await supabase.from("proposal_forms").select("*")
+        .eq("conversation_id", conversationId)
+        .order("submitted_at", { ascending: true });
+      setProposals(data ?? []);
+    };
+    const applyProposalChange = ({ new: incoming }) => {
+      setProposals(previous => {
+        const withoutIncoming = previous.filter(
+          proposal => proposal.proposal_id !== incoming.proposal_id,
+        );
+        return [...withoutIncoming, incoming].sort(
+          (a, b) => new Date(a.submitted_at) - new Date(b.submitted_at),
+        );
+      });
+    };
     const channel = supabase.channel(`sup-chat:${conversationId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-        payload => setMessages(prev => [...prev, payload.new]))
+        payload => setMessages(previous => {
+          const incoming = payload.new;
+          if (previous.some(message => message.message_id === incoming.message_id)) {
+            return previous;
+          }
+          return [...previous, incoming].sort(
+            (a, b) => new Date(a.sent_at) - new Date(b.sent_at),
+          );
+        }))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
-        () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
+        applyProposalChange)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
-        () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
-      .subscribe();
+        applyProposalChange)
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") refreshProposals();
+      });
     return () => supabase.removeChannel(channel);
   }, [conversationId]);
 
@@ -242,66 +361,138 @@ export default function SupplierChatLayout() {
     .map((p, i) => ({ p, i })).reverse()
     .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
-  const latestSubmittedBySupplier = latestProposalIndex % 2 === 0;
+  const latestSubmittedBySupplier = latestProposal?.submitted_by
+    ? latestProposal.submitted_by === user.id
+    : latestProposalIndex % 2 === 0;
 
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
-  // ── Supplier accepts BO's counteroffer ────────────────────────────────────
-  async function acceptCounter(proposal) {
-    await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
-      message_text: `✅ Counteroffer accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
-    });
-    // Notify BO
-    await supabase.from("notifications").insert({
-      user_id: currentConv?.business_owner_id, notification_type: "Contract Signed",
-      message: `${profile?.first_name ?? "Supplier"} accepted your counteroffer. A contract is ready.`,
-      related_entity_type: "conversations", related_entity_id: conversationId,
-    });
-    // Create contract record
-    const { data: numData } = await supabase.rpc("generate_contract_number");
-    const { data: contract } = await supabase.from("contracts").insert({
-      contract_number: numData,
-      supplier_id: user.id,
-      business_owner_id: currentConv?.business_owner_id,
-      negotiated_price_per_kg: proposal.proposed_price_per_kg,
-      contracted_tons: proposal.proposed_volume_tons,
-      signing_date: new Date().toISOString().split("T")[0],
-      status: "Pending",
-    }).select("contract_id").single();
-    if (contract) await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-    await loadChat(conversationId);
+  async function respondToCounteroffer(proposal, decision) {
+    if (proposalActionInFlight.current.has(proposal.proposal_id)) return;
+    proposalActionInFlight.current.add(proposal.proposal_id);
+    try {
+      let decided = null;
+      let finalized = null;
+      if (decision === "accepted") {
+        const { data: finalizedRows } = await supabase.rpc("finalize_negotiation", {
+          p_proposal_id: proposal.proposal_id,
+        });
+        finalized = finalizedRows?.[0] ?? null;
+        decided = finalized;
+      } else {
+        const { data } = await supabase.from("proposal_forms")
+          .update({ proposal_status: "Rejected", reviewed_by: user.id })
+          .eq("proposal_id", proposal.proposal_id)
+          .eq("proposal_status", "Pending")
+          .select("proposal_id")
+          .maybeSingle();
+        decided = data;
+      }
+      if (!decided) return;
+
+      const actionLabel = decision === "accepted" ? "accepted" : "rejected";
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        message_type: "Contract Form",
+        message_text: `Counteroffer ${actionLabel}: ${peso(proposal.proposed_price_per_kg)}/kg for ${proposal.proposed_volume_tons} tons.`,
+      });
+      await supabase.from("notifications").insert({
+        user_id: currentConv?.business_owner_id,
+        notification_type: decision === "accepted" ? "Proposal Accepted" : "Proposal Rejected",
+        message: `The Supplier ${actionLabel} your counteroffer of ${peso(proposal.proposed_price_per_kg)}/kg for ${proposal.proposed_volume_tons} tons.`,
+        related_entity_type: "proposal_forms",
+        related_entity_id: proposal.proposal_id,
+      });
+      if (finalized) {
+        setCurrentConv(previous => ({
+          ...previous,
+          accepted_proposal_id: finalized.final_proposal_id,
+          agreed_price_per_kg: finalized.final_price_per_kg,
+          agreed_volume_tons: finalized.final_volume_tons,
+          negotiation_finalized_at: finalized.finalized_at,
+        }));
+      }
+      await loadChat(conversationId);
+    } finally {
+      proposalActionInFlight.current.delete(proposal.proposal_id);
+    }
   }
 
-  async function rejectProposal(proposal) {
-    await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-      message_text: `❌ Counteroffer declined.`,
-    });
-    await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+  async function ensureOpenConversation() {
+    if (conversationId) return conversationId;
+    if (conversationCreationRef.current) return conversationCreationRef.current;
+
+    conversationCreationRef.current = (async () => {
+      setStarting(true);
+      try {
+        // Recheck before inserting in case the BO started the conversation
+        // while this draft screen was open.
+        const { data: existing } = await supabase.from("conversations")
+          .select("conversation_id")
+          .eq("supplier_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        let targetConversationId = existing?.conversation_id ?? null;
+        if (!targetConversationId) {
+          let businessOwnerId = currentConv?.business_owner_id;
+          if (!businessOwnerId) {
+            const { data: boRows } = await supabase.from("users")
+              .select("user_id, roles!inner(role_name)")
+              .eq("roles.role_name", "Business Owner")
+              .eq("account_status", "Active")
+              .limit(1);
+            businessOwnerId = boRows?.[0]?.user_id;
+          }
+          if (!businessOwnerId) return null;
+
+          const { data: created, error } = await supabase.from("conversations")
+            .insert({
+              supplier_id: user.id,
+              business_owner_id: businessOwnerId,
+              status: "Open",
+            })
+            .select("conversation_id")
+            .single();
+          if (error) return null;
+          targetConversationId = created?.conversation_id ?? null;
+        }
+
+        if (targetConversationId) {
+          setCurrentConv(previous => ({
+            ...previous,
+            conversation_id: targetConversationId,
+            status: "Open",
+          }));
+          navigate(`/dashboard/supplier/conversations/${targetConversationId}`, { replace: true });
+        }
+        return targetConversationId;
+      } finally {
+        setStarting(false);
+        conversationCreationRef.current = null;
+      }
+    })();
+
+    return conversationCreationRef.current;
   }
 
   async function sendMessage(e) {
     e.preventDefault();
     if (!text.trim() || sending) return;
     setSending(true);
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: text.trim(),
-    });
-    setText("");
+    const targetConversationId = await ensureOpenConversation();
+    if (targetConversationId) {
+      await supabase.from("messages").insert({
+        conversation_id: targetConversationId,
+        sender_id: user.id,
+        message_type: "Text",
+        message_text: text.trim(),
+      });
+      setText("");
+    }
     setSending(false);
-  }
-
-  async function startNewConversation() {
-    setStarting(true);
-    const { data: boRows } = await supabase.from("users").select("user_id, roles!inner(role_name)").eq("roles.role_name", "Business Owner").eq("account_status", "Active");
-    const boId = boRows?.[0]?.user_id;
-    if (!boId) { setStarting(false); return; }
-    const { data: conv } = await supabase.from("conversations").insert({ supplier_id: user.id, business_owner_id: boId, status: "Open" }).select("conversation_id").single();
-    setStarting(false);
-    if (conv) navigate(`/dashboard/supplier/conversations/${conv.conversation_id}`);
   }
 
   function returnToPreviousModule() {
@@ -314,7 +505,10 @@ export default function SupplierChatLayout() {
   }
 
   // ── First Pending contract in this supplier's list, for the "Review & Sign" shortcut ─
-  const pendingContractRow = contracts.find(c => c.status === "Pending" && c.docuseal_submission_id);
+  const pendingContractRow = contracts.find(c => c.status === "Pending" && c.docuseal_submission_id && !c.supplier_authorized_at);
+  const negotiationFinalized = Boolean(currentConv?.negotiation_finalized_at || acceptedProposal);
+  const canChat = !conversationId || currentConv?.status === "Open";
+  const canNegotiate = canChat && !negotiationFinalized;
 
   return (
     <div className="flex flex-col gap-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px]">
@@ -336,18 +530,6 @@ export default function SupplierChatLayout() {
           <div className="flex-1 flex items-center justify-center">
             <div className="w-7 h-7 border-3 border-[#2d5a27] border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : !conversationId ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
-            <div className="w-16 h-16 bg-[#e8f0e5] rounded-2xl flex items-center justify-center mb-4">
-              <LuFileText className="w-8 h-8 text-[#2d5a27]" />
-            </div>
-            <p className="text-[#3d2b1f] font-bold text-lg mb-1">Start a negotiation</p>
-            <p className="text-[#8b7355] text-sm mb-4">Connect with NERC Copra Trading to discuss price and volume.</p>
-            <button onClick={startNewConversation} disabled={starting}
-              className="rounded-xl bg-[#17682D] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#105523] disabled:opacity-60">
-              {starting ? "Starting…" : "Start Negotiation"}
-            </button>
-          </div>
         ) : chatLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="w-7 h-7 border-3 border-[#2d5a27] border-t-transparent rounded-full animate-spin" />
@@ -361,10 +543,14 @@ export default function SupplierChatLayout() {
                 <p className="text-base font-extrabold leading-tight text-[#5D4037] sm:text-[18px]">NERC Copra Trading</p>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 bg-green-500 rounded-full" />
-                  <p className="text-[#8b7355] text-xs">{currentConv?.status === "Open" ? "Active negotiation" : "Closed"}</p>
+                  <p className="text-[#8b7355] text-xs">
+                    {conversationId
+                      ? negotiationFinalized ? "Negotiation finalized" : currentConv?.status === "Open" ? "Active negotiation" : "Closed"
+                      : "Ready to start negotiation"}
+                  </p>
                 </div>
               </div>
-              {currentConv?.status === "Open" && (
+              {canNegotiate && (
                 <button onClick={() => setShowProposeModal(true)}
                   className="flex items-center gap-1.5 bg-[#2d5a27] text-white text-xs font-semibold px-3.5 py-2 rounded-xl hover:bg-[#234820] transition-all">
                   <LuCoins className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Propose Price</span>
@@ -375,12 +561,22 @@ export default function SupplierChatLayout() {
             {/* Messages */}
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-1 bg-[#FFFEFB]">
               {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
-                  <p>Say hello, then tap "Propose Price" to start negotiating.</p>
-                </div>
+                <SupplierChatWelcome
+                  compact
+                  busy={starting}
+                  onFirstMessage={() => setText("I'd like to propose a price.")}
+                  onProposePrice={() => setShowProposeModal(true)}
+                />
               )}
               {messages.map(msg => {
                 const isMine = msg.sender_id === user.id;
+                if (isProposalSubmissionMessage(msg.message_text)) return null;
+                const negotiationEvent = getNegotiationSystemMessage({
+                  message: msg.message_text,
+                  viewer: "supplier",
+                  isMine,
+                  supplierName: profile?.first_name ?? "Supplier",
+                });
 
                 if (msg.message_text?.trimStart().startsWith("CONTRACT_CARD:")) {
                   try {
@@ -392,6 +588,7 @@ export default function SupplierChatLayout() {
                         key={msg.message_id}
                         contractData={cardData}
                         signed={isSigned}
+                        supplierSigned={Boolean(contractRow?.supplier_authorized_at)}
                         onReviewSign={() => setSignContract({
                           contract_id:     cardData.contract_id ?? contractRow?.contract_id,
                           contract_number: cardData.contract_number,
@@ -413,11 +610,21 @@ export default function SupplierChatLayout() {
                   }
                 }
 
+                if (negotiationEvent) {
+                  return (
+                    <div key={msg.message_id} className="flex justify-center px-4 py-1.5">
+                      <p className={`max-w-sm whitespace-pre-line text-center text-xs italic leading-relaxed ${negotiationToneClass(negotiationEvent.tone)}`}>
+                        {negotiationEvent.text}
+                      </p>
+                    </div>
+                  );
+                }
+
                 if (msg.message_type === "Contract Form") {
                   return (
                     <div key={msg.message_id} className="flex justify-center px-4">
-                      <p className="max-w-xs whitespace-pre-line text-center text-xs italic leading-relaxed text-[#17682D]">
-                        {formatSupplierSystemMessage(msg.message_text)}
+                      <p className="max-w-xs whitespace-pre-line text-center text-xs italic leading-relaxed text-[#8B7355]">
+                        {msg.message_text}
                       </p>
                     </div>
                   );
@@ -440,33 +647,45 @@ export default function SupplierChatLayout() {
                 );
               })}
 
-              {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && (
-                <ProposalCard
-                  proposal={latestProposal}
-                  submittedByMe={latestSubmittedBySupplier}
-                  onAccept={() => acceptCounter(latestProposal)}
-                  onReject={() => rejectProposal(latestProposal)}
-                  onCounter={() => setCounterModal(latestProposal)}
-                />
+              {!negotiationFinalized && latestProposal && latestProposal.proposal_status === "Pending" && (
+                latestSubmittedBySupplier ? (
+                  <SupplierProposalReceipt proposal={latestProposal} />
+                ) : (
+                  <SupplierCounterofferCard
+                    proposal={latestProposal}
+                    onAccept={() => respondToCounteroffer(latestProposal, "accepted")}
+                    onReject={() => respondToCounteroffer(latestProposal, "rejected")}
+                    onCounter={() => setCounterModal(latestProposal)}
+                  />
+                )
               )}
 
               {/* DocuSeal sign prompt removed — Review & Sign is now on each contract card */}
 
             </div>
 
-            {/* Action chips */}
-            {currentConv?.status === "Open" && (
-              <div className="grid grid-cols-1 gap-1.5 px-3 pt-2 bg-[#FFFEFB] border-t border-[#E7DCC9] shrink-0">
-                <button onClick={() => setShowProposeModal(true)}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-full bg-[#FBF3E2] text-[#5D4037] font-medium text-[10px] hover:bg-[#F5EBD7] transition-all">
+            {/* Proposal action and quick message suggestions */}
+            {canNegotiate && (
+              <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-t border-[#E7DCC9] bg-[#FFFEFB] px-3 pt-2 pb-0.5 no-scrollbar">
+                <button type="button" onClick={() => setShowProposeModal(true)}
+                  className="flex w-fit shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#17682D] px-4 py-1.5 text-[10px] font-semibold text-white transition-all hover:bg-[#105523]">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
                 </button>
+                {SUPPLIER_QUICK_SUGGESTIONS.map(suggestion => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => setText(suggestion)}
+                    className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-1.5 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
               </div>
             )}
 
             {/* Message input */}
-            {currentConv?.status === "Open" && (
+            {canChat && (
               <form onSubmit={sendMessage} className="flex items-center gap-3 mx-3 mb-3 mt-2 px-4 py-2.5 bg-[#EDE3D1] rounded-full shrink-0">
                 <button type="button" className="text-[#b09a7a] hover:text-[#8b7355] transition-colors">
                   <LuPaperclip className="w-5 h-5" />
@@ -486,7 +705,7 @@ export default function SupplierChatLayout() {
 
       {/* ── RIGHT PANEL ─────────────────────────────────────────────────── */}
       <div className="w-full xl:w-[250px] shrink-0 bg-[#FFFEFB] rounded-[18px] border border-[#E4D5BD] flex flex-col overflow-y-auto shadow-[0_1px_2px_rgba(93,64,55,0.04)]">
-        {!conversationId ? (
+        {!currentConv ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see details</p>
           </div>
@@ -512,9 +731,7 @@ export default function SupplierChatLayout() {
                   price_per_kg:    pendingContractRow.negotiated_price_per_kg,
                   contracted_tons: pendingContractRow.contracted_tons,
                   due_date:        pendingContractRow.due_date,
-                  preview_url:     pendingContractRow.docuseal_supplier_slug
-                    ? `https://docuseal.com/s/${pendingContractRow.docuseal_supplier_slug}`
-                    : null,
+                  preview_url:     pendingContractRow.contract_document_url,
                 })}
                 className="block w-[calc(100%-2.5rem)] mx-auto py-2.5 rounded-[9px] bg-[#17682D] text-white font-bold text-xs text-center hover:bg-[#105523] transition-all"
               >
@@ -560,7 +777,7 @@ export default function SupplierChatLayout() {
                           c.status === "Breached" ? "bg-red-50 text-red-600" :
                           "bg-amber-50 text-amber-700"
                         }`}>{c.status}</span>
-                        {c.status === "Pending" && (
+                        {c.status === "Pending" && !c.supplier_authorized_at && (
                           <button
                             onClick={() => setSignContract({
                               contract_id:     c.contract_id,
@@ -568,9 +785,7 @@ export default function SupplierChatLayout() {
                               price_per_kg:    c.negotiated_price_per_kg,
                               contracted_tons: c.contracted_tons,
                               due_date:        c.due_date,
-                              preview_url:     c.docuseal_supplier_slug
-                                ? `https://docuseal.com/s/${c.docuseal_supplier_slug}`
-                                : null,
+                              preview_url:     c.contract_document_url,
                             })}
                             className="text-[10px] text-[#2d5a27] font-semibold hover:underline"
                           >
@@ -588,47 +803,50 @@ export default function SupplierChatLayout() {
       </div>
 
       {/* Propose Price Modal */}
-      {showProposeModal && currentConv && (
+      {showProposeModal && currentConv && canNegotiate && (
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
           supplierId={user.id}
+          ensureConversation={ensureOpenConversation}
           onClose={() => setShowProposeModal(false)}
-          onSubmitted={async (msg) => {
+          onSubmitted={async (...submission) => {
+            const targetConversationId = submission[1];
             setShowProposeModal(false);
-            await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify BO
             await supabase.from("notifications").insert({
               user_id: currentConv.business_owner_id, notification_type: "New Proposal",
               message: `${profile?.first_name ?? "Supplier"} submitted a new price proposal.`,
-              related_entity_type: "conversations", related_entity_id: conversationId,
+              related_entity_type: "conversations", related_entity_id: targetConversationId,
             });
-            await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+            await loadChat(targetConversationId);
           }}
         />
       )}
 
-      {/* Counteroffer Modal */}
-      {counterModal !== null && counterModal !== undefined && currentConv && (
+      {counterModal && currentConv && canNegotiate && (
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
           supplierId={user.id}
           isCounter
-          supersedesId={counterModal?.proposal_id}
+          supersedesId={counterModal.proposal_id}
           onClose={() => setCounterModal(null)}
-          onSubmitted={async (msg) => {
-            if (counterModal) {
-              await supabase.from("proposal_forms").update({ proposal_status: "Modified" }).eq("proposal_id", counterModal.proposal_id);
-            }
-            await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
+          onSubmitted={async (...submission) => {
+            const targetConversationId = submission[1];
+            await supabase.from("proposal_forms")
+              .update({ proposal_status: "Modified", reviewed_by: user.id })
+              .eq("proposal_id", counterModal.proposal_id)
+              .eq("proposal_status", "Pending");
             await supabase.from("notifications").insert({
-              user_id: currentConv.business_owner_id, notification_type: "Counteroffer",
+              user_id: currentConv.business_owner_id,
+              notification_type: "New Proposal",
               message: `${profile?.first_name ?? "Supplier"} sent a counteroffer.`,
-              related_entity_type: "conversations", related_entity_id: conversationId,
+              related_entity_type: "conversations",
+              related_entity_id: targetConversationId,
             });
             setCounterModal(null);
-            await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+            await loadChat(targetConversationId);
           }}
         />
       )}

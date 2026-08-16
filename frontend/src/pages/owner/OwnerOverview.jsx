@@ -67,8 +67,10 @@ export default function OwnerOverview() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const today = now.toLocaleDateString("en-PH", {
+  const weekday = now.toLocaleDateString("en-PH", {
     weekday: "long",
+  });
+  const calendarDate = now.toLocaleDateString("en-PH", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -78,7 +80,10 @@ export default function OwnerOverview() {
     <div>
       <section className="mt-6 mb-6 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-[#8B7355]">{today}</p>
+          <p className="text-[11px] font-semibold">
+            <span className="text-[#60463D]">{weekday}, </span>
+            <span className="text-[#17682D]">{calendarDate}</span>
+          </p>
           <h1 className="mt-2 text-2xl font-extrabold leading-tight text-[#60463D] sm:text-[28px]">
             {greeting}, Admin
           </h1>

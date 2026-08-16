@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuLayoutDashboard, LuFileText, LuTruck, LuWallet,
@@ -8,7 +8,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
-function StatCard({ icon: Icon, label, value, sub, color, onClick }) {
+function StatCard({ icon, label, value, sub, color, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -22,7 +22,7 @@ function StatCard({ icon: Icon, label, value, sub, color, onClick }) {
         {sub && <p className="text-brown-light text-xs mt-1 truncate">{sub}</p>}
       </div>
       <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center shrink-0`}>
-        <Icon className="w-5 h-5" />
+        {createElement(icon, { className: "w-5 h-5" })}
       </div>
     </button>
   );
@@ -101,8 +101,12 @@ export default function SupplierOverview() {
     Rejected: { label: "Rejected", color: "bg-red-50 text-red-600", icon: LuCircleAlert },
   };
 
-  const todayFormatted = new Date().toLocaleDateString("en-US", {
+  const now = new Date();
+  const weekday = now.toLocaleDateString("en-PH", {
     weekday: "long",
+  });
+  
+  const calendarDate = now.toLocaleDateString("en-PH", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -113,8 +117,9 @@ export default function SupplierOverview() {
       {/* Header section with Welcome text & Spot Price */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 mb-6">
         <div>
-          <p className="text-xs font-medium text-brown-light mb-3">
-            {todayFormatted}
+          <p className="text-[11px] font-semibold">
+            <span className="text-[#60463D]">{weekday}, </span>
+            <span className="text-[#17682D]">{calendarDate}</span>
           </p>
           <h1 className="text-2xl font-bold text-brown-dark">
             Welcome Back, {profile?.first_name} 👋

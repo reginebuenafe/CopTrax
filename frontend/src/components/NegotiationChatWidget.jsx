@@ -3,10 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuX, LuSend, LuFileText,
   LuMessageSquare, LuCheckCheck, LuLeaf, LuMaximize2,
+  LuCoins, LuCheck, LuPencil, LuClock,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import ProposePriceModal from "./ProposePriceModal";
+import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
 
 function getDateLabel(dateInput) {
   if (!dateInput) return "";
@@ -26,6 +28,45 @@ function getDateLabel(dateInput) {
 function getSupplierProposalEvent(message = "", isMine = false) {
   const rawMessage = message.trim();
 
+  const decision = rawMessage.match(
+    /^Proposal (accepted|rejected):\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
+  );
+  if (decision) {
+    const action = decision[1].toLowerCase();
+    return {
+      tone: action === "accepted" ? "accepted" : "rejected",
+      text: `NERC Copra Trading ${action} your proposal of ₱${decision[2]}/kg for ${decision[3]} tons.`,
+    };
+  }
+
+  const counterDecision = rawMessage.match(
+    /^Counteroffer (accepted|rejected):\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
+  );
+  if (counterDecision) {
+    const action = counterDecision[1].toLowerCase();
+    return {
+      tone: action === "accepted" ? "accepted" : "rejected",
+      text: `You ${action} NERC Copra Trading's counteroffer of ₱${counterDecision[2]}/kg for ${counterDecision[3]} tons.`,
+    };
+  }
+
+  const legacyAcceptedCounter = rawMessage.match(
+    /^✅\s*Counteroffer accepted:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
+  );
+  if (legacyAcceptedCounter) {
+    return {
+      tone: "accepted",
+      text: `You accepted NERC Copra Trading's counteroffer of ₱${legacyAcceptedCounter[1]}/kg for ${legacyAcceptedCounter[2]} tons.`,
+    };
+  }
+
+  if (/^❌\s*Counteroffer declined\.?$/i.test(rawMessage)) {
+    return {
+      tone: "rejected",
+      text: "You rejected NERC Copra Trading's counteroffer.",
+    };
+  }
+
   if (
     /^You accepted .+['’]s proposal form\./i.test(rawMessage)
     || /^NERC accepted your proposal form\./i.test(rawMessage)
@@ -42,6 +83,7 @@ function getSupplierProposalEvent(message = "", isMine = false) {
   const rejected = rawMessage.match(
     /^❌\s*Proposal declined:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
   );
+
   if (rejected && !isMine) {
     return {
       tone: "rejected",
@@ -76,8 +118,10 @@ export default function NegotiationChatWidget() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showProposeModal, setShowProposeModal] = useState(false);
+  const [counteringProposal, setCounteringProposal] = useState(null);
   const [businessOwnerId, setBusinessOwnerId] = useState(null); 
   const messagesEndRef = useRef(null);
+  const proposalActionInFlight = useRef(new Set());
 
   useEffect(() => {
     localStorage.setItem("coptrax_chat_widget_open", String(isOpen));
@@ -135,6 +179,16 @@ export default function NegotiationChatWidget() {
         .eq("conversation_id", convId).order("submitted_at", { ascending: true });
       setProposals(data ?? []);
     };
+    const applyProposalChange = ({ new: incoming }) => {
+      setProposals(previous => {
+        const withoutIncoming = previous.filter(
+          proposal => proposal.proposal_id !== incoming.proposal_id,
+        );
+        return [...withoutIncoming, incoming].sort(
+          (a, b) => new Date(a.submitted_at) - new Date(b.submitted_at),
+        );
+      });
+    };
 
     const channel = supabase
       .channel(`chat_widget:${convId}`)
@@ -161,7 +215,7 @@ export default function NegotiationChatWidget() {
           table: "proposal_forms",
           filter: `conversation_id=eq.${convId}`,
         },
-        refreshProposals
+        applyProposalChange
       )
       .on(
         "postgres_changes",
@@ -171,9 +225,23 @@ export default function NegotiationChatWidget() {
           table: "proposal_forms",
           filter: `conversation_id=eq.${convId}`,
         },
-        refreshProposals
+        applyProposalChange
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversations",
+          filter: `conversation_id=eq.${convId}`,
+        },
+        ({ new: updatedConversation }) => {
+          setConversation(previous => previous ? { ...previous, ...updatedConversation } : previous);
+        },
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") refreshProposals();
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -268,11 +336,81 @@ export default function NegotiationChatWidget() {
     }
   }
 
-  async function handleProposalSubmitted() {
+  async function handleProposalSubmitted(_message, targetConversationId) {
+    const counteredProposal = counteringProposal;
     setShowProposeModal(false);
-    if (conversation?.conversation_id) {
-      await fetchMessages(conversation.conversation_id);
-      await fetchProposals(conversation.conversation_id);
+    setCounteringProposal(null);
+    const convId = targetConversationId ?? conversation?.conversation_id;
+    if (counteredProposal && convId) {
+      await supabase.from("proposal_forms")
+        .update({ proposal_status: "Modified", reviewed_by: user.id })
+        .eq("proposal_id", counteredProposal.proposal_id)
+        .eq("proposal_status", "Pending");
+      await supabase.from("notifications").insert({
+        user_id: conversation?.business_owner_id ?? businessOwnerId,
+        notification_type: "New Proposal",
+        message: "The Supplier sent a counteroffer.",
+        related_entity_type: "conversations",
+        related_entity_id: convId,
+      });
+    }
+    if (convId) {
+      await fetchMessages(convId);
+      await fetchProposals(convId);
+    }
+  }
+
+  async function respondToCounteroffer(proposal, decision) {
+    if (proposalActionInFlight.current.has(proposal.proposal_id)) return;
+    proposalActionInFlight.current.add(proposal.proposal_id);
+    try {
+      let decided = null;
+      let finalized = null;
+      if (decision === "accepted") {
+        const { data: finalizedRows } = await supabase.rpc("finalize_negotiation", {
+          p_proposal_id: proposal.proposal_id,
+        });
+        finalized = finalizedRows?.[0] ?? null;
+        decided = finalized;
+      } else {
+        const { data } = await supabase.from("proposal_forms")
+          .update({ proposal_status: "Rejected", reviewed_by: user.id })
+          .eq("proposal_id", proposal.proposal_id)
+          .eq("proposal_status", "Pending")
+          .select("proposal_id")
+          .maybeSingle();
+        decided = data;
+      }
+      if (!decided) return;
+
+      const action = decision === "accepted" ? "accepted" : "rejected";
+      const convId = conversation.conversation_id;
+      await supabase.from("messages").insert({
+        conversation_id: convId,
+        sender_id: user.id,
+        message_type: "Contract Form",
+        message_text: `Counteroffer ${action}: ₱${Number(proposal.proposed_price_per_kg).toFixed(2)}/kg for ${proposal.proposed_volume_tons} tons.`,
+      });
+      await supabase.from("notifications").insert({
+        user_id: conversation.business_owner_id ?? businessOwnerId,
+        notification_type: decision === "accepted" ? "Proposal Accepted" : "Proposal Rejected",
+        message: `The Supplier ${action} your counteroffer.`,
+        related_entity_type: "proposal_forms",
+        related_entity_id: proposal.proposal_id,
+      });
+      if (finalized) {
+        setConversation(previous => ({
+          ...previous,
+          accepted_proposal_id: finalized.final_proposal_id,
+          agreed_price_per_kg: finalized.final_price_per_kg,
+          agreed_volume_tons: finalized.final_volume_tons,
+          negotiation_finalized_at: finalized.finalized_at,
+        }));
+      }
+      await fetchMessages(convId);
+      await fetchProposals(convId);
+    } finally {
+      proposalActionInFlight.current.delete(proposal.proposal_id);
     }
   }
 
@@ -294,13 +432,23 @@ export default function NegotiationChatWidget() {
   const boName = conversation?.business_owner
     ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
     : "Edison Buenafe";
+  const negotiationFinalized = Boolean(
+    conversation?.negotiation_finalized_at
+    || proposals.some(proposal => proposal.proposal_status === "Accepted"),
+  );
   // Merge messages and proposal cards chronologically for chat feed display
   const combinedItems = [];
   messages.forEach((m) => {
     combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
   });
-  proposals.filter(p => p.proposal_status === "Pending").forEach((p) => {
-    combinedItems.push({ type: "proposal", date: new Date(p.submitted_at), data: p });
+  proposals.forEach((p, proposalIndex) => {
+    if (p.proposal_status !== "Pending") return;
+    combinedItems.push({
+      type: "proposal",
+      date: new Date(p.submitted_at),
+      data: p,
+      proposalIndex,
+    });
   });
   combinedItems.sort((a, b) => a.date - b.date);
 
@@ -409,6 +557,7 @@ export default function NegotiationChatWidget() {
                   const m = item.data;
                   const isMe = m.sender_id === user?.id;
                   const rawMessage = m.message_text?.trimStart() ?? "";
+                  if (isProposalSubmissionMessage(rawMessage)) return null;
                   const proposalEvent = getSupplierProposalEvent(rawMessage, isMe);
 
                   if (proposalEvent) {
@@ -494,19 +643,30 @@ export default function NegotiationChatWidget() {
                   /* Render Price Proposal Card matching uploaded design */
                   const p = item.data;
                   const status = p.proposal_status || "Pending";
-                  const isMine = p.supplier_id === user?.id;
+                  const isMine = p.submitted_by
+                    ? p.submitted_by === user?.id
+                    : item.proposalIndex % 2 === 0;
 
                   return (
-                    <div key={p.proposal_id || idx} className="my-2">
-                      <div className="bg-[#EDF7EF] border-2 border-[#A2D5AB] rounded-2xl p-3.5 shadow-sm">
+                    <div key={p.proposal_id || idx} className="my-2 flex flex-col items-center px-1">
+                      <div className="w-[92%] overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
                         {/* Card Header */}
-                        <div className="flex items-center gap-2 text-[#024023] font-bold text-xs uppercase mb-2.5">
-                          <LuFileText className="w-4 h-4 text-[#024023]" />
-                          <span>PRICE PROPOSAL SUBMITTED</span>
+                        <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
+                          {isMine ? (
+                            <LuFileText className="w-4 h-4 text-[#024023]" />
+                          ) : (
+                            <LuCoins className="w-4 h-4 text-[#024023]" />
+                          )}
+                          <span>{isMine ? "PRICE PROPOSAL SUBMITTED" : "COUNTEROFFER RECEIVED"}</span>
+                          {!isMine && (
+                            <span className="ml-auto flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold normal-case text-amber-700">
+                              <LuClock className="h-3 w-3" /> Pending
+                            </span>
+                          )}
                         </div>
 
                         {/* Card Fields */}
-                        <div className="space-y-1.5 text-xs mb-3">
+                        <div className="space-y-2 px-3.5 py-3 text-xs">
                           <div className="flex items-center justify-between">
                             <span className="text-brown-light font-medium">Proposed Price</span>
                             <span className="font-extrabold text-brown-dark text-sm">
@@ -522,7 +682,7 @@ export default function NegotiationChatWidget() {
                         </div>
 
                         {/* Card Footer: Status Badge & Time */}
-                        <div className="flex items-center justify-between pt-2 border-t border-[#A2D5AB]/40">
+                        <div className="mx-3.5 flex items-center justify-between border-t border-[#B7DDBD] py-2.5">
                           <span
                             className={`text-[11px] font-bold px-3 py-0.5 rounded-full ${status === "Accepted"
                               ? "bg-emerald-100 text-emerald-800"
@@ -534,13 +694,29 @@ export default function NegotiationChatWidget() {
                               }`}
                           >
                             {status === "Pending"
-                              ? isMine ? "Offer Received" : "Offer Sent"
+                              ? isMine ? "Offer Received" : "Response Required"
                               : status}
                           </span>
                           <span className="text-[10px] text-brown-light font-medium">
                             {formatTime(p.submitted_at)}
                           </span>
                         </div>
+                        {!isMine && !negotiationFinalized && (
+                          <div className="mx-3.5 flex gap-1.5 border-t border-[#B7DDBD] py-3">
+                            <button type="button" onClick={() => respondToCounteroffer(p, "accepted")}
+                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#E8F0E5] py-2 text-[10px] font-semibold text-[#2D5A27] hover:bg-[#D4E5CF]">
+                              <LuCheck className="h-3 w-3" /> Accept
+                            </button>
+                            <button type="button" onClick={() => { setCounteringProposal(p); setShowProposeModal(true); }}
+                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-2 text-[10px] font-semibold text-[#5C4A32] hover:bg-[#EBE5D5]">
+                              <LuPencil className="h-3 w-3" /> Counter
+                            </button>
+                            <button type="button" onClick={() => respondToCounteroffer(p, "rejected")}
+                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-red-50 py-2 text-[10px] font-semibold text-red-600 hover:bg-red-100">
+                              <LuX className="h-3 w-3" /> Reject
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Editor note under card if counter/edited */}
@@ -578,7 +754,9 @@ export default function NegotiationChatWidget() {
 
           {/* Prominent Submit Price Proposal Button */}
           <button
+            disabled={negotiationFinalized}
             onClick={async () => {
+              if (negotiationFinalized) return;
               const conv = await ensureConversationExists();
               if (conv) {
                 setShowProposeModal(true);
@@ -587,10 +765,10 @@ export default function NegotiationChatWidget() {
               }
             }}
             className="w-full bg-[#2E7D32] hover:bg-[#1b5e20] text-white font-bold text-xs sm:text-sm py-2.5 px-4
-              rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99]"
+              rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <LuFileText className="w-4.5 h-4.5 text-white" />
-            Submit Price Proposal
+            {negotiationFinalized ? "Negotiation Finalized" : "Submit Price Proposal"}
           </button>
 
           {/* Rounded Input Bar */}
@@ -638,12 +816,17 @@ export default function NegotiationChatWidget() {
       )}
 
       {/* ── Modal to Propose Price ── */}
-      {showProposeModal && conversation?.conversation_id && (
+      {showProposeModal && conversation?.conversation_id && !negotiationFinalized && (
         <ProposePriceModal
           conversationId={conversation.conversation_id}
           userId={user.id}
           supplierId={user.id}
-          onClose={() => setShowProposeModal(false)}
+          isCounter={Boolean(counteringProposal)}
+          supersedesId={counteringProposal?.proposal_id}
+          onClose={() => {
+            setShowProposeModal(false);
+            setCounteringProposal(null);
+          }}
           onSubmitted={handleProposalSubmitted}
         />
       )}
