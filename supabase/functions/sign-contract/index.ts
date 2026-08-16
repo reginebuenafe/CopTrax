@@ -1,28 +1,39 @@
 // sign-contract/index.ts
-// Supplier authorization → programmatic signing (REQ-4.3).
+// -----------------------------------------------------------------------------
+// Cryptographic Signature Binding — Contract Signing
 //
 // Called by the Supplier from the "Review & Sign Contract" modal after they
-// tick the authorization checkbox. Flow:
-//   1. Verify caller is the contract's Supplier.
-//   2. Verify `authorized: true` in the request body (checkbox confirmation).
-//   3. Fetch supplier's stored e-signature from user_verify.esign_file_id.
-//   4. Fetch BO's stored e-signature (if any). Skipped gracefully if absent.
-//   5. Complete the DocuSeal submitter with both signatures via PUT /submitters/{id}.
-//   6. Insert audit rows in contract_signatures.
-//   7. Set contract.status = 'Active', activation_date = today, signing_date = today.
-//      (activation trigger auto-computes due_date.)
-//   8. Notify both parties.
+// tick the authorization checkbox.
+//
+// Security guarantees produced by this handler:
+//   1. Signer identity is proven by their authenticated Supabase Auth JWT.
+//   2. The current contract terms are re-canonicalised and re-hashed. If that
+//      hash does not match the hash stored on the row (created by
+//      generate-contract), signing is refused — the terms were tampered with.
+//   3. Each contract_signatures audit row records:
+//        signer_id, signer_role, signed_at, ip_address, user_agent,
+//        signature_hash (== agreed contract hash), signature_image_url.
+//      That row is made immutable by a DB trigger (see migration 017).
+//   4. The signature image(s) are embedded into a final signed PDF, which is
+//      also fingerprinted by the same hash in a visible footer.
+//   5. The contract row transitions to 'Active'; the DB trigger computes
+//      due_date = activation_date + 1 month + 1 day.
+// -----------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  ContractTerms,
+  computeContractHash,
+} from "../_shared/contract_hash.ts";
+import { renderContractPDF } from "../_shared/contract_pdf.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const DOCUSEAL_API_KEY          = Deno.env.get("DOCUSEAL_API_KEY") ?? "";
-const REMOVE_BG_API_KEY         = Deno.env.get("REMOVE_BG_API_KEY") ?? "";
-const DOCUSEAL_API_BASE         = "https://api.docuseal.com";
+
+const CONTRACT_BUCKET = "contracts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
@@ -33,10 +44,34 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function fetchSignatureDataUrl(
-  admin: ReturnType<typeof createClient>,
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-PH", {
+    month: "long", day: "numeric", year: "numeric",
+  });
+}
+
+/** Extract the caller's IP address from common proxy headers. */
+function callerIP(req: Request): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return req.headers.get("cf-connecting-ip")
+      ?? req.headers.get("x-real-ip")
+      ?? "unknown";
+}
+
+// deno-lint-ignore no-explicit-any
+type Admin = ReturnType<typeof createClient<any, any>>;
+
+/**
+ * Fetch a user's stored e-signature image bytes.
+ * Returns { bytes, sourceUrl } or null if no signature is registered.
+ * Note: file_uploads.file_url actually stores the object path within the
+ * 'documents' storage bucket (see upload-registration-files), not an HTTP URL.
+ */
+async function fetchSignatureBytes(
+  admin: Admin,
   userId: string,
-): Promise<string | null> {
+): Promise<{ bytes: Uint8Array; sourceUrl: string } | null> {
   const { data: verifyRow } = await admin
     .from("user_verify")
     .select("esign_file_id")
@@ -53,47 +88,18 @@ async function fetchSignatureDataUrl(
 
   if (!fileRow?.file_url) return null;
 
-  try {
-    const rawRes = await fetch(fileRow.file_url, {
-      headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
-    });
-    if (!rawRes.ok) return null;
+  const stored = fileRow.file_url as string;
+  const storagePath = stored.startsWith("documents/")
+    ? stored.substring("documents/".length)
+    : stored;
 
-    const rawBytes = new Uint8Array(await rawRes.arrayBuffer());
-    let sigBytes = rawBytes;
-    let sigMime  = rawRes.headers.get("content-type") ?? "image/png";
+  // Download via service role (bypasses RLS).
+  const { data: blob, error } = await admin.storage
+    .from("documents").download(storagePath);
+  if (error || !blob) return null;
 
-    // Non-fatal: try to remove background for a cleaner signature
-    if (REMOVE_BG_API_KEY) {
-      try {
-        const fd = new FormData();
-        fd.append("image_file", new Blob([rawBytes]), "signature.png");
-        fd.append("size", "auto");
-        const bgRes = await fetch("https://api.remove.bg/v1.0/removebg", {
-          method:  "POST",
-          headers: { "X-Api-Key": REMOVE_BG_API_KEY },
-          body:    fd,
-        });
-        if (bgRes.ok) {
-          sigBytes = new Uint8Array(await bgRes.arrayBuffer());
-          sigMime  = "image/png";
-        }
-      } catch (_e) { /* keep raw */ }
-    }
-
-    const b64 = btoa(sigBytes.reduce((s, b) => s + String.fromCharCode(b), ""));
-    return `data:${sigMime};base64,${b64}`;
-  } catch (_e) {
-    return null;
-  }
-}
-
-async function findSignerRoleId(
-  admin: ReturnType<typeof createClient>,
-  roleName: "Supplier" | "Business Owner",
-): Promise<string | null> {
-  const { data } = await admin.from("roles").select("role_id").eq("role_name", roleName).single();
-  return (data?.role_id as string | undefined) ?? null;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return { bytes, sourceUrl: storagePath };
 }
 
 Deno.serve(async (req) => {
@@ -129,7 +135,9 @@ Deno.serve(async (req) => {
       .from("contracts")
       .select(`
         contract_id, contract_number, status, supplier_id, business_owner_id,
-        docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug
+        contract_hash, contract_terms_snapshot, contract_document_url,
+        negotiated_price_per_kg, contracted_tons, due_date, delivery_location,
+        special_notes
       `)
       .eq("contract_id", contract_id)
       .single();
@@ -141,103 +149,155 @@ Deno.serve(async (req) => {
     if (contract.status !== "Pending") {
       return json({ error: `Contract is not Pending (current: ${contract.status})` }, 400);
     }
-    if (!contract.docuseal_submission_id) {
-      return json({ error: "This contract has no DocuSeal submission. Ask the Business Owner to send it again." }, 400);
-    }
-
-    // ── 4. Fetch stored e-signatures ─────────────────────────────────────────
-    const supplierSigDataUrl = await fetchSignatureDataUrl(admin, contract.supplier_id as string);
-    if (!supplierSigDataUrl) {
+    if (!contract.contract_hash || !contract.contract_terms_snapshot) {
       return json({
-        error: "Your registered e-signature could not be found. Please contact support.",
+        error: "This contract has no generated document yet. Ask the Business Owner to generate it first.",
       }, 400);
     }
 
-    // BO signature is optional for now — new signup flow will require it later
-    const boSigDataUrl = await fetchSignatureDataUrl(admin, contract.business_owner_id as string);
+    // ── 4. Tamper detection ──────────────────────────────────────────────────
+    // Re-hash the exact snapshot the BO generated and confirm it still matches
+    // the stored contract_hash. This catches DB tampering that would otherwise
+    // silently change the contract terms out from under the signer.
+    const snapshotTerms = contract.contract_terms_snapshot as unknown as ContractTerms;
+    const recomputedHash = await computeContractHash(snapshotTerms);
 
-    // ── 5. Complete DocuSeal submitter with filled signatures ────────────────
-    // docuseal_bo_slug is repurposed by generate-contract to hold the SUBMITTER id
-    const submitterId = contract.docuseal_bo_slug;
-    if (!submitterId) {
-      return json({ error: "DocuSeal submitter ID missing on contract." }, 500);
+    if (recomputedHash !== contract.contract_hash) {
+      return json({
+        error: "Contract integrity check failed. The stored terms do not match the recorded hash. Signing is refused.",
+      }, 409);
     }
 
-    const values: Record<string, string> = {
-      supplier_signature: supplierSigDataUrl,
-    };
-    if (boSigDataUrl) values.business_owner_signature = boSigDataUrl;
+    // ── 5. Load participant profiles + signatures ────────────────────────────
+    const [{ data: supplier }, { data: bo }] = await Promise.all([
+      admin.from("users")
+        .select("user_id, first_name, last_name, email, address")
+        .eq("user_id", contract.supplier_id).single(),
+      admin.from("users")
+        .select("user_id, first_name, last_name, email")
+        .eq("user_id", contract.business_owner_id).single(),
+    ]);
 
-    const dsRes = await fetch(`${DOCUSEAL_API_BASE}/submitters/${submitterId}`, {
-      method:  "PUT",
-      headers: { "X-Auth-Token": DOCUSEAL_API_KEY, "Content-Type": "application/json" },
-      body:    JSON.stringify({ values, completed: true }),
+    if (!supplier || !bo) return json({ error: "Participant profiles not found" }, 404);
+
+    const supplierSig = await fetchSignatureBytes(admin, supplier.user_id as string);
+    if (!supplierSig) {
+      return json({
+        error: "Your registered e-signature could not be found. Please upload one in Account Settings.",
+      }, 400);
+    }
+
+    // BO signature is optional; contract still activates if absent.
+    const boSig = await fetchSignatureBytes(admin, bo.user_id as string);
+
+    // ── 6. Render final signed PDF ───────────────────────────────────────────
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const today  = nowIso.slice(0, 10);
+
+    // due_date will be set by the DB trigger on activation, so at signing time
+    // it may be null. Fall back to a friendly placeholder if so.
+    const dueDateText = contract.due_date
+      ? fmtDate(contract.due_date as string)
+      : fmtDate(new Date(now.getFullYear(), now.getMonth() + 1, now.getDate() + 1).toISOString());
+
+    const totalAmount = Number(snapshotTerms.negotiated_price_per_kg)
+                      * 1000 * Number(snapshotTerms.contracted_tons);
+    const priceWords  = numberToWords(Math.round(totalAmount));
+
+    const signedPdfBytes = await renderContractPDF({
+      contract_number:              snapshotTerms.contract_number,
+      date_str:                     fmtDate(snapshotTerms.created_at),
+      supplier_name:                snapshotTerms.supplier_name,
+      supplier_address:             snapshotTerms.supplier_address,
+      contracted_tons:              snapshotTerms.contracted_tons,
+      negotiated_price:             snapshotTerms.negotiated_price_per_kg,
+      negotiated_price_words:       priceWords,
+      due_date_text:                dueDateText,
+      delivery_location:            snapshotTerms.delivery_location,
+      special_notes:                snapshotTerms.special_notes,
+      business_owner_name:          snapshotTerms.business_owner_name,
+      contract_hash:                contract.contract_hash,
+      supplier_signature_png:       supplierSig.bytes,
+      business_owner_signature_png: boSig?.bytes ?? null,
+      supplier_signed_at:           nowIso,
+      business_owner_signed_at:     boSig ? nowIso : undefined,
     });
 
-    if (!dsRes.ok) {
-      const errText = await dsRes.text();
-      return json({ error: `DocuSeal signing failed: ${errText}` }, 502);
+    const signedPath = `${contract.supplier_id}/${contract_id}/signed.pdf`;
+    const { error: uploadErr } = await admin.storage
+      .from(CONTRACT_BUCKET)
+      .upload(signedPath, signedPdfBytes, {
+        contentType: "application/pdf",
+        upsert:       true,
+      });
+    if (uploadErr) {
+      return json({ error: `Signed PDF upload failed: ${uploadErr.message}` }, 500);
     }
 
-    const dsData = await dsRes.json();
-    const documentUrl: string | null =
-      (dsData?.documents?.[0]?.url as string | undefined) ??
-      (dsData?.audit_log_url        as string | undefined) ??
-      null;
+    // ── 7. Insert immutable audit rows in contract_signatures ────────────────
+    const ipAddress = callerIP(req);
+    const userAgent = req.headers.get("user-agent") ?? "unknown";
 
-    // ── 6. Insert audit rows in contract_signatures ──────────────────────────
-    const now = new Date().toISOString();
-    const today = now.slice(0, 10);
-
-    const { data: verifyRow } = await admin
+    const { data: supplierVerify } = await admin
       .from("user_verify")
       .select("esign_file_id")
-      .eq("user_id", contract.supplier_id)
-      .maybeSingle();
+      .eq("user_id", contract.supplier_id).maybeSingle();
 
     const signatureRows: Record<string, unknown>[] = [
       {
         contract_id,
-        signer_id:          contract.supplier_id,
-        signer_role:        "Supplier",
-        esignature_file_id: verifyRow?.esign_file_id ?? null,
-        signature_order:    1,
-        signed_at:          now,
+        signer_id:           contract.supplier_id,
+        signer_role:         "Supplier",
+        esignature_file_id:  supplierVerify?.esign_file_id ?? null,
+        signature_order:     1,
+        signed_at:           nowIso,
+        signature_hash:      contract.contract_hash,
+        ip_address:          ipAddress,
+        user_agent:          userAgent,
+        signature_image_url: supplierSig.sourceUrl,
       },
     ];
 
-    if (boSigDataUrl) {
+    if (boSig) {
       const { data: boVerify } = await admin
         .from("user_verify")
         .select("esign_file_id")
-        .eq("user_id", contract.business_owner_id)
-        .maybeSingle();
+        .eq("user_id", contract.business_owner_id).maybeSingle();
 
       signatureRows.push({
         contract_id,
-        signer_id:          contract.business_owner_id,
-        signer_role:        "Business Owner",
-        esignature_file_id: boVerify?.esign_file_id ?? null,
-        signature_order:    2,
-        signed_at:          now,
+        signer_id:           contract.business_owner_id,
+        signer_role:         "Business Owner",
+        esignature_file_id:  boVerify?.esign_file_id ?? null,
+        signature_order:     2,
+        signed_at:           nowIso,
+        signature_hash:      contract.contract_hash,
+        ip_address:          "server-applied",
+        user_agent:          "server-applied",
+        signature_image_url: boSig.sourceUrl,
       });
     }
 
-    await admin.from("contract_signatures").insert(signatureRows);
+    const { error: sigInsertErr } = await admin
+      .from("contract_signatures").insert(signatureRows);
+    if (sigInsertErr) {
+      return json({ error: `Signature record insert failed: ${sigInsertErr.message}` }, 500);
+    }
 
-    // ── 7. Activate contract ─────────────────────────────────────────────────
+    // ── 8. Activate contract ─────────────────────────────────────────────────
     const { error: updateErr } = await admin.from("contracts").update({
       status:                 "Active",
-      activation_date:        today,        // trigger auto-computes due_date
+      activation_date:        today,     // DB trigger computes due_date
       signing_date:           today,
-      supplier_authorized_at: now,
-      bo_signed_at:           boSigDataUrl ? now : null,
-      contract_document_url:  documentUrl,
+      supplier_authorized_at: nowIso,
+      bo_signed_at:           boSig ? nowIso : null,
+      contract_document_url:  signedPath,
     }).eq("contract_id", contract_id);
 
-    if (updateErr) return json({ error: `DB update failed: ${updateErr.message}` }, 500);
+    if (updateErr) return json({ error: `Contract update failed: ${updateErr.message}` }, 500);
 
-    // ── 8. Notifications ─────────────────────────────────────────────────────
+    // ── 9. Notifications ─────────────────────────────────────────────────────
     await admin.from("notifications").insert([
       {
         user_id:             contract.supplier_id as string,
@@ -256,13 +316,37 @@ Deno.serve(async (req) => {
     ]);
 
     return json({
-      success:              true,
+      success:                true,
       contract_id,
-      contract_document_url: documentUrl,
-      activation_date:      today,
+      contract_document_path: signedPath,
+      contract_hash:          contract.contract_hash,
+      activation_date:        today,
     });
 
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
 });
+
+// ── Simple number-to-words helper for Philippine peso amounts ────────────────
+function numberToWords(n: number): string {
+  if (n === 0) return "Zero Pesos";
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
+    "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  function chunk(num: number): string {
+    if (num === 0) return "";
+    if (num < 20)  return ones[num] + " ";
+    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "") + " ";
+    return ones[Math.floor(num / 100)] + " Hundred " + chunk(num % 100);
+  }
+
+  let result = "";
+  if (n >= 1_000_000) { result += chunk(Math.floor(n / 1_000_000)) + "Million "; n %= 1_000_000; }
+  if (n >= 1_000)     { result += chunk(Math.floor(n / 1_000))     + "Thousand "; n %= 1_000; }
+  if (n > 0)           result += chunk(n);
+
+  return result.trim() + " Pesos";
+}

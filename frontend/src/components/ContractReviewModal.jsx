@@ -6,12 +6,12 @@ import { supabase } from "../lib/supabase";
 
 /**
  * ContractReviewModal — shown to Business Owner for Pending contracts that
- * don't yet have a DocuSeal submission.
+ * don't yet have a generated document.
  *
  * Props:
  *   contract  – contract row (must include supplier { first_name, last_name, email }, negotiated_price_per_kg, contracted_tons)
  *   onClose   – () => void
- *   onGenerated – (boSignUrl: string) => void  called after successful generation
+ *   onGenerated – () => void  called after successful generation
  */
 export default function ContractReviewModal({ contract, onClose, onGenerated }) {
   const [deliveryLocation, setDeliveryLocation] = useState(contract.delivery_location ?? "");
@@ -61,7 +61,7 @@ export default function ContractReviewModal({ contract, onClose, onGenerated }) 
     }
 
     setLoading(false);
-    onGenerated(data.preview_url);
+    onGenerated();
   }
 
   return (
@@ -141,9 +141,10 @@ export default function ContractReviewModal({ contract, onClose, onGenerated }) 
 
         {/* In-app signing notice */}
         <div className="bg-blue-50 rounded-xl px-4 py-3 mb-5 text-xs text-blue-700 leading-relaxed">
-          <strong>What happens next:</strong> The contract will appear in the chat for the
-          Supplier to review. When they authorize the use of their registered e-signature,
-          the contract is signed automatically and its status becomes <strong>Active</strong>.
+          <strong>What happens next:</strong> A contract PDF is generated with a cryptographic
+          hash of these exact terms. It will appear in the chat for the Supplier to review.
+          When they authorize the use of their registered e-signature, the contract is signed
+          with a tamper-evident audit record and its status becomes <strong>Active</strong>.
         </div>
 
         {error && (

@@ -169,7 +169,7 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
         conversation_id: conversationId,
         sender_id: user.id,
         message_type: "Contract Form",
-        message_text: `📄 Contract ${contractNumber} created. Go to the Contracts page to review and send it for signing via DocuSeal.`,
+        message_text: `📄 Contract ${contractNumber} created. Go to the Contracts page to review and send it for signing.`,
       });
     }
   }

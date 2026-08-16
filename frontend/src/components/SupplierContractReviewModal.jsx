@@ -1,25 +1,44 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  LuX, LuFileText, LuCheck, LuLoader, LuShieldCheck,
+  LuX, LuFileText, LuCheck, LuLoader, LuShieldCheck, LuFingerprint,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 
 /**
  * SupplierContractReviewModal — shown to the Supplier when they tap "Review &
- * Sign Contract" on a contract card in chat. Embeds the DocuSeal document
- * preview and requires the Supplier to check an authorization box before the
- * `sign-contract` Edge Function is called.
+ * Sign Contract" on a contract card in chat. Embeds a preview of the generated
+ * contract PDF (fetched from the private `contracts` storage bucket via a
+ * signed URL) and requires the Supplier to check an authorization box before
+ * the `sign-contract` Edge Function is called.
  *
  * Props:
  *   contract    – { contract_id, contract_number, price_per_kg, contracted_tons,
- *                   due_date, preview_url }
+ *                   due_date, document_path, contract_hash }
  *   onClose     – () => void
- *   onSigned    – ({ contract_document_url, activation_date }) => void
+ *   onSigned    – ({ contract_document_path, activation_date }) => void
  */
 export default function SupplierContractReviewModal({ contract, onClose, onSigned }) {
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  // Fetch a short-lived signed URL for the PDF preview when we have a path.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPreview() {
+      if (!contract.document_path) { setPreviewUrl(null); return; }
+      const { data, error } = await supabase.storage
+        .from("contracts")
+        .createSignedUrl(contract.document_path, 60 * 15);
+      if (!cancelled) {
+        if (error) setPreviewUrl(null);
+        else       setPreviewUrl(data?.signedUrl ?? null);
+      }
+    }
+    loadPreview();
+    return () => { cancelled = true; };
+  }, [contract.document_path]);
 
   function peso(n) {
     return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
@@ -109,17 +128,28 @@ export default function SupplierContractReviewModal({ contract, onClose, onSigne
           </div>
 
           {/* Document preview */}
-          {contract.preview_url ? (
+          {previewUrl ? (
             <div className="rounded-2xl overflow-hidden border border-[#e8e0d0]">
               <iframe
-                src={contract.preview_url}
+                src={previewUrl}
                 title="Contract preview"
                 className="w-full h-[420px] bg-white"
               />
             </div>
           ) : (
             <div className="rounded-2xl bg-[#faf7f0] p-6 text-center text-[#8b7355] text-sm">
-              Contract preview will appear here once available.
+              {contract.document_path ? "Loading contract preview…" : "Contract preview will appear here once available."}
+            </div>
+          )}
+
+          {/* Cryptographic hash — makes the security binding visible */}
+          {contract.contract_hash && (
+            <div className="bg-[#faf7f0] rounded-2xl p-3 flex gap-2 items-center">
+              <LuFingerprint className="w-4 h-4 text-[#2d5a27] shrink-0" />
+              <div className="text-[10px] text-[#8b7355] leading-tight break-all font-mono">
+                <span className="uppercase tracking-wider text-[#3d2b1f] font-semibold">Contract hash · </span>
+                {contract.contract_hash}
+              </div>
             </div>
           )}
 
@@ -127,10 +157,12 @@ export default function SupplierContractReviewModal({ contract, onClose, onSigne
           <div className="bg-[#2d5a27]/5 rounded-2xl p-4 flex gap-3 items-start">
             <LuShieldCheck className="w-5 h-5 text-[#2d5a27] shrink-0 mt-0.5" />
             <div className="text-xs text-[#3d2b1f] leading-relaxed">
-              By confirming below, you authorize CopTrax to apply your electronic signature
-              submitted during account registration. The date and time of your acceptance
-              will be recorded. Once signed, the contract's status will change to
-              <strong> Active</strong> and it becomes eligible to receive deliveries.
+              By confirming below, you authorize CopTrax to apply the electronic signature you 
+              submitted during account registration. Your signing action will be securely linked 
+              to the exact contract terms, allowing any changes made after signing to be detected. 
+              The date, time, IP address and browser you used will be recorded. Once signed, the 
+              contract's status will change to <strong>Active</strong> and it becomes eligible to 
+              receive deliveries.
             </div>
           </div>
 

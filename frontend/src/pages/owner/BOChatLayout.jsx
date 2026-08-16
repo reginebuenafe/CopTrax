@@ -38,11 +38,12 @@ function peso(n) {
 
 // ── Contract card (shown inside the chat message stream) ──────────────────────
 function ContractCard({ contractData, onTapPreview, signed }) {
+  const hasDoc = !!contractData.document_path;
   return (
     <div className="flex justify-end my-2 px-4">
       <div
-        className={`text-white rounded-2xl rounded-br-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${contractData.preview_url ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
-        onClick={() => contractData.preview_url && onTapPreview?.(contractData.preview_url)}
+        className={`text-white rounded-2xl rounded-br-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${hasDoc ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
+        onClick={() => hasDoc && onTapPreview?.(contractData.document_path)}
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
@@ -71,7 +72,7 @@ function ContractCard({ contractData, onTapPreview, signed }) {
             </div>
           )}
         </div>
-        {contractData.preview_url && (
+        {hasDoc && (
           <p className="text-white/70 text-[10px] text-center mt-3 underline">
             Tap to review document
           </p>
@@ -224,7 +225,7 @@ export default function BOChatLayout() {
       // Load contracts for this conversation
       const { data: contractData } = await supabase
         .from("contracts")
-        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, docuseal_bo_slug, docuseal_supplier_slug")
+        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url")
         .eq("supplier_id", conv.supplier.user_id)
         .eq("business_owner_id", conv.business_owner_id ?? user.id)
         .order("created_at", { ascending: false });
@@ -281,9 +282,9 @@ export default function BOChatLayout() {
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
-  // ── Pending contract (has contract but no DocuSeal yet) ────────────────────
-  const pendingContract = contracts.find(c => c.status === "Pending" && !c.docuseal_submission_id) ?? null;
-  const sentContract    = contracts.find(c => c.docuseal_submission_id) ?? null;
+  // ── Pending contract (no PDF generated yet) vs. Sent (PDF generated) ───────
+  const pendingContract = contracts.find(c => c.status === "Pending" && !c.contract_hash) ?? null;
+  const sentContract    = contracts.find(c => c.contract_hash) ?? null;
 
   // ── Chat actions ──────────────────────────────────────────────────────────
   async function sendMessage(e) {
@@ -344,11 +345,11 @@ export default function BOChatLayout() {
 
     if (contract) {
       await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-      setContracts(prev => [{ ...contract, status: "Pending", docuseal_submission_id: null, docuseal_bo_slug: null }, ...prev]);
+      setContracts(prev => [{ ...contract, status: "Pending", contract_hash: null, contract_document_url: null }, ...prev]);
     }
   }
 
-  // ── Send Contract (DocuSeal generation) ───────────────────────────────────
+  // ── Send Contract (generate PDF + cryptographic hash) ─────────────────────
   async function handleSendContract() {
     if (!pendingContract) return;
     setSendingContract(true);
@@ -381,7 +382,7 @@ export default function BOChatLayout() {
         price_per_kg:    pendingContract.negotiated_price_per_kg,
         contracted_tons: pendingContract.contracted_tons,
         due_date:        pendingContract.due_date,
-        preview_url:     data.preview_url,
+        document_path:   data.contract_document_path,
       })}`,
     });
 
@@ -523,7 +524,11 @@ export default function BOChatLayout() {
                         key={msg.message_id}
                         contractData={cardData}
                         signed={isSigned}
-                        onTapPreview={url => url && window.open(url, "_blank")}
+                        onTapPreview={async (docPath) => {
+                          if (!docPath) return;
+                          const { data } = await supabase.storage.from("contracts").createSignedUrl(docPath, 60 * 15);
+                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                        }}
                       />
                     );
                   } catch { /* fall through to system message */ }
@@ -580,11 +585,14 @@ export default function BOChatLayout() {
                     Send Contract
                   </button>
                 )}
-                {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
-                  <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
+                {sentContract?.contract_document_url && sentContract.status === "Pending" && (
+                  <button onClick={async () => {
+                    const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);
+                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                  }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-all">
                     <LuFileText className="w-3.5 h-3.5" /> View Contract Document
-                  </a>
+                  </button>
                 )}
                 <button onClick={() => setCounterModal(latestProposal ?? null)}
                   disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO}
@@ -652,18 +660,21 @@ export default function BOChatLayout() {
             </div>
 
             {/* Send Contract / Sign button */}
-            {pendingContract && !pendingContract.docuseal_submission_id && (
+            {pendingContract && !pendingContract.contract_hash && (
               <button onClick={handleSendContract} disabled={sendingContract}
                 className="w-full py-2.5 rounded-xl bg-[#2d5a27] text-white font-bold text-sm hover:bg-[#234820] transition-all disabled:opacity-60 flex items-center justify-center gap-2">
                 {sendingContract ? <LuLoader className="w-4 h-4 animate-spin" /> : null}
                 Send Contract
               </button>
             )}
-            {sentContract?.docuseal_supplier_slug && sentContract.status === "Pending" && (
-              <a href={`https://docuseal.com/s/${sentContract.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
+            {sentContract?.contract_document_url && sentContract.status === "Pending" && (
+              <button onClick={async () => {
+                const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);
+                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+              }}
                 className="block w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm text-center hover:bg-blue-700 transition-all">
                 View Contract Document
-              </a>
+              </button>
             )}
             {sentContract?.status === "Pending" && (
               <div className="text-[11px] text-amber-700 bg-amber-50 rounded-xl px-3 py-2 text-center">
@@ -697,7 +708,7 @@ export default function BOChatLayout() {
             {/* Signed contracts */}
             <div>
               <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Signed Contracts</p>
-              {contracts.filter(c => c.status !== "Pending" || c.docuseal_submission_id).length === 0 ? (
+              {contracts.filter(c => c.status !== "Pending" || c.contract_hash).length === 0 ? (
                 <div className="bg-[#f5f0e8] rounded-xl p-3 text-[11px] text-[#8b7355] leading-relaxed">
                   No contracts yet. Agree on price and volume, then send one.
                 </div>
@@ -713,9 +724,12 @@ export default function BOChatLayout() {
                           c.status === "Breached" ? "bg-red-50 text-red-600" :
                           "bg-amber-50 text-amber-700"
                         }`}>{c.status}</span>
-                        {c.docuseal_supplier_slug && (
-                          <a href={`https://docuseal.com/s/${c.docuseal_supplier_slug}`} target="_blank" rel="noopener noreferrer"
-                            className="text-[10px] text-blue-600 hover:underline">View</a>
+                        {c.contract_document_url && (
+                          <button onClick={async () => {
+                            const { data } = await supabase.storage.from("contracts").createSignedUrl(c.contract_document_url, 60 * 15);
+                            if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                          }}
+                            className="text-[10px] text-blue-600 hover:underline">View</button>
                         )}
                       </div>
                     </div>

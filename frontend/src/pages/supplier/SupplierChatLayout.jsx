@@ -196,7 +196,7 @@ export default function SupplierChatLayout() {
     if (conv) {
       const { data: contractData } = await supabase
         .from("contracts")
-        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, docuseal_submission_id, docuseal_supplier_slug, docuseal_bo_slug")
+        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url")
         .eq("supplier_id", user.id)
         .order("created_at", { ascending: false });
       setContracts(contractData ?? []);
@@ -305,7 +305,7 @@ export default function SupplierChatLayout() {
   }
 
   // ── First Pending contract in this supplier's list, for the "Review & Sign" shortcut ─
-  const pendingContractRow = contracts.find(c => c.status === "Pending" && c.docuseal_submission_id);
+  const pendingContractRow = contracts.find(c => c.status === "Pending" && c.contract_hash);
 
   return (
     <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
@@ -427,7 +427,8 @@ export default function SupplierChatLayout() {
                           price_per_kg:    cardData.price_per_kg,
                           contracted_tons: cardData.contracted_tons,
                           due_date:        cardData.due_date ?? contractRow?.due_date,
-                          preview_url:     cardData.preview_url,
+                          document_path:   cardData.document_path ?? contractRow?.contract_document_url,
+                          contract_hash:   contractRow?.contract_hash,
                         })}
                       />
                     );
@@ -470,7 +471,7 @@ export default function SupplierChatLayout() {
                 />
               )}
 
-              {/* DocuSeal sign prompt removed — Review & Sign is now on each contract card */}
+
 
               <div ref={bottomRef} />
             </div>
@@ -532,9 +533,8 @@ export default function SupplierChatLayout() {
                   price_per_kg:    pendingContractRow.negotiated_price_per_kg,
                   contracted_tons: pendingContractRow.contracted_tons,
                   due_date:        pendingContractRow.due_date,
-                  preview_url:     pendingContractRow.docuseal_supplier_slug
-                    ? `https://docuseal.com/s/${pendingContractRow.docuseal_supplier_slug}`
-                    : null,
+                  document_path:   pendingContractRow.contract_document_url,
+                  contract_hash:   pendingContractRow.contract_hash,
                 })}
                 className="block w-full py-2.5 rounded-xl bg-[#2d5a27] text-white font-bold text-sm text-center hover:bg-[#234820] transition-all"
               >
@@ -580,7 +580,7 @@ export default function SupplierChatLayout() {
                           c.status === "Breached" ? "bg-red-50 text-red-600" :
                           "bg-amber-50 text-amber-700"
                         }`}>{c.status}</span>
-                        {c.status === "Pending" && (
+                        {c.status === "Pending" && c.contract_hash && (
                           <button
                             onClick={() => setSignContract({
                               contract_id:     c.contract_id,
@@ -588,9 +588,8 @@ export default function SupplierChatLayout() {
                               price_per_kg:    c.negotiated_price_per_kg,
                               contracted_tons: c.contracted_tons,
                               due_date:        c.due_date,
-                              preview_url:     c.docuseal_supplier_slug
-                                ? `https://docuseal.com/s/${c.docuseal_supplier_slug}`
-                                : null,
+                              document_path:   c.contract_document_url,
+                              contract_hash:   c.contract_hash,
                             })}
                             className="text-[10px] text-[#2d5a27] font-semibold hover:underline"
                           >

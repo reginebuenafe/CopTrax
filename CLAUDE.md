@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-This file is read automatically at the start of every session in this repo. Keep it in sync with `docs/build-spec.md` — if they conflict, `docs/build-spec.md` wins.
+This file is read automatically at the start of every session in this repo.
 
 ## Project
 
 **CopTrax** — a web-based procurement management system for NERC Copra Trading. Digitizes: registration/verification → negotiate price → sign contract → deliver → weigh → test quality → compute payment → manage inventory → rate suppliers → report. Four roles: **Business Owner**, **Supplier**, **Weigher**, **Laboratory Staff**.
 
-Full spec: `docs/build-spec.md` (authoritative — aligned to the official SRS, REQ-4.x IDs included for traceability). Background/original longer SRS text: `docs/requirements.md` (reference only — don't build from it if it conflicts with build-spec.md).
+Background/original SRS text: `docs/requirements.md` (reference — use this as the primary spec document).
 
 ## Tech stack
 
@@ -15,7 +15,7 @@ Full spec: `docs/build-spec.md` (authoritative — aligned to the official SRS, 
 - Database: PostgreSQL via Supabase
 - Auth: Supabase Auth; role stored on the user's profile row, enforced via Row Level Security (RLS) policies — not custom JWT middleware
 - Payments: Xendit — each delivery is its own separate payment transaction, not batched
-- Contract signing: DocuSeal (embedded submission flow, webhook-driven status updates)
+- Contract signing: In-house cryptographic signature binding (SHA-256 hash of contract terms + authenticated JWT + pdf-lib PDF generation) — no third-party signing service
 - ID scanning (registration): Google Gemini vision API via `extract-id-info` Edge Function
 - Deployment: Render (frontend static site) + Supabase (database, auth, functions)
 
@@ -27,7 +27,6 @@ supabase/
   functions/        → Edge Functions
   migrations/        → SQL schema migrations
 docs/
-  build-spec.md
   requirements.md
 seed/
   pca_discount_table.sql
@@ -54,7 +53,6 @@ psql $SUPABASE_DB_URL -f seed/pca_discount_table.sql          # seed discount ta
 
 Supabase secrets that must be set for full functionality:
 - `GEMINI_API_KEY` — Google AI Studio key (free tier), used by `extract-id-info` for ID OCR
-- `DOCUSEAL_API_KEY`, `DOCUSEAL_TEMPLATE_ID` — used by `generate-contract` and `sign-contract`
 - `XENDIT_SECRET_KEY` — used by payment Edge Function
 - `SUPABASE_SERVICE_ROLE_KEY` — auto-injected by Supabase into Edge Functions
 
@@ -84,19 +82,28 @@ Do not simplify, "improve," or guess differently on these — they were delibera
 
 - No business logic belongs in the frontend beyond calling Supabase — all computation (payment, discount lookup, rating, merge eligibility, deadline checks) lives in Edge Functions or SQL, never client-side.
 - Role-based access is enforced via Postgres Row Level Security (RLS) policies, not just app-layer checks — every table with role-sensitive data needs an RLS policy, not just a frontend guard.
-- Don't invent business rules not in `docs/build-spec.md` — ask instead of guessing.
-- Don't build anything from `docs/build-spec.md` §6 "Out of Scope" (literature review, legal/compliance boilerplate, project-management artifacts).
+- Don't invent business rules not in `docs/requirements.md` — ask instead of guessing.
+- Don't build anything from `docs/requirements.md` §6 "Out of Scope" (literature review, legal/compliance boilerplate, project-management artifacts).
 - Reuse the existing landing page's visual design system for new dashboard pages rather than introducing a new style.
 
 ## Workflow preference
 
-Build and review one module at a time (see build order in `docs/build-prompt.md` / build-spec.md §3, in SRS section order: 4.1 → 4.2 → 4.3 → 4.4 → 4.5 → 4.6 → 4.7). Don't build multiple unrelated modules in one pass.
+Build and review one module at a time (see build order in `docs/requirements.md`, in SRS section order: 4.1 → 4.2 → 4.3 → 4.4 → 4.5 → 4.6 → 4.7). Don't build multiple unrelated modules in one pass.
 
 ---
 
 ## Recent changes (keep this updated)
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
+
+### 2026-08-16 — Cryptographic Signature Binding (DocuSeal removed)
+
+- **Replaced DocuSeal** with an in-house cryptographic signing flow. No more `DOCUSEAL_API_KEY` or `DOCUSEAL_TEMPLATE_ID` secrets needed. The `docuseal-webhook` Edge Function is deleted.
+- **Contract generation** (`generate-contract`): now computes a SHA-256 hash of the canonical contract terms, renders an unsigned PDF via `pdf-lib` matching the `docs/contract_template.docx` layout, and stores it in the `contracts` Supabase Storage bucket. The hash + a JSON snapshot of terms are persisted on the `contracts` row for tamper detection.
+- **Contract signing** (`sign-contract`): verifies signer identity via JWT, re-hashes the stored terms to detect tampering, embeds both parties' signature images into a final signed PDF, records an immutable `contract_signatures` audit row with the hash, IP address, User-Agent, and timestamp.
+- **New migration `20260816000017_cryptographic_signing.sql`**: adds `contract_hash`, `contract_terms_snapshot` to `contracts`; adds `signature_hash`, `ip_address`, `user_agent`, `signature_image_url` to `contract_signatures`; adds an immutability trigger preventing UPDATE/DELETE on `contract_signatures`.
+- **Shared helpers** added: `supabase/functions/_shared/contract_hash.ts` (canonical JSON + SHA-256) and `supabase/functions/_shared/contract_pdf.ts` (pdf-lib renderer).
+- **Frontend**: all DocuSeal external links, iframe embeds, and `docuseal_*` column references removed from `BOChatLayout`, `SupplierChatLayout`, `BOContractsPage`, `ContractReviewModal`, `SupplierContractReviewModal`. Contract PDFs are now fetched via Supabase Storage signed URLs.
 
 ### 2026-08-14 — Bank self-service, ID scanning, FK cleanup
 
@@ -106,11 +113,11 @@ Newest first. When you land a meaningful change, add a bullet here so teammates 
 - **User FK cascades fixed** — new migration `20260815000016_fix_user_fk_cascades.sql`. All foreign keys referencing `public.users(user_id)` now have proper `ON DELETE CASCADE` (owned rows: contracts, deliveries, payments, notifications, messages, inventory batches) or `ON DELETE SET NULL` (soft references: weigher/lab assignments, "reviewed by", "recorded by"). Deleting a user from the Supabase Auth dashboard now works cleanly. Migration uses defensive `DO $$ ... $$` with `information_schema` checks so it's safe to re-run and skips missing tables/columns.
 - **Code cleanup** — removed several unused variables and dead code across the frontend (BankChangeRequestsPage, unused `useAuth` in ContractReviewModal, `peso()` helper in InventoryPage, stray `filtered`/`initials` in SupplierChatLayout, etc.). No behavior changes; build passes.
 
-### 2026-08-05 — Bank accounts, signature settings, DocuSeal contract flow
+### 2026-08-05 — Bank accounts, signature settings, contract signing flow
 
 - Added `bank_accounts` table + `user_verify` signature columns (migration `20260805000015`).
 - Added `Account Settings` page (shared) with signature upload/preview and bank fields.
-- DocuSeal integration for contract signing: `generate-contract` Edge Function creates the submission from an accepted proposal + BO-side review; `sign-contract` handles supplier-side sign; `docuseal-webhook` updates status when both parties finish.
+- DocuSeal integration replaced (see 2026-08-16 entry above): `generate-contract` Edge Function creates the contract PDF from accepted proposal + BO-side review; `sign-contract` handles supplier-side sign.
 - Contract review modals on both BO and Supplier sides (`ContractReviewModal.jsx`, `SupplierContractReviewModal.jsx`).
 - 3-panel chat UI redesign for BO (`BOChatLayout.jsx`) and Supplier (`SupplierChatLayout.jsx`).
 

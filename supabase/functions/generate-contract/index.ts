@@ -1,23 +1,38 @@
 // generate-contract/index.ts
-// New signing flow (REQ-4.3): Business Owner generates a contract →
-// CopTrax creates a DocuSeal submission with all text fields pre-filled.
-// Both signatures are applied LATER by the sign-contract function
-// (triggered when the Supplier authorizes via checkbox in-app).
+// -----------------------------------------------------------------------------
+// Cryptographic Signature Binding — Contract Generation
 //
-// This function is idempotent per contract — if a submission already exists,
-// it just returns the existing IDs.
+// Called by the Business Owner from the "Review & Generate Contract" modal.
+// Steps:
+//   1. Authenticate caller and confirm Business Owner role.
+//   2. Load contract, supplier and BO profiles.
+//   3. Build a canonical ContractTerms snapshot and compute its SHA-256 hash.
+//      This hash cryptographically fingerprints the exact terms being offered.
+//   4. Render an UNSIGNED preview PDF (pdf-lib) matching contract_template.docx.
+//   5. Upload the preview PDF to the `contracts` storage bucket at
+//      `<contract_id>/preview.pdf`.
+//   6. Persist the hash + terms snapshot + document path on the contracts row.
+//   7. Notify the Supplier.
+//
+// Idempotent: if a hash already exists on the row, we skip regeneration and
+// return the existing document path.
+// -----------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  ContractTerms,
+  canonicalJSON,
+  computeContractHash,
+} from "../_shared/contract_hash.ts";
+import { renderContractPDF } from "../_shared/contract_pdf.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const DOCUSEAL_API_KEY          = Deno.env.get("DOCUSEAL_API_KEY") ?? "";
 
-const DOCUSEAL_TEMPLATE_ID = 5330295;
-const DOCUSEAL_API_BASE    = "https://api.docuseal.com";
+const CONTRACT_BUCKET = "contracts";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
@@ -25,6 +40,12 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-PH", {
+    month: "long", day: "numeric", year: "numeric",
   });
 }
 
@@ -58,13 +79,13 @@ Deno.serve(async (req) => {
     const { contract_id, delivery_location, special_notes } = await req.json();
     if (!contract_id) return json({ error: "contract_id is required" }, 400);
 
-    // ── 3. Load contract + supplier ──────────────────────────────────────────
+    // ── 3. Load contract + participants ──────────────────────────────────────
     const { data: contract, error: contractErr } = await admin
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
-        signing_date, due_date, activation_date, status, docuseal_submission_id,
-        docuseal_bo_slug, supplier_id, business_owner_id
+        signing_date, due_date, activation_date, status, contract_hash,
+        contract_document_url, supplier_id, business_owner_id
       `)
       .eq("contract_id", contract_id)
       .single();
@@ -74,16 +95,6 @@ Deno.serve(async (req) => {
     }
     if (contract.status !== "Pending") {
       return json({ error: `Contract is not Pending (current: ${contract.status})` }, 400);
-    }
-
-    // Idempotent — if we already created a submission, just return it
-    if (contract.docuseal_submission_id) {
-      return json({
-        success:                true,
-        docuseal_submission_id: contract.docuseal_submission_id,
-        bo_sign_url:            contract.docuseal_bo_slug ? `https://docuseal.com/s/${contract.docuseal_bo_slug}` : null,
-        already_exists:         true,
-      });
     }
 
     const { data: supplier, error: supErr } = await admin
@@ -100,76 +111,89 @@ Deno.serve(async (req) => {
       .single();
     if (boErr || !bo) return json({ error: "Business owner profile not found" }, 404);
 
-    // ── 4. Compute field values ──────────────────────────────────────────────
-    const pricePerKg  = Number(contract.negotiated_price_per_kg);
-    const pricePerTon = pricePerKg * 1000;
-    const totalAmount = pricePerTon * Number(contract.contracted_tons);
-    const priceWords  = numberToWords(Math.round(totalAmount));
+    // ── 4. Build canonical terms + hash ──────────────────────────────────────
+    const nowIso        = new Date().toISOString();
+    const supplierName  = `${supplier.first_name} ${supplier.last_name}`.trim();
+    const boName        = `${bo.first_name} ${bo.last_name}`.trim();
+    const supAddress    = (supplier.address as string | null) ?? "—";
+    const deliveryLoc   = (delivery_location as string | null)?.trim() || "Poblacion, Kumalarang, Zamboanga del Sur Warehouse";
+    const notes         = (special_notes as string | null)?.trim() || "";
 
-    // Note: due_date is NULL until activation. Show a placeholder in the doc.
-    const dueDateText = contract.due_date
-      ?? "One month and one day from activation";
+    // Preserve exact decimal precision by stringifying via toString().
+    const pricePerKgStr  = Number(contract.negotiated_price_per_kg).toFixed(2);
+    const tonsStr        = Number(contract.contracted_tons).toFixed(3);
 
-    // ── 5. Create DocuSeal submission WITHOUT sending email or signatures ────
-    // Business Owner is the sole submitter on the template (single role), but
-    // no email is sent — signing happens programmatically via sign-contract.
-    const values: Record<string, string> = {
-      contract_number:               contract.contract_number,
-      supplier_name:                 `${supplier.first_name} ${supplier.last_name}`,
-      supplier_address:              (supplier.address as string) ?? "—",
-      contract_quantity:             `${contract.contracted_tons}`,
-      negotiated_price:              String(pricePerKg),
-      negotiated_price_in_romanized: priceWords,
-      due_date:                      dueDateText,
+    const terms: ContractTerms = {
+      contract_number:         contract.contract_number as string,
+      supplier_id:             supplier.user_id as string,
+      supplier_name:           supplierName,
+      supplier_address:        supAddress,
+      business_owner_id:       bo.user_id as string,
+      business_owner_name:     boName,
+      contracted_tons:         tonsStr,
+      negotiated_price_per_kg: pricePerKgStr,
+      delivery_location:       deliveryLoc,
+      special_notes:           notes,
+      created_at:              nowIso,
     };
 
-    const submissionBody = {
-      template_id: DOCUSEAL_TEMPLATE_ID,
-      send_email:  false,
-      submitters: [
-        {
-          role:       "First Party",
-          email:      bo.email as string,
-          name:       `${bo.first_name} ${bo.last_name}`,
-          send_email: false,
-          values,
-        },
-      ],
-    };
-
-    const submissionRes = await fetch(`${DOCUSEAL_API_BASE}/submissions`, {
-      method:  "POST",
-      headers: { "X-Auth-Token": DOCUSEAL_API_KEY, "Content-Type": "application/json" },
-      body:    JSON.stringify(submissionBody),
-    });
-
-    if (!submissionRes.ok) {
-      const submissionErr = await submissionRes.text();
-      return json({ error: `DocuSeal submission creation failed: ${submissionErr}` }, 502);
+    // Idempotency: if a hash is already set, reuse existing document.
+    if (contract.contract_hash && contract.contract_document_url) {
+      return json({
+        success:              true,
+        contract_document_path: contract.contract_document_url,
+        contract_hash:        contract.contract_hash,
+        already_exists:       true,
+      });
     }
 
-    const submissionData = await submissionRes.json();
-    const submitters: Record<string, unknown>[] = Array.isArray(submissionData)
-      ? submissionData
-      : (submissionData.submitters as Record<string, unknown>[] | undefined) ?? [];
+    const contractHash = await computeContractHash(terms);
 
-    const boSubmitter          = submitters[0] ?? {};
-    const docusealSubmissionId = boSubmitter.submission_id as number | string | undefined;
-    const docusealSubmitterId  = boSubmitter.id            as number | string | undefined;
-    const docusealBoSlug       = boSubmitter.slug          as string | undefined;
+    // ── 5. Render unsigned preview PDF ───────────────────────────────────────
+    const totalAmount = Number(pricePerKgStr) * 1000 * Number(tonsStr);
+    const priceWords  = numberToWords(Math.round(totalAmount));
 
-    // ── 6. Persist DocuSeal IDs on the contract row ──────────────────────────
+    const pdfBytes = await renderContractPDF({
+      contract_number:        terms.contract_number,
+      date_str:               fmtDate(nowIso),
+      supplier_name:          supplierName,
+      supplier_address:       supAddress,
+      contracted_tons:        tonsStr,
+      negotiated_price:       pricePerKgStr,
+      negotiated_price_words: priceWords,
+      due_date_text:          contract.due_date
+        ? fmtDate(contract.due_date as string)
+        : "one month and one day from activation",
+      delivery_location:      deliveryLoc,
+      special_notes:          notes,
+      business_owner_name:    boName,
+      contract_hash:          contractHash,
+    });
+
+    // ── 6. Upload preview PDF to storage ─────────────────────────────────────
+    const previewPath = `${supplier.user_id}/${contract_id}/preview.pdf`;
+    const { error: uploadErr } = await admin.storage
+      .from(CONTRACT_BUCKET)
+      .upload(previewPath, pdfBytes, {
+        contentType: "application/pdf",
+        upsert:       true,
+      });
+    if (uploadErr) {
+      return json({ error: `PDF upload failed: ${uploadErr.message}` }, 500);
+    }
+
+    // ── 7. Persist hash + snapshot + document path on contract ───────────────
     const { error: updateErr } = await admin.from("contracts").update({
-      docuseal_submission_id: docusealSubmissionId ? String(docusealSubmissionId) : null,
-      docuseal_bo_slug:       docusealSubmitterId  ? String(docusealSubmitterId)  : null, // reuse column to store submitter ID for later PUT
-      docuseal_supplier_slug: docusealBoSlug ?? null,                                     // preview URL slug
-      delivery_location:      delivery_location ?? null,
-      special_notes:          special_notes ?? null,
+      contract_hash:           contractHash,
+      contract_terms_snapshot: terms as unknown as Record<string, unknown>,
+      contract_document_url:   previewPath,
+      delivery_location:       delivery_location ?? null,
+      special_notes:           special_notes ?? null,
     }).eq("contract_id", contract_id);
 
     if (updateErr) return json({ error: `DB update failed: ${updateErr.message}` }, 500);
 
-    // ── 7. Notify supplier — action required ─────────────────────────────────
+    // ── 8. Notify supplier ───────────────────────────────────────────────────
     await admin.from("notifications").insert({
       user_id:             supplier.user_id as string,
       notification_type:   "Contract Generated",
@@ -180,8 +204,9 @@ Deno.serve(async (req) => {
 
     return json({
       success:                true,
-      docuseal_submission_id: docusealSubmissionId,
-      preview_url:            docusealBoSlug ? `https://docuseal.com/s/${docusealBoSlug}` : null,
+      contract_document_path: previewPath,
+      contract_hash:          contractHash,
+      canonical_json:         canonicalJSON(terms as unknown as Record<string, unknown>),
     });
 
   } catch (err) {
