@@ -32,7 +32,7 @@ function peso(n) {
 }
 
 // ── Contract card shown in chat ───────────────────────────────────────────────
-function ContractCard({ contractData, onReviewSign, signed }) {
+function ContractCard({ contractData, onReviewSign, onView, signed }) {
   return (
     <div className="flex justify-start my-2 px-4">
       <div className={`text-white rounded-2xl rounded-bl-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"}`}>
@@ -77,8 +77,18 @@ function ContractCard({ contractData, onReviewSign, signed }) {
           </div>
         )}
         {signed && (
-          <div className="mt-3 w-full py-2 rounded-xl bg-white/10 text-white font-semibold text-xs text-center">
-            ✓ Contract Active
+          <div className="mt-3 space-y-1.5">
+            <div className="w-full py-1.5 rounded-xl bg-white/10 text-white font-semibold text-xs text-center">
+              ✓ Contract Active
+            </div>
+            {onView && (
+              <button
+                onClick={onView}
+                className="w-full py-2 rounded-xl bg-white text-[#1f4a1a] font-bold text-xs hover:bg-white/90 transition-all flex items-center justify-center gap-1.5"
+              >
+                <LuFileText className="w-3.5 h-3.5" /> View Contract
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -560,8 +570,9 @@ export default function SupplierChatLayout() {
                       ? contracts.find(c => c.contract_id === cardData.contract_id)
                       : contracts.find(c => c.contract_number === cardData.contract_number);
                     const isSigned = contractRow?.status === "Active" || contractRow?.status === "Completed" || contractRow?.status === "Breached";
-                    // Resolve the contract_id: prefer embedded, then from row.
                     const resolvedId = cardData.contract_id ?? contractRow?.contract_id;
+                    // Prefer the signed PDF; fall back to the preview PDF embedded in the message
+                    const viewPath = contractRow?.contract_document_url ?? cardData.document_path;
                     return (
                       <ContractCard
                         key={msg.message_id}
@@ -576,6 +587,10 @@ export default function SupplierChatLayout() {
                           document_path:   cardData.document_path ?? contractRow?.contract_document_url,
                           contract_hash:   contractRow?.contract_hash,
                         }) : null}
+                        onView={isSigned && viewPath ? async () => {
+                          const { data } = await supabase.storage.from("contracts").createSignedUrl(viewPath, 60 * 15);
+                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                        } : null}
                       />
                     );
                   } catch { /* fall through */ }
