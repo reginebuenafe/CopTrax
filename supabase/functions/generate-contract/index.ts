@@ -71,8 +71,12 @@ Deno.serve(async (req) => {
 
     const { data: callerRole } = await admin
       .from("roles").select("role_name").eq("role_id", callerProfile.role_id).single();
-    if (callerRole?.role_name !== "Business Owner") {
-      return json({ error: "Only Business Owner can generate contracts" }, 403);
+    const roleName = callerRole?.role_name as string | undefined;
+
+    // Only Business Owner or Supplier may trigger contract generation.
+    // (Staff roles cannot.)
+    if (roleName !== "Business Owner" && roleName !== "Supplier") {
+      return json({ error: "Only Business Owner or Supplier can generate contracts" }, 403);
     }
 
     // ── 2. Parse request body ────────────────────────────────────────────────
@@ -93,9 +97,15 @@ Deno.serve(async (req) => {
     if (contractErr || !contract) {
       return json({ error: `Contract not found (${contractErr?.message ?? "no data"})` }, 404);
     }
-    if (contract.business_owner_id !== caller.id) {
+
+    // BO can only generate their own contracts; Supplier can only trigger for their own.
+    if (roleName === "Business Owner" && contract.business_owner_id !== caller.id) {
       return json({ error: "You can only generate contracts that belong to you." }, 403);
     }
+    if (roleName === "Supplier" && contract.supplier_id !== caller.id) {
+      return json({ error: "You can only generate contracts you are a party to." }, 403);
+    }
+
     if (contract.status !== "Pending") {
       return json({ error: `Contract is not Pending (current: ${contract.status})` }, 400);
     }

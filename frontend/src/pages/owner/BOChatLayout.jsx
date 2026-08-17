@@ -155,7 +155,6 @@ export default function BOChatLayout() {
   // Right panel
   const [supplierData, setSupplierData] = useState(null);
   const [contracts, setContracts] = useState([]);
-  const [sendingContract, setSendingContract] = useState(false);
   const [contractError, setContractError] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -310,10 +309,10 @@ export default function BOChatLayout() {
     // Notify supplier
     await supabase.from("notifications").insert({
       user_id: currentConv?.supplier?.user_id, notification_type: "Contract Signed",
-      message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. A contract is being prepared.`,
+      message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated — check the chat to review and sign.`,
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
-    await createContractRecord(proposal);
+    await createAndSendContract(proposal);
     await loadChat(conversationId);
   }
 
@@ -331,9 +330,13 @@ export default function BOChatLayout() {
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
   }
 
-  async function createContractRecord(proposal) {
+  // Creates the contract row then immediately generates + sends the contract PDF in chat.
+  async function createAndSendContract(proposal) {
+    setContractError(null);
+
+    // 1. Create contract row
     const { data: numData } = await supabase.rpc("generate_contract_number");
-    const { data: contract } = await supabase.from("contracts").insert({
+    const { data: contract, error: insertErr } = await supabase.from("contracts").insert({
       contract_number: numData,
       supplier_id: currentConv.supplier.user_id,
       business_owner_id: currentConv.business_owner_id ?? user.id,
@@ -343,59 +346,54 @@ export default function BOChatLayout() {
       status: "Pending",
     }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
 
-    if (contract) {
-      await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-      setContracts(prev => [{ ...contract, status: "Pending", contract_hash: null, contract_document_url: null }, ...prev]);
-    }
-  }
-
-  // ── Send Contract (generate PDF + cryptographic hash) ─────────────────────
-  async function handleSendContract() {
-    if (!pendingContract) return;
-    setSendingContract(true);
-    setContractError(null);
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setContractError("Session expired. Please log in again."); setSendingContract(false); return; }
-
-    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ contract_id: pendingContract.contract_id }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      setContractError(data.error ?? "Failed to generate contract.");
-      setSendingContract(false);
+    if (insertErr || !contract) {
+      setContractError("Contract record creation failed. Please refresh and try again.");
       return;
     }
 
-    // Insert contract card message into chat
+    await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+    // 2. Call generate-contract to hash + render the PDF
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setContractError("Session expired. Please log in again."); return; }
+
+    const tokenVal = session.access_token;
+    const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
+      body: JSON.stringify({ contract_id: contract.contract_id }),
+    });
+
+    const genData = await genRes.json();
+
+    if (!genRes.ok) {
+      setContractError(`Contract created but PDF generation failed: ${genData.error ?? "unknown error"}`);
+      return;
+    }
+
+    // 3. Post contract card into chat so the supplier can see and sign
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
       message_type: "Contract Form",
       message_text: `CONTRACT_CARD:${JSON.stringify({
-        contract_id:     pendingContract.contract_id,
-        contract_number: pendingContract.contract_number,
-        price_per_kg:    pendingContract.negotiated_price_per_kg,
-        contracted_tons: pendingContract.contracted_tons,
-        due_date:        pendingContract.due_date,
-        document_path:   data.contract_document_path,
+        contract_id:     contract.contract_id,
+        contract_number: contract.contract_number,
+        price_per_kg:    contract.negotiated_price_per_kg,
+        contracted_tons: contract.contracted_tons,
+        due_date:        contract.due_date,
+        document_path:   genData.contract_document_path,
       })}`,
     });
 
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-      message_text: "Here's the contract. Please review and sign when you're ready.",
+      message_text: "The contract has been generated. Please review and sign when you're ready.",
     });
 
-    showToast("Contract sent to supplier for review & signature.");
-    await loadChat(conversationId);
-    setSendingContract(false);
+    showToast("Contract generated and sent to supplier for signing.");
   }
+
 
   // ── Filtered conversations list ────────────────────────────────────────────
   const filtered = conversations.filter(c => {
@@ -579,13 +577,6 @@ export default function BOChatLayout() {
             {/* Quick action chips */}
             {currentConv?.status === "Open" && (
               <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
-                {pendingContract && (
-                  <button onClick={handleSendContract} disabled={sendingContract}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#3d2b1f] text-white font-semibold text-xs hover:bg-[#2d1f15] transition-all disabled:opacity-60">
-                    {sendingContract ? <LuLoader className="w-3.5 h-3.5 animate-spin" /> : <LuFileText className="w-3.5 h-3.5" />}
-                    Send Contract
-                  </button>
-                )}
                 {sentContract?.contract_document_url && sentContract.status === "Pending" && (
                   <button onClick={async () => {
                     const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);
@@ -660,14 +651,6 @@ export default function BOChatLayout() {
               )}
             </div>
 
-            {/* Send Contract / Sign button */}
-            {pendingContract && !pendingContract.contract_hash && (
-              <button onClick={handleSendContract} disabled={sendingContract}
-                className="w-full py-2.5 rounded-xl bg-[#2d5a27] text-white font-bold text-sm hover:bg-[#234820] transition-all disabled:opacity-60 flex items-center justify-center gap-2">
-                {sendingContract ? <LuLoader className="w-4 h-4 animate-spin" /> : null}
-                Send Contract
-              </button>
-            )}
             {sentContract?.contract_document_url && sentContract.status === "Pending" && (
               <button onClick={async () => {
                 const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);

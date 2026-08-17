@@ -104,19 +104,64 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
       conversation_id: conversationId,
       sender_id: user.id,
       message_type: "Contract Form",
-      message_text: `✅ Proposal accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons. A contract will be prepared.`,
+      message_text: `✅ Proposal accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons. The contract is being generated.`,
     });
 
-    // Notify supplier that their proposal was accepted
     await supabase.from("notifications").insert({
       user_id:             conversation.supplier_id,
       notification_type:   "Contract Signed",
-      message:             `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. A contract is being prepared.`,
+      message:             `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated — check the chat to review and sign.`,
       related_entity_type: "proposal_forms",
       related_entity_id:   proposal.proposal_id,
     });
 
-    await createContract(proposal);
+    // Create contract row + auto-generate PDF
+    const { data: numData } = await supabase.rpc("generate_contract_number");
+    const { data: contract, error: insertErr } = await supabase.from("contracts").insert({
+      contract_number:          numData,
+      supplier_id:              conversation.supplier_id,
+      business_owner_id:        conversation.business_owner_id,
+      negotiated_price_per_kg:  proposal.proposed_price_per_kg,
+      contracted_tons:          proposal.proposed_volume_tons,
+      signing_date:             new Date().toISOString().split("T")[0],
+      status:                   "Pending",
+    }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
+
+    if (!insertErr && contract) {
+      await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const tokenVal = session.access_token;
+        const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
+          body: JSON.stringify({ contract_id: contract.contract_id }),
+        });
+        const genData = await genRes.json();
+
+        if (genRes.ok) {
+          await supabase.from("messages").insert({
+            conversation_id: conversationId,
+            sender_id: user.id,
+            message_type: "Contract Form",
+            message_text: `CONTRACT_CARD:${JSON.stringify({
+              contract_id:     contract.contract_id,
+              contract_number: contract.contract_number,
+              price_per_kg:    contract.negotiated_price_per_kg,
+              contracted_tons: contract.contracted_tons,
+              due_date:        contract.due_date,
+              document_path:   genData.contract_document_path,
+            })}`,
+          });
+          await supabase.from("messages").insert({
+            conversation_id: conversationId, sender_id: user.id, message_type: "Text",
+            message_text: "The contract has been generated. Please review and sign when you're ready.",
+          });
+        }
+      }
+    }
+
     loadProposals();
   }
 
@@ -147,34 +192,7 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
     loadProposals();
   }
 
-  // Auto-create contract from accepted proposal (due_date computed by DB trigger after activation)
-  async function createContract(proposal) {
-    const { data: numData } = await supabase.rpc("generate_contract_number");
-    const contractNumber = numData;
-
-    const { data: contract, error } = await supabase.from("contracts").insert({
-      contract_number:          contractNumber,
-      supplier_id:              conversation.supplier_id,
-      business_owner_id:        conversation.business_owner_id,
-      negotiated_price_per_kg:  proposal.proposed_price_per_kg,
-      contracted_tons:          proposal.proposed_volume_tons,
-      signing_date:             new Date().toISOString().split("T")[0],
-      status:                   "Pending",
-    }).select("contract_id").single();
-
-    if (!error && contract) {
-      await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-
-      await supabase.from("messages").insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        message_type: "Contract Form",
-        message_text: `📄 Contract ${contractNumber} created. Go to the Contracts page to review and send it for signing.`,
-      });
-    }
-  }
-
-  // Supplier: accept counteroffer
+  // Supplier: accept counteroffer → auto-generate contract
   async function acceptCounter(proposal) {
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
 
@@ -185,16 +203,69 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
       message_text: `✅ Counteroffer accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
     });
 
-    // Notify BO that the supplier accepted their counteroffer
     await supabase.from("notifications").insert({
       user_id:             conversation.business_owner_id,
       notification_type:   "Contract Signed",
-      message:             `Supplier accepted your counteroffer (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons). A contract is being prepared.`,
+      message:             `Supplier accepted your counteroffer (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons). The contract is being generated.`,
       related_entity_type: "proposal_forms",
       related_entity_id:   proposal.proposal_id,
     });
 
-    await createContract(proposal);
+    // Create contract row
+    const { data: numData } = await supabase.rpc("generate_contract_number");
+    const { data: contract, error: insertErr } = await supabase.from("contracts").insert({
+      contract_number:          numData,
+      supplier_id:              conversation.supplier_id,
+      business_owner_id:        conversation.business_owner_id,
+      negotiated_price_per_kg:  proposal.proposed_price_per_kg,
+      contracted_tons:          proposal.proposed_volume_tons,
+      signing_date:             new Date().toISOString().split("T")[0],
+      status:                   "Pending",
+    }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
+
+    if (!insertErr && contract) {
+      await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+      // Auto-generate the contract PDF
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const tokenVal = session.access_token;
+        const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
+          body: JSON.stringify({ contract_id: contract.contract_id }),
+        });
+        const genData = await genRes.json();
+
+        if (genRes.ok) {
+          await supabase.from("messages").insert({
+            conversation_id: conversationId,
+            sender_id: user.id,
+            message_type: "Contract Form",
+            message_text: `CONTRACT_CARD:${JSON.stringify({
+              contract_id:     contract.contract_id,
+              contract_number: contract.contract_number,
+              price_per_kg:    contract.negotiated_price_per_kg,
+              contracted_tons: contract.contracted_tons,
+              due_date:        contract.due_date,
+              document_path:   genData.contract_document_path,
+            })}`,
+          });
+          await supabase.from("messages").insert({
+            conversation_id: conversationId, sender_id: user.id, message_type: "Text",
+            message_text: "The contract has been generated. Please review and sign when you're ready.",
+          });
+        } else {
+          await supabase.from("messages").insert({
+            conversation_id: conversationId,
+            sender_id: user.id,
+            message_type: "Contract Form",
+            message_text: `📄 Contract ${contract.contract_number} created. Go to the Contracts page to review and send it for signing.`,
+          });
+        }
+      }
+    }
+
     loadProposals();
   }
 
