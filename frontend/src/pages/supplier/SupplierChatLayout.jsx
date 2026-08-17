@@ -429,10 +429,9 @@ export default function SupplierChatLayout() {
   const conversationContract = currentConv?.contract_id
     ? contracts.find(c => c.contract_id === currentConv.contract_id)
     : null;
-  // Allow proposing when: no contract exists, OR the contract is Breached/Completed.
-  const canPropose = !conversationContract
-    || conversationContract.status === "Breached"
-    || conversationContract.status === "Completed";
+  // Proposing is allowed when: no contract, OR contract is not yet Active
+  // (Pending = awaiting signature, Completed/Breached = cycle ended — all allow fresh proposals)
+  const canPropose = conversationContract?.status !== "Active";
 
   return (
     <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
