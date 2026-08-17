@@ -674,7 +674,7 @@ export default function BOChatLayout() {
                 <button onClick={() => setCounterModal(latestProposal ?? null)}
                   disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO || contracts.some(c => c.status === "Active" || c.status === "Completed")}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all disabled:opacity-40">
-                  <LuCoins className="w-3.5 h-3.5" /> Propose Price
+                  <LuCoins className="w-3.5 h-3.5" /> Counteroffer
                 </button>
               </div>
             )}
