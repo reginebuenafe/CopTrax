@@ -10,7 +10,6 @@ import ContractReviewModal from "../../components/ContractReviewModal";
 
 const STATUS_META = {
   Pending:   { label: "Pending",   color: "bg-amber-50 text-amber-700",      dot: "bg-amber-400" },
-  Signed:    { label: "Signed",    color: "bg-blue-50 text-blue-600",         dot: "bg-blue-400" },
   Active:    { label: "Active",    color: "bg-green-pale text-green-dark",    dot: "bg-green-mid" },
   Completed: { label: "Completed", color: "bg-emerald-50 text-emerald-700",   dot: "bg-emerald-500" },
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",           dot: "bg-red-500" },
