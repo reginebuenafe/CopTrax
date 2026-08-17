@@ -228,6 +228,10 @@ export default function SupplierChatLayout() {
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
         () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
+        () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations", filter: `conversation_id=eq.${conversationId}` },
+        ({ new: updated }) => setCurrentConv(prev => prev ? { ...prev, ...updated } : updated))
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [conversationId]);
@@ -365,6 +369,17 @@ export default function SupplierChatLayout() {
   // ── First Pending contract in this supplier's list, for the "Review & Sign" shortcut ─
   const pendingContractRow = contracts.find(c => c.status === "Pending" && c.contract_hash);
 
+  // ── Can the Supplier propose in THIS conversation? ─────────────────────────
+  // Check only the contract linked to this specific conversation (not all contracts).
+  // currentConv.contract_id is set when a contract is created for this conversation.
+  const conversationContract = currentConv?.contract_id
+    ? contracts.find(c => c.contract_id === currentConv.contract_id)
+    : null;
+  // Allow proposing when: no contract exists, OR the contract is Breached/Completed.
+  const canPropose = !conversationContract
+    || conversationContract.status === "Breached"
+    || conversationContract.status === "Completed";
+
   return (
     <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
 
@@ -451,7 +466,7 @@ export default function SupplierChatLayout() {
                   <p className="text-[#8b7355] text-xs">{currentConv?.status === "Open" ? "Active negotiation" : "Closed"}</p>
                 </div>
               </div>
-              {currentConv?.status === "Open" && contracts.length === 0 && (
+              {currentConv?.status === "Open" && canPropose && (
                 <button onClick={() => setShowProposeModal(true)}
                   className="flex items-center gap-1.5 bg-[#2d5a27] text-white text-xs font-semibold px-3.5 py-2 rounded-xl hover:bg-[#234820] transition-all">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
@@ -524,7 +539,7 @@ export default function SupplierChatLayout() {
               })}
 
               {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && contracts.length === 0 && (
+              {latestProposal && latestProposal.proposal_status === "Pending" && canPropose && (
                 <ProposalCard
                   proposal={latestProposal}
                   submittedByMe={latestSubmittedBySupplier}
@@ -540,7 +555,7 @@ export default function SupplierChatLayout() {
             </div>
 
             {/* Action chips */}
-            {currentConv?.status === "Open" && contracts.length === 0 && (
+            {currentConv?.status === "Open" && canPropose && (
               <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
                 <button onClick={() => setShowProposeModal(true)}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all">
