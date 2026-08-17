@@ -48,22 +48,48 @@ export default function BOContractsPage() {
 
   const fetchContracts = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+
+    // Step 1: Fetch base contract data — no triple-nested join
+    const { data: contractData, error: contractErr } = await supabase
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, due_date, status, created_at,
         contract_hash, contract_document_url,
         supplier:supplier_id(user_id, first_name, last_name, email),
-        conversations(conversation_id),
-        delivery_allocations(
-          allocation_id, allocated_weight_kg,
-          deliveries(delivery_status)
-        )
+        conversations(conversation_id)
       `)
       .order("created_at", { ascending: false });
 
-    setContracts(data ?? []);
+    if (contractErr) {
+      console.error("[BOContracts] fetch error:", contractErr);
+      setLoading(false);
+      return;
+    }
+
+    if (!contractData || contractData.length === 0) {
+      setContracts([]);
+      setLoading(false);
+      return;
+    }
+
+    // Step 2: Fetch accepted delivery weights per contract (two-level join — reliable)
+    const ids = contractData.map(c => c.contract_id);
+    const { data: allocData } = await supabase
+      .from("delivery_allocations")
+      .select("contract_id, allocated_weight_kg, delivery:delivery_id(delivery_status)")
+      .in("contract_id", ids);
+
+    // Build map: contract_id → total accepted kg
+    const acceptedKgMap = {};
+    for (const alloc of (allocData ?? [])) {
+      if (alloc.delivery?.delivery_status === "Accepted") {
+        acceptedKgMap[alloc.contract_id] =
+          (acceptedKgMap[alloc.contract_id] ?? 0) + Number(alloc.allocated_weight_kg ?? 0);
+      }
+    }
+
+    setContracts(contractData.map(c => ({ ...c, delivered_kg: acceptedKgMap[c.contract_id] ?? 0 })));
     setLoading(false);
   }, []);
 
@@ -222,11 +248,9 @@ export default function BOContractsPage() {
             const days = daysLeft(c.due_date);
             const conversationId = c.conversations?.[0]?.conversation_id;
 
-            // Weight calculations (allocation in kg, contract in tons)
+            // Weight calculations (delivered_kg pre-computed above, contract in tons)
             const contractedTons = Number(c.contracted_tons ?? 0);
-            const deliveredKg = (c.delivery_allocations ?? [])
-              .filter(a => a.deliveries?.delivery_status === "Accepted")
-              .reduce((sum, a) => sum + Number(a.allocated_weight_kg ?? 0), 0);
+            const deliveredKg = c.delivered_kg ?? 0;
             const deliveredTons = deliveredKg / 1000;
             const remainingTons = Math.max(0, contractedTons - deliveredTons);
             const fulfillmentPct = contractedTons > 0
