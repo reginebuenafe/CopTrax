@@ -423,15 +423,11 @@ export default function SupplierChatLayout() {
   // ── First Pending contract in this supplier's list, for the "Review & Sign" shortcut ─
   const pendingContractRow = contracts.find(c => c.status === "Pending" && c.contract_hash);
 
-  // ── Can the Supplier propose in THIS conversation? ─────────────────────────
-  // Check only the contract linked to this specific conversation (not all contracts).
-  // currentConv.contract_id is set when a contract is created for this conversation.
-  const conversationContract = currentConv?.contract_id
-    ? contracts.find(c => c.contract_id === currentConv.contract_id)
-    : null;
-  // Proposing is allowed when: no contract, OR contract is not yet Active
-  // (Pending = awaiting signature, Completed/Breached = cycle ended — all allow fresh proposals)
-  const canPropose = conversationContract?.status !== "Active";
+  // ── Can the Supplier propose? ────────────────────────────────────────────
+  // Rule: allowed unless the supplier already has 3 or more Active contracts.
+  // Contract status of the current conversation does NOT block proposing.
+  const activeContractCount = contracts.filter(c => c.status === "Active").length;
+  const canPropose = activeContractCount < 3;
 
   return (
     <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
@@ -523,7 +519,7 @@ export default function SupplierChatLayout() {
                 <button
                   onClick={() => { if (canPropose) setShowProposeModal(true); }}
                   disabled={!canPropose}
-                  title={!canPropose ? "A contract is active or pending for this conversation" : "Submit a price proposal to NERC Copra Trading"}
+                  title={!canPropose ? "You already have 3 Active contracts — complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all
                     ${canPropose
                       ? "bg-[#2d5a27] text-white hover:bg-[#234820] cursor-pointer"
