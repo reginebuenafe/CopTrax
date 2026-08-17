@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
@@ -25,6 +25,20 @@ function fmtTime(dateStr) {
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// Dynamic chat date/time separator label (Messenger-style)
+function fmtMsgDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.floor((todayStart - msgDayStart) / 86_400_000);
+  const time = d.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays === 0) return time;
+  if (diffDays < 7)  return `${d.toLocaleDateString("en-PH", { weekday: "short" })} ${time}`;
+  return `${d.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}, ${time}`;
 }
 
 function peso(n) {
@@ -559,23 +573,25 @@ export default function SupplierChatLayout() {
                   <p>Say hello, then tap "Propose Price" to start negotiating.</p>
                 </div>
               )}
-              {messages.map(msg => {
+              {messages.map((msg, index) => {
                 const isMine = msg.sender_id === user.id;
+                const prevMsg = messages[index - 1];
+                const showDateSep = !prevMsg ||
+                  new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
+
+                let messageEl;
 
                 if (msg.message_type === "Contract Form" && msg.message_text?.startsWith("CONTRACT_CARD:")) {
                   try {
                     const cardData = JSON.parse(msg.message_text.replace("CONTRACT_CARD:", ""));
-                    // Prefer embedded contract_id (new format); fall back to lookup by number (old messages).
                     const contractRow = cardData.contract_id
                       ? contracts.find(c => c.contract_id === cardData.contract_id)
                       : contracts.find(c => c.contract_number === cardData.contract_number);
                     const isSigned = contractRow?.status === "Active" || contractRow?.status === "Completed" || contractRow?.status === "Breached";
                     const resolvedId = cardData.contract_id ?? contractRow?.contract_id;
-                    // Prefer the signed PDF; fall back to the preview PDF embedded in the message
                     const viewPath = contractRow?.contract_document_url ?? cardData.document_path;
-                    return (
+                    messageEl = (
                       <ContractCard
-                        key={msg.message_id}
                         contractData={cardData}
                         signed={isSigned}
                         onReviewSign={!isSigned && resolvedId ? () => setSignContract({
@@ -596,28 +612,43 @@ export default function SupplierChatLayout() {
                   } catch { /* fall through */ }
                 }
 
-                if (msg.message_type === "Contract Form") {
-                  return (
-                    <div key={msg.message_id} className="flex justify-center px-4">
+                if (!messageEl && msg.message_type === "Contract Form") {
+                  messageEl = (
+                    <div className="flex justify-center px-4">
                       <p className="text-[#2d5a27] text-xs italic text-center max-w-xs">{msg.message_text}</p>
                     </div>
                   );
                 }
 
-                return (
-                  <div key={msg.message_id} className={`flex px-4 ${isMine ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      isMine
-                        ? "bg-[#2d5a27] text-white rounded-br-sm"
-                        : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
-                    }`}>
-                      {msg.message_text}
-                      <p className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMine ? "text-white/60" : "text-[#b09a7a]"}`}>
-                        {new Date(msg.sent_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
-                        {isMine && <LuCheckCheck className="w-3 h-3" />}
-                      </p>
+                if (!messageEl) {
+                  messageEl = (
+                    <div className={`flex px-4 ${isMine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                        isMine
+                          ? "bg-[#2d5a27] text-white rounded-br-sm"
+                          : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
+                      }`}>
+                        {msg.message_text}
+                        <p className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMine ? "text-white/60" : "text-[#b09a7a]"}`}>
+                          {new Date(msg.sent_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+                          {isMine && <LuCheckCheck className="w-3 h-3" />}
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  );
+                }
+
+                return (
+                  <Fragment key={msg.message_id}>
+                    {showDateSep && (
+                      <div className="flex justify-center my-3 px-4">
+                        <span className="text-[10px] text-[#b09a7a] bg-[#f5f0e8] px-3 py-1 rounded-full font-medium">
+                          {fmtMsgDate(msg.sent_at)}
+                        </span>
+                      </div>
+                    )}
+                    {messageEl}
+                  </Fragment>
                 );
               })}
 
