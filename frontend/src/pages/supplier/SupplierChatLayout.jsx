@@ -520,9 +520,16 @@ export default function SupplierChatLayout() {
                   <p className="text-[#8b7355] text-xs">{currentConv?.status === "Open" ? "Active negotiation" : "Closed"}</p>
                 </div>
               </div>
-              {currentConv?.status === "Open" && canPropose && (
-                <button onClick={() => setShowProposeModal(true)}
-                  className="flex items-center gap-1.5 bg-[#2d5a27] text-white text-xs font-semibold px-3.5 py-2 rounded-xl hover:bg-[#234820] transition-all">
+              {currentConv?.status === "Open" && (
+                <button
+                  onClick={() => { if (canPropose) setShowProposeModal(true); }}
+                  disabled={!canPropose}
+                  title={!canPropose ? "A contract is active or pending for this conversation" : "Submit a price proposal to NERC Copra Trading"}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all
+                    ${canPropose
+                      ? "bg-[#2d5a27] text-white hover:bg-[#234820] cursor-pointer"
+                      : "bg-[#e8e0d0] text-[#b09a7a] cursor-not-allowed"
+                    }`}>
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
                 </button>
               )}
@@ -593,7 +600,7 @@ export default function SupplierChatLayout() {
               })}
 
               {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && canPropose && (
+              {latestProposal && latestProposal.proposal_status === "Pending" && (
                 <ProposalCard
                   proposal={latestProposal}
                   submittedByMe={latestSubmittedBySupplier}
