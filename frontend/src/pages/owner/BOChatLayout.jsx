@@ -150,13 +150,18 @@ export default function BOChatLayout() {
   const [chatLoading, setChatLoading] = useState(false);
   const [counterModal, setCounterModal] = useState(null);
   const bottomRef = useRef(null);
-  const isInitialLoad = useRef(false);
   const scrollContainerRef = useRef(null);
+  const currentConvRef = useRef(null); // stable ref so realtime callbacks don't go stale
 
   function isNearBottom() {
     const el = scrollContainerRef.current;
     if (!el) return true;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+  }
+
+  function scrollToBottom(behavior = "smooth") {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   }
 
   // Right panel
@@ -241,48 +246,64 @@ export default function BOChatLayout() {
     }
 
     setChatLoading(false);
-    isInitialLoad.current = true;
   }, [user.id]);
 
   useEffect(() => {
     if (conversationId) loadChat(conversationId);
   }, [conversationId, loadChat]);
 
+  // Keep a stable ref to currentConv so realtime callbacks can read it without stale closure
+  useEffect(() => { currentConvRef.current = currentConv; }, [currentConv]);
+
   // ── Realtime subscription for selected chat ───────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase.channel(`bo-chat:${conversationId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-        payload => setMessages(prev =>
-          prev.some(m => m.message_id === payload.new.message_id)
-            ? prev
-            : [...prev, payload.new]))
+        payload => {
+          const m = payload.new;
+          if (!m || m.conversation_id !== conversationId) return; // belt-and-suspenders guard
+          setMessages(prev =>
+            prev.some(x => x.message_id === m.message_id) ? prev : [...prev, m]);
+        })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
-        () => loadChat(conversationId))
+        async () => {
+          // Refetch contracts only — do NOT call loadChat (it clears all messages)
+          const conv = currentConvRef.current;
+          if (!conv?.supplier?.user_id) return;
+          const { data } = await supabase
+            .from("contracts")
+            .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url")
+            .eq("supplier_id", conv.supplier.user_id)
+            .eq("business_owner_id", conv.business_owner_id ?? user.id)
+            .order("created_at", { ascending: false });
+          setContracts(data ?? []);
+        })
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [conversationId, loadChat]);
+  }, [conversationId, user.id]);
 
-  // Auto-scroll: instant on initial load; smooth only if user is near bottom
+  // Scroll to bottom when initial load completes (covers conversation open & switch)
   useEffect(() => {
-    if (!bottomRef.current) return;
-    const el = bottomRef.current;
-    if (isInitialLoad.current) {
-      // Initial load: always jump to the latest message
-      setTimeout(() => {
-        el?.scrollIntoView({ behavior: "instant", block: "end" });
-        isInitialLoad.current = false;
-      }, 80);
-    } else if (isNearBottom()) {
-      // New message arrived while at/near bottom: follow it smoothly
-      setTimeout(() => el?.scrollIntoView({ behavior: "smooth", block: "end" }), 30);
-    }
-    // If user has scrolled up intentionally, do NOT force them back down
-  }, [messages]);
+    if (chatLoading) return;
+    const raf = requestAnimationFrame(() => {
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [chatLoading]);
+
+  // Follow new realtime messages only if user is already near the bottom
+  useEffect(() => {
+    if (chatLoading) return; // initial load handled above
+    if (!isNearBottom()) return; // user intentionally scrolled up — don't interrupt
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Latest pending proposal logic ─────────────────────────────────────────
   const latestProposalIndex = [...proposals]
@@ -312,7 +333,7 @@ export default function BOChatLayout() {
     }).select().single();
     if (newMsg) {
       setMessages(prev => prev.some(m => m.message_id === newMsg.message_id) ? prev : [...prev, newMsg]);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 30);
+      requestAnimationFrame(() => scrollToBottom("smooth"));
     }
     setText("");
     setSending(false);
