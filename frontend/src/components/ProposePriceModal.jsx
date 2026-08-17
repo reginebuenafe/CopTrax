@@ -118,17 +118,6 @@ export default function ProposePriceModal({
             </div>
           </div>
 
-          {/* Summary */}
-          {pricePerKg && volumeTons && !isNaN(parseFloat(pricePerKg)) && !isNaN(parseFloat(volumeTons)) && (
-            <div className="bg-green-pale rounded-xl px-4 py-3 text-sm">
-              <p className="text-brown-light text-xs mb-1">Estimated Total value</p>
-              <p className="font-bold text-green-dark text-lg">
-                ₱{(parseFloat(pricePerKg) * parseFloat(volumeTons) * 1000).toLocaleString("en-PH", { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-brown-light text-xs">({volumeTons} tons × 1,000 kg × ₱{pricePerKg}/kg)</p>
-            </div>
-          )}
-
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">

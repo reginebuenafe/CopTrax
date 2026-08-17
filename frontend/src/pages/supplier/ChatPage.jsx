@@ -130,6 +130,13 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
     if (!insertErr && contract) {
       await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
 
+      // Close all other pending proposals so no stale cards remain.
+      await supabase.from("proposal_forms")
+        .update({ proposal_status: "Modified" })
+        .eq("conversation_id", conversationId)
+        .eq("proposal_status", "Pending")
+        .neq("proposal_id", proposal.proposal_id);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const tokenVal = session.access_token;
@@ -225,6 +232,13 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
 
     if (!insertErr && contract) {
       await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+      // Close all other pending proposals so no stale cards remain.
+      await supabase.from("proposal_forms")
+        .update({ proposal_status: "Modified" })
+        .eq("conversation_id", conversationId)
+        .eq("proposal_status", "Pending")
+        .neq("proposal_id", proposal.proposal_id);
 
       // Auto-generate the contract PDF
       const { data: { session } } = await supabase.auth.getSession();

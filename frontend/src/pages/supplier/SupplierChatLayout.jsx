@@ -226,6 +226,8 @@ export default function SupplierChatLayout() {
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
+        () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [conversationId]);
@@ -233,13 +235,14 @@ export default function SupplierChatLayout() {
   // Auto-scroll to bottom — instant on initial load, smooth for live messages
   useEffect(() => {
     if (!bottomRef.current) return;
+    const el = bottomRef.current;
     if (isInitialLoad.current) {
       setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "instant" });
+        el?.scrollIntoView({ behavior: "instant", block: "end" });
         isInitialLoad.current = false;
-      }, 50);
+      }, 80);
     } else {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      setTimeout(() => el?.scrollIntoView({ behavior: "smooth", block: "end" }), 30);
     }
   }, [messages]);
 
@@ -282,6 +285,13 @@ export default function SupplierChatLayout() {
     if (insertErr || !contract) { await loadChat(conversationId); return; }
 
     await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+    // Close ALL pending proposals so no stale "Incoming Counteroffer" can appear.
+    await supabase.from("proposal_forms")
+      .update({ proposal_status: "Modified" })
+      .eq("conversation_id", conversationId)
+      .eq("proposal_status", "Pending")
+      .neq("proposal_id", proposal.proposal_id);
 
     // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract)
     const { data: { session } } = await supabase.auth.getSession();
@@ -441,7 +451,7 @@ export default function SupplierChatLayout() {
                   <p className="text-[#8b7355] text-xs">{currentConv?.status === "Open" ? "Active negotiation" : "Closed"}</p>
                 </div>
               </div>
-              {currentConv?.status === "Open" && (
+              {currentConv?.status === "Open" && contracts.length === 0 && (
                 <button onClick={() => setShowProposeModal(true)}
                   className="flex items-center gap-1.5 bg-[#2d5a27] text-white text-xs font-semibold px-3.5 py-2 rounded-xl hover:bg-[#234820] transition-all">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
@@ -514,7 +524,7 @@ export default function SupplierChatLayout() {
               })}
 
               {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && (
+              {latestProposal && latestProposal.proposal_status === "Pending" && contracts.length === 0 && (
                 <ProposalCard
                   proposal={latestProposal}
                   submittedByMe={latestSubmittedBySupplier}
@@ -530,7 +540,7 @@ export default function SupplierChatLayout() {
             </div>
 
             {/* Action chips */}
-            {currentConv?.status === "Open" && (
+            {currentConv?.status === "Open" && contracts.length === 0 && (
               <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
                 <button onClick={() => setShowProposeModal(true)}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all">

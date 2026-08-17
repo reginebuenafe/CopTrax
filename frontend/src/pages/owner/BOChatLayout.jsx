@@ -260,14 +260,14 @@ export default function BOChatLayout() {
   // Auto-scroll to bottom — instant on initial load, smooth for live messages
   useEffect(() => {
     if (!bottomRef.current) return;
+    const el = bottomRef.current;
     if (isInitialLoad.current) {
-      // Use a small timeout so the DOM finishes rendering before scrolling
       setTimeout(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "instant" });
+        el?.scrollIntoView({ behavior: "instant", block: "end" });
         isInitialLoad.current = false;
-      }, 50);
+      }, 80);
     } else {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      setTimeout(() => el?.scrollIntoView({ behavior: "smooth", block: "end" }), 30);
     }
   }, [messages]);
 
@@ -358,6 +358,14 @@ export default function BOChatLayout() {
     }
 
     await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
+
+    // Close ALL other pending proposals in this conversation so no stale
+    // "Incoming Counteroffer" cards can appear after the contract is generated.
+    await supabase.from("proposal_forms")
+      .update({ proposal_status: "Modified" })
+      .eq("conversation_id", conversationId)
+      .eq("proposal_status", "Pending")
+      .neq("proposal_id", proposal.proposal_id);
 
     // 2. Call generate-contract to hash + render the PDF
     const { data: { session } } = await supabase.auth.getSession();
@@ -593,7 +601,7 @@ export default function BOChatLayout() {
                   </button>
                 )}
                 <button onClick={() => setCounterModal(latestProposal ?? null)}
-                  disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO}
+                  disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO || contracts.some(c => c.status === "Active" || c.status === "Completed")}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all disabled:opacity-40">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
                 </button>
