@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
   LuClock, LuFileText, LuStar, LuLoader, LuPaperclip,
-  LuCheckCheck, LuCircleAlert,
+  LuCheckCheck, LuCircleAlert, LuTrash2,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -409,6 +409,34 @@ export default function BOChatLayout() {
   }
 
 
+  // ── [DEV] Reset conversation for testing ─────────────────────────────────
+  async function resetChat() {
+    if (!conversationId) return;
+    if (!window.confirm("⚠️ DEV: Delete all messages, proposals and contracts in this conversation?")) return;
+    // 1. Null out contract_id on the conversation first (FK safety)
+    await supabase.from("conversations").update({ contract_id: null }).eq("conversation_id", conversationId);
+    // 2. Delete contract_signatures rows (must go before contracts due to immutability trigger)
+    //    We can only do this if the service role allows it. Attempt gracefully.
+    if (contracts.length > 0) {
+      for (const c of contracts) {
+        // Try delete — may fail for signed contracts due to immutability trigger on contract_signatures
+        // In that case just mark it Breached so it's out of the way
+        const { error: delErr } = await supabase.from("contracts").delete().eq("contract_id", c.contract_id);
+        if (delErr) {
+          // Fallback: mark Breached so it no longer blocks new negotiation
+          await supabase.from("contracts").update({ status: "Breached" }).eq("contract_id", c.contract_id);
+        }
+      }
+    }
+    // 3. Delete all proposal forms
+    await supabase.from("proposal_forms").delete().eq("conversation_id", conversationId);
+    // 4. Delete all messages
+    await supabase.from("messages").delete().eq("conversation_id", conversationId);
+    // 5. Reload
+    await loadChat(conversationId);
+    showToast("Chat reset — ready for fresh testing.", "success");
+  }
+
   // ── Filtered conversations list ────────────────────────────────────────────
   const filtered = conversations.filter(c => {
     const name = `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.toLowerCase();
@@ -515,6 +543,11 @@ export default function BOChatLayout() {
                 </div>
               </div>
             </div>
+            {/* ⚠ DEV-ONLY reset button */}
+            <button onClick={resetChat} title="DEV: Reset this chat for testing"
+              className="ml-auto shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 text-[10px] font-bold border border-red-200 hover:bg-red-100 transition-all">
+              <LuTrash2 className="w-3 h-3" /> RESET
+            </button>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto py-4 space-y-1">
