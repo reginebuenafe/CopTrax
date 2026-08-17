@@ -53,10 +53,13 @@ export default function BOContractsPage() {
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, due_date, status, created_at,
-        contract_hash, contract_document_url, delivery_location, special_notes,
+        contract_hash, contract_document_url,
         supplier:supplier_id(user_id, first_name, last_name, email),
         conversations(conversation_id),
-        deliveries(delivery_id, delivery_status)
+        delivery_allocations(
+          allocation_id, allocated_weight_kg,
+          deliveries(delivery_status)
+        )
       `)
       .order("created_at", { ascending: false });
 
@@ -217,9 +220,18 @@ export default function BOContractsPage() {
           {filtered.map(c => {
             const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
             const days = daysLeft(c.due_date);
-            const acceptedDeliveries = c.deliveries?.filter(d => d.delivery_status === "Accepted").length ?? 0;
-            const totalDeliveries = c.deliveries?.length ?? 0;
             const conversationId = c.conversations?.[0]?.conversation_id;
+
+            // Weight calculations (allocation in kg, contract in tons)
+            const contractedTons = Number(c.contracted_tons ?? 0);
+            const deliveredKg = (c.delivery_allocations ?? [])
+              .filter(a => a.deliveries?.delivery_status === "Accepted")
+              .reduce((sum, a) => sum + Number(a.allocated_weight_kg ?? 0), 0);
+            const deliveredTons = deliveredKg / 1000;
+            const remainingTons = Math.max(0, contractedTons - deliveredTons);
+            const fulfillmentPct = contractedTons > 0
+              ? Math.min(100, Math.round((deliveredTons / contractedTons) * 100))
+              : 0;
 
             return (
               <div key={c.contract_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
@@ -246,22 +258,22 @@ export default function BOContractsPage() {
                   </div>
                 </div>
 
-                {/* Details */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
+                {/* Contract details grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3 text-sm">
                   <div>
-                    <p className="text-brown-light text-xs mb-0.5">Price / kg</p>
-                    <p className="font-semibold text-brown-dark">{peso(c.negotiated_price_per_kg)}</p>
+                    <p className="text-brown-light text-xs mb-0.5">Agreed Price</p>
+                    <p className="font-semibold text-brown-dark">{peso(c.negotiated_price_per_kg)}<span className="text-xs text-brown-light font-normal">/kg</span></p>
                   </div>
                   <div>
-                    <p className="text-brown-light text-xs mb-0.5">Volume</p>
+                    <p className="text-brown-light text-xs mb-0.5">Agreed Quantity</p>
                     <p className="font-semibold text-brown-dark">{Number(c.contracted_tons).toLocaleString()} tons</p>
                   </div>
                   <div>
-                    <p className="text-brown-light text-xs mb-0.5">Signing Date</p>
+                    <p className="text-brown-light text-xs mb-0.5">Activation Date</p>
                     <p className="font-semibold text-brown-dark">{fmtDate(c.signing_date)}</p>
                   </div>
                   <div>
-                    <p className="text-brown-light text-xs mb-0.5">Due Date</p>
+                    <p className="text-brown-light text-xs mb-0.5">Delivery Deadline</p>
                     <p className="font-semibold text-brown-dark">{fmtDate(c.due_date)}</p>
                     {days !== null && c.status === "Active" && (
                       <p className={`text-xs font-medium mt-0.5 ${days < 0 ? "text-red-500" : days <= 7 ? "text-amber-500" : "text-brown-light"}`}>
@@ -271,12 +283,31 @@ export default function BOContractsPage() {
                   </div>
                 </div>
 
-                {/* Delivery progress */}
-                {totalDeliveries > 0 && (
-                  <div className="bg-beige rounded-xl px-4 py-2.5 text-xs text-brown-mid mb-4">
-                    {acceptedDeliveries} of {totalDeliveries} deliveries accepted
+                {/* Delivery quantities + fulfillment */}
+                <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+                  <div>
+                    <p className="text-brown-light text-xs mb-0.5">Delivered Qty</p>
+                    <p className="font-semibold text-brown-dark">{deliveredTons.toFixed(2)} tons</p>
                   </div>
-                )}
+                  <div>
+                    <p className="text-brown-light text-xs mb-0.5">Remaining Qty</p>
+                    <p className={`font-semibold ${remainingTons > 0 ? "text-brown-dark" : "text-emerald-600"}`}>
+                      {remainingTons.toFixed(2)} tons
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-brown-light text-xs mb-0.5">Fulfillment</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-beige rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${fulfillmentPct >= 100 ? "bg-emerald-500" : "bg-green-mid"}`}
+                          style={{ width: `${fulfillmentPct}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-brown-dark shrink-0">{fulfillmentPct}%</span>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-1 border-t border-beige-dark/20 mt-1 flex-wrap">
