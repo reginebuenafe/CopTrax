@@ -63,13 +63,18 @@ function ContractCard({ contractData, onReviewSign, signed }) {
             </div>
           )}
         </div>
-        {!signed && (
+        {!signed && onReviewSign && (
           <button
             onClick={onReviewSign}
             className="mt-3 w-full py-2 rounded-xl bg-white text-[#2d5a27] font-bold text-xs hover:bg-white/90 transition-all"
           >
             Review & Sign Contract
           </button>
+        )}
+        {!signed && !onReviewSign && (
+          <div className="mt-3 w-full py-2 rounded-xl bg-white/10 text-white/60 text-xs text-center">
+            Loading contract details…
+          </div>
         )}
         {signed && (
           <div className="mt-3 w-full py-2 rounded-xl bg-white/10 text-white font-semibold text-xs text-center">
@@ -414,22 +419,27 @@ export default function SupplierChatLayout() {
                 if (msg.message_type === "Contract Form" && msg.message_text?.startsWith("CONTRACT_CARD:")) {
                   try {
                     const cardData = JSON.parse(msg.message_text.replace("CONTRACT_CARD:", ""));
-                    const contractRow = contracts.find(c => c.contract_number === cardData.contract_number);
+                    // Prefer embedded contract_id (new format); fall back to lookup by number (old messages).
+                    const contractRow = cardData.contract_id
+                      ? contracts.find(c => c.contract_id === cardData.contract_id)
+                      : contracts.find(c => c.contract_number === cardData.contract_number);
                     const isSigned = contractRow?.status === "Active" || contractRow?.status === "Completed" || contractRow?.status === "Breached";
+                    // Resolve the contract_id: prefer embedded, then from row.
+                    const resolvedId = cardData.contract_id ?? contractRow?.contract_id;
                     return (
                       <ContractCard
                         key={msg.message_id}
                         contractData={cardData}
                         signed={isSigned}
-                        onReviewSign={() => setSignContract({
-                          contract_id:     contractRow?.contract_id,
+                        onReviewSign={!isSigned && resolvedId ? () => setSignContract({
+                          contract_id:     resolvedId,
                           contract_number: cardData.contract_number,
                           price_per_kg:    cardData.price_per_kg,
                           contracted_tons: cardData.contracted_tons,
                           due_date:        cardData.due_date ?? contractRow?.due_date,
                           document_path:   cardData.document_path ?? contractRow?.contract_document_url,
                           contract_hash:   contractRow?.contract_hash,
-                        })}
+                        }) : null}
                       />
                     );
                   } catch { /* fall through */ }

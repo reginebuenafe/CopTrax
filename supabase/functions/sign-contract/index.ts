@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // ── 5. Load participant profiles + signatures ────────────────────────────
+    // ── 5. Load participant profiles + supplier signature ────────────────────
     const [{ data: supplier }, { data: bo }] = await Promise.all([
       admin.from("users")
         .select("user_id, first_name, last_name, email, address")
@@ -187,8 +187,12 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    // BO signature is optional; contract still activates if absent.
-    const boSig = await fetchSignatureBytes(admin, bo.user_id as string);
+    // Fetch BO signature image for VISUAL embedding in the PDF only.
+    // This is NOT treated as the BO's legal signing action — the BO's image
+    // is already on file from registration. A separate BO-signing step would
+    // record the BO's explicit authorization. For now we only record the
+    // Supplier's binding signature row.
+    const boSigForPdf = await fetchSignatureBytes(admin, bo.user_id as string);
 
     // ── 6. Render final signed PDF ───────────────────────────────────────────
     const now = new Date();
@@ -196,7 +200,7 @@ Deno.serve(async (req) => {
     const today  = nowIso.slice(0, 10);
 
     // due_date will be set by the DB trigger on activation, so at signing time
-    // it may be null. Fall back to a friendly placeholder if so.
+    // it may be null. Fall back to a computed placeholder if so.
     const dueDateText = contract.due_date
       ? fmtDate(contract.due_date as string)
       : fmtDate(new Date(now.getFullYear(), now.getMonth() + 1, now.getDate() + 1).toISOString());
@@ -219,9 +223,10 @@ Deno.serve(async (req) => {
       business_owner_name:          snapshotTerms.business_owner_name,
       contract_hash:                contract.contract_hash,
       supplier_signature_png:       supplierSig.bytes,
-      business_owner_signature_png: boSig?.bytes ?? null,
+      business_owner_signature_png: boSigForPdf?.bytes ?? null,
       supplier_signed_at:           nowIso,
-      business_owner_signed_at:     boSig ? nowIso : undefined,
+      // business_owner_signed_at is intentionally omitted — BO has not
+      // performed an explicit signing action in this request.
     });
 
     const signedPath = `${contract.supplier_id}/${contract_id}/signed.pdf`;
@@ -235,7 +240,9 @@ Deno.serve(async (req) => {
       return json({ error: `Signed PDF upload failed: ${uploadErr.message}` }, 500);
     }
 
-    // ── 7. Insert immutable audit rows in contract_signatures ────────────────
+    // ── 7. Insert immutable audit row for the Supplier signing action ─────────
+    // Only one row here: the Supplier. The BO's image is embedded in the PDF
+    // for visual completeness but does NOT constitute a separate signing event.
     const ipAddress = callerIP(req);
     const userAgent = req.headers.get("user-agent") ?? "unknown";
 
@@ -244,8 +251,8 @@ Deno.serve(async (req) => {
       .select("esign_file_id")
       .eq("user_id", contract.supplier_id).maybeSingle();
 
-    const signatureRows: Record<string, unknown>[] = [
-      {
+    const { error: sigInsertErr } = await admin
+      .from("contract_signatures").insert({
         contract_id,
         signer_id:           contract.supplier_id,
         signer_role:         "Supplier",
@@ -256,31 +263,7 @@ Deno.serve(async (req) => {
         ip_address:          ipAddress,
         user_agent:          userAgent,
         signature_image_url: supplierSig.sourceUrl,
-      },
-    ];
-
-    if (boSig) {
-      const { data: boVerify } = await admin
-        .from("user_verify")
-        .select("esign_file_id")
-        .eq("user_id", contract.business_owner_id).maybeSingle();
-
-      signatureRows.push({
-        contract_id,
-        signer_id:           contract.business_owner_id,
-        signer_role:         "Business Owner",
-        esignature_file_id:  boVerify?.esign_file_id ?? null,
-        signature_order:     2,
-        signed_at:           nowIso,
-        signature_hash:      contract.contract_hash,
-        ip_address:          "server-applied",
-        user_agent:          "server-applied",
-        signature_image_url: boSig.sourceUrl,
       });
-    }
-
-    const { error: sigInsertErr } = await admin
-      .from("contract_signatures").insert(signatureRows);
     if (sigInsertErr) {
       return json({ error: `Signature record insert failed: ${sigInsertErr.message}` }, 500);
     }
@@ -291,7 +274,6 @@ Deno.serve(async (req) => {
       activation_date:        today,     // DB trigger computes due_date
       signing_date:           today,
       supplier_authorized_at: nowIso,
-      bo_signed_at:           boSig ? nowIso : null,
       contract_document_url:  signedPath,
     }).eq("contract_id", contract_id);
 

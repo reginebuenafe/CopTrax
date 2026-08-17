@@ -282,9 +282,9 @@ export default function BOChatLayout() {
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
-  // ── Pending contract (no PDF generated yet) vs. Sent (PDF generated) ───────
+  // ── Pending contract (no PDF generated yet) vs. Sent (PDF generated, awaiting supplier) ─
   const pendingContract = contracts.find(c => c.status === "Pending" && !c.contract_hash) ?? null;
-  const sentContract    = contracts.find(c => c.contract_hash) ?? null;
+  const sentContract    = contracts.find(c => c.status === "Pending" && c.contract_hash) ?? null;
 
   // ── Chat actions ──────────────────────────────────────────────────────────
   async function sendMessage(e) {
@@ -378,6 +378,7 @@ export default function BOChatLayout() {
       sender_id: user.id,
       message_type: "Contract Form",
       message_text: `CONTRACT_CARD:${JSON.stringify({
+        contract_id:     pendingContract.contract_id,
         contract_number: pendingContract.contract_number,
         price_per_kg:    pendingContract.negotiated_price_per_kg,
         contracted_tons: pendingContract.contracted_tons,

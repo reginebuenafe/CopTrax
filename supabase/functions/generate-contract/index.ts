@@ -93,6 +93,9 @@ Deno.serve(async (req) => {
     if (contractErr || !contract) {
       return json({ error: `Contract not found (${contractErr?.message ?? "no data"})` }, 404);
     }
+    if (contract.business_owner_id !== caller.id) {
+      return json({ error: "You can only generate contracts that belong to you." }, 403);
+    }
     if (contract.status !== "Pending") {
       return json({ error: `Contract is not Pending (current: ${contract.status})` }, 400);
     }
