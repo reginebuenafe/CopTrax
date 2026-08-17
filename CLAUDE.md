@@ -73,7 +73,7 @@ Do not simplify, "improve," or guess differently on these — they were delibera
 7. **Payment price**: Contractual deliveries → `contract.negotiated_price_per_ton` (pro-rated to weight). Non-Contract deliveries → current `spot_price` (single value, Business Owner overwrites manually, no date history). Each delivery is its own separate payment transaction — never batched.
 8. **Inventory**: Contractual and Non-Contract accepted deliveries → straight into Resecada pool. Walk-in deliveries → separate Walk-in Holding pool. After 14 calendar days, batch flips to `Ready to Merge` and Business Owner is notified. **Merge is never automatic** — Business Owner must explicitly approve or hold each one.
 9. **Supplier Rating**: computed only on contract `Completed`/`Breached`. 60% Contract Fulfillment + 20% Delivered Volume + 20% Copra Quality → 1–5 rating. Overall rating = average across the supplier's contracts. Walk-in suppliers and Non-Contract deliveries never factor in.
-10. **Dashboards**: each role sees only their own SRS-defined widget set (see build-spec.md §3.8). Chat icon appears only on Business Owner and Supplier dashboards, never Weigher or Laboratory Staff.
+10. **Dashboards**: each role sees only their own SRS-defined widget set (see `docs/requirements.md` §3.8). Chat icon appears only on Business Owner and Supplier dashboards, never Weigher or Laboratory Staff.
 11. **Reports**: Business Owner only — Procurement Contract, Delivery, Inventory, Payment, Supplier Performance. Must support date-range filtering and PDF/.xlsx export.
 12. **Notifications**: contract events, delivery accept/reject, payment released, contract completed/breached, negotiation messages, and the three inventory-merge events (Pending, Ready, Completed).
 13. **Bank accounts**: Self-service — every user (Supplier, Business Owner, staff) can edit their own bank details directly in Account Settings. **No approval flow.** Suppliers set their initial bank info during registration.
@@ -95,6 +95,39 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 ## Recent changes (keep this updated)
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
+
+### 2026-08-18 — Negotiation, Realtime Chat, Contract Viewing, Contracts Page
+
+**Negotiation flow fixes:**
+- **`submitted_by` column added to `proposal_forms`** (migration 025): replaces the fragile index-parity logic (`latestProposalIndex % 2`) with an authoritative `submitted_by UUID` field. `ProposePriceModal` now writes `submitted_by: userId` on every INSERT. Legacy rows (NULL) fall back to index parity. Both `BOChatLayout` and `SupplierChatLayout` now derive `latestSubmittedByBO/Supplier` from this field — correct regardless of rejections, re-proposals, or any deviation from perfect alternation.
+- **Supplier-only initial proposals enforced at DB level** (migration 023/024): `proposals_insert` RLS requires `supersedes_proposal_id IS NOT NULL` for Business Owner inserts (counteroffers only) and caps Supplier initial proposals at 3 Active contracts maximum.
+- **`setProposalActing(false)` missing in Supplier `rejectProposal`**: after rejecting a BO counteroffer, the Accept/Counter/Decline buttons were permanently disabled for the rest of the session. Fixed.
+- **Proposal card hides immediately** on Accept/Decline: both BO and Supplier now optimistically update local proposal state before the async DB round-trip, so the card disappears instantly rather than waiting for a full `loadChat` or refetch.
+- **BO action chip renamed**: "Propose Price" → "Counteroffer" (it opens the counter modal, not a fresh proposal). Propose Price is Supplier-only under all conditions.
+- **Supplier Propose Price button**: always visible in header when conversation is Open (green + clickable unless ≥3 Active contracts; grayed with tooltip when capped).
+- **`canPropose` rule**: blocked only when supplier already has 3 or more Active contracts (not per-conversation contract status).
+
+**Realtime chat fixes:**
+- **Migration 022 (`REPLICA IDENTITY FULL`)**: added to `messages`, `proposal_forms`, `contracts`, `conversations`. Required for Supabase Realtime `postgres_changes` with RLS-filtered subscriptions to correctly deliver events to both parties.
+- **Scroll fix**: replaced fragile `isInitialLoad` ref (consumed by `setMessages([])` before real messages arrive) with two clean `useEffect`s — `[chatLoading]` jumps to bottom when load finishes; `[messages]` smooth-scrolls only when user is near bottom.
+- **BO contracts listener no longer calls `loadChat`**: was `() => loadChat(conversationId)` on contract UPDATE, which cleared all messages via `setMessages([])`. Replaced with a targeted contracts-only refetch using `currentConvRef`.
+- **Client-side `conversation_id` guard** added to message INSERT callbacks as belt-and-suspenders.
+- **Subscription dependency array** in BO cleaned up (removed `loadChat` since contracts listener no longer uses it).
+
+**Contract viewing:**
+- **Supplier "View Contract" button** added to `SupplierChatLayout` contract card: when a contract is signed (`Active`/`Completed`/`Breached`), the card now shows "✓ Contract Active" badge + a "View Contract" button that opens a 15-min Supabase Storage signed URL. Path priority: `contractRow.contract_document_url` (signed PDF) → `cardData.document_path` (preview PDF).
+
+**Contracts page (BO and Supplier):**
+- **Filters**: both pages now use `All | Pending | Active | Completed | Breached`. "Signed" filter removed from both `STATUS_META` and `FILTERS` arrays.
+- **BO Contracts page data**: added Agreed Price, Agreed Quantity, Activation Date, Delivery Deadline, Delivered Qty, Remaining Qty, Fulfillment % (progress bar). Delivered weight computed from `delivery_allocations.allocated_weight_kg` (Accepted deliveries only) via a two-query approach — contracts fetched first, then allocations joined via `delivery_id → deliveries(delivery_status)` in a separate query.
+- **BO Contracts page fix** (migration 026): `contracts_select` RLS now includes `OR get_my_role() = 'Business Owner'` — was the only contracts policy not using `get_my_role()`, causing the BO to see 0 contracts when `business_owner_id` didn't exactly match `auth.uid()`. Conversations join also removed from the contracts query (fragile named-FK reverse embed replaced with a third flat query).
+
+**Migrations added this session** (run in order in Supabase SQL Editor):
+- `20260818000022_realtime_replica_identity.sql` — REPLICA IDENTITY FULL
+- `20260818000023_bo_counteroffer_only.sql` — BO can only INSERT counteroffers
+- `20260818000024_supplier_max_3_active_contracts.sql` — cap at 3 Active contracts
+- `20260818000025_proposal_forms_submitted_by.sql` — ADD COLUMN submitted_by
+- `20260818000026_contracts_select_bo_role.sql` — fix BO seeing 0 contracts
 
 ### 2026-08-16 — Cryptographic Signature Binding (DocuSeal removed)
 
