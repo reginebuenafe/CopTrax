@@ -49,20 +49,19 @@ export default function BOContractsPage() {
   const fetchContracts = useCallback(async () => {
     setLoading(true);
 
-    // Step 1: Fetch base contract data — no triple-nested join
     const { data: contractData, error: contractErr } = await supabase
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, due_date, status, created_at,
         contract_hash, contract_document_url,
-        supplier:supplier_id(user_id, first_name, last_name, email),
-        conversations(conversation_id)
+        supplier:supplier_id(user_id, first_name, last_name, email)
       `)
       .order("created_at", { ascending: false });
 
     if (contractErr) {
       console.error("[BOContracts] fetch error:", contractErr);
+      setContracts([]);
       setLoading(false);
       return;
     }
@@ -73,14 +72,23 @@ export default function BOContractsPage() {
       return;
     }
 
-    // Step 2: Fetch accepted delivery weights per contract (two-level join — reliable)
+    // Fetch accepted delivery weights per contract (two-level join)
     const ids = contractData.map(c => c.contract_id);
     const { data: allocData } = await supabase
       .from("delivery_allocations")
       .select("contract_id, allocated_weight_kg, delivery:delivery_id(delivery_status)")
       .in("contract_id", ids);
 
-    // Build map: contract_id → total accepted kg
+    // Fetch conversation IDs linked to these contracts (separate simple query)
+    const { data: convData } = await supabase
+      .from("conversations")
+      .select("conversation_id, contract_id")
+      .in("contract_id", ids);
+    const convMap = {};
+    for (const cv of (convData ?? [])) {
+      if (cv.contract_id) convMap[cv.contract_id] = cv.conversation_id;
+    }
+
     const acceptedKgMap = {};
     for (const alloc of (allocData ?? [])) {
       if (alloc.delivery?.delivery_status === "Accepted") {
@@ -89,7 +97,11 @@ export default function BOContractsPage() {
       }
     }
 
-    setContracts(contractData.map(c => ({ ...c, delivered_kg: acceptedKgMap[c.contract_id] ?? 0 })));
+    setContracts(contractData.map(c => ({
+      ...c,
+      delivered_kg: acceptedKgMap[c.contract_id] ?? 0,
+      conversation_id: convMap[c.contract_id] ?? null,
+    })));
     setLoading(false);
   }, []);
 
@@ -246,7 +258,7 @@ export default function BOContractsPage() {
           {filtered.map(c => {
             const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
             const days = daysLeft(c.due_date);
-            const conversationId = c.conversations?.[0]?.conversation_id;
+            const conversationId = c.conversation_id ?? null;
 
             // Weight calculations (delivered_kg pre-computed above, contract in tons)
             const contractedTons = Number(c.contracted_tons ?? 0);
