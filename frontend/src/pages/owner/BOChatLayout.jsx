@@ -310,8 +310,12 @@ export default function BOChatLayout() {
     .map((p, i) => ({ p, i })).reverse()
     .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
-  // odd index = BO's counter (submitted by BO), even = supplier's proposal
-  const latestSubmittedByBO = latestProposalIndex % 2 === 1;
+  // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
+  const latestSubmittedByBO = latestProposal
+    ? (latestProposal.submitted_by != null
+        ? latestProposal.submitted_by === user.id
+        : latestProposalIndex % 2 === 1)
+    : false;
 
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
@@ -342,6 +346,9 @@ export default function BOChatLayout() {
   async function acceptProposal(proposal) {
     if (proposalActing) return;
     setProposalActing(true);
+    // Immediately hide the proposal card so the BO isn't left with a stale open card
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
@@ -360,6 +367,9 @@ export default function BOChatLayout() {
   async function rejectProposal(proposal) {
     if (proposalActing) return;
     setProposalActing(true);
+    // Immediately hide the proposal card
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",

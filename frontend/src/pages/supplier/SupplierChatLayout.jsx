@@ -274,7 +274,12 @@ export default function SupplierChatLayout() {
     .map((p, i) => ({ p, i })).reverse()
     .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
-  const latestSubmittedBySupplier = latestProposalIndex % 2 === 0;
+  // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
+  const latestSubmittedBySupplier = latestProposal
+    ? (latestProposal.submitted_by != null
+        ? latestProposal.submitted_by === user.id
+        : latestProposalIndex % 2 === 0)
+    : false;
 
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
@@ -282,6 +287,9 @@ export default function SupplierChatLayout() {
   async function acceptCounter(proposal) {
     if (proposalActing) return;
     setProposalActing(true);
+    // Immediately hide the proposal card
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
@@ -356,12 +364,16 @@ export default function SupplierChatLayout() {
   async function rejectProposal(proposal) {
     if (proposalActing) return;
     setProposalActing(true);
+    // Immediately hide the proposal card
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Counteroffer declined.`,
     });
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+    setProposalActing(false); // was missing — buttons stayed permanently disabled after rejection
   }
 
   async function sendMessage(e) {

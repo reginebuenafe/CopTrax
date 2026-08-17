@@ -35,6 +35,7 @@ export default function ProposePriceModal({
       proposed_volume_tons: volume,
       proposal_status: "Pending",
       supersedes_proposal_id: supersedesId ?? null,
+      submitted_by: userId,  // tracks actual submitter (Supplier or BO)
     });
 
     setSubmitting(false);
