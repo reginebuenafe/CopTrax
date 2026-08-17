@@ -377,10 +377,40 @@ export default function SupplierChatLayout() {
 
   async function startNewConversation() {
     setStarting(true);
-    const { data: boRows } = await supabase.from("users").select("user_id, roles!inner(role_name)").eq("roles.role_name", "Business Owner").eq("account_status", "Active");
+
+    // Find the BO
+    const { data: boRows } = await supabase
+      .from("users")
+      .select("user_id, roles!inner(role_name)")
+      .eq("roles.role_name", "Business Owner")
+      .eq("account_status", "Active");
     const boId = boRows?.[0]?.user_id;
     if (!boId) { setStarting(false); return; }
-    const { data: conv } = await supabase.from("conversations").insert({ supplier_id: user.id, business_owner_id: boId, status: "Open" }).select("conversation_id").single();
+
+    // ── UPSERT: reuse existing conversation, never create a duplicate ──────
+    // First check if a conversation with this BO already exists.
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("conversation_id")
+      .eq("supplier_id", user.id)
+      .eq("business_owner_id", boId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      // Already have one — just navigate to it
+      setStarting(false);
+      navigate(`/dashboard/supplier/conversations/${existing.conversation_id}`);
+      return;
+    }
+
+    // No existing conversation — create one
+    const { data: conv } = await supabase
+      .from("conversations")
+      .insert({ supplier_id: user.id, business_owner_id: boId, status: "Open" })
+      .select("conversation_id")
+      .single();
+
     setStarting(false);
     if (conv) navigate(`/dashboard/supplier/conversations/${conv.conversation_id}`);
   }

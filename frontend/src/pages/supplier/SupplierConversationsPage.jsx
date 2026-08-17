@@ -38,7 +38,6 @@ export default function SupplierConversationsPage() {
   async function startNewConversation() {
     setStarting(true);
 
-    // Look up the Business Owner via the roles join
     const { data: boRows } = await supabase
       .from("users")
       .select("user_id, roles!inner(role_name)")
@@ -50,6 +49,21 @@ export default function SupplierConversationsPage() {
     if (!boId) {
       setStarting(false);
       alert("Could not find the Business Owner account. Please contact support.");
+      return;
+    }
+
+    // ── UPSERT: reuse existing conversation, never create a duplicate ──────
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("conversation_id")
+      .eq("supplier_id", user.id)
+      .eq("business_owner_id", boId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      setStarting(false);
+      navigate(`/dashboard/supplier/conversations/${existing.conversation_id}`);
       return;
     }
 
