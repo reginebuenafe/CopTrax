@@ -116,16 +116,16 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
           </div>
         ) : (
           <div className="flex gap-2">
-            <button onClick={onAccept}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all">
+            <button onClick={onAccept} disabled={!onAccept}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuCheck className="w-3.5 h-3.5" /> Accept
             </button>
-            <button onClick={onCounter}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all">
+            <button onClick={onCounter} disabled={!onCounter}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuPencil className="w-3.5 h-3.5" /> Counter
             </button>
-            <button onClick={onReject}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 font-semibold text-xs py-2 rounded-xl hover:bg-red-100 transition-all">
+            <button onClick={onReject} disabled={!onReject}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 font-semibold text-xs py-2 rounded-xl hover:bg-red-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuX className="w-3.5 h-3.5" /> Decline
             </button>
           </div>
@@ -153,6 +153,7 @@ export default function SupplierChatLayout() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const [proposalActing, setProposalActing] = useState(false);
   const [showProposeModal, setShowProposeModal] = useState(false);
   const [counterModal, setCounterModal] = useState(null);
   const [signContract, setSignContract] = useState(null);
@@ -245,7 +246,7 @@ export default function SupplierChatLayout() {
   // ── Proposal logic ────────────────────────────────────────────────────────
   const latestProposalIndex = [...proposals]
     .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified")?.i ?? -1;
+    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   const latestSubmittedBySupplier = latestProposalIndex % 2 === 0;
 
@@ -253,6 +254,8 @@ export default function SupplierChatLayout() {
 
   // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
   async function acceptCounter(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
@@ -314,9 +317,12 @@ export default function SupplierChatLayout() {
     }
 
     await loadChat(conversationId);
+    setProposalActing(false);
   }
 
   async function rejectProposal(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
@@ -512,9 +518,9 @@ export default function SupplierChatLayout() {
                 <ProposalCard
                   proposal={latestProposal}
                   submittedByMe={latestSubmittedBySupplier}
-                  onAccept={() => acceptCounter(latestProposal)}
-                  onReject={() => rejectProposal(latestProposal)}
-                  onCounter={() => setCounterModal(latestProposal)}
+                  onAccept={proposalActing ? null : () => acceptCounter(latestProposal)}
+                  onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
+                  onCounter={proposalActing ? null : () => setCounterModal(latestProposal)}
                 />
               )}
 

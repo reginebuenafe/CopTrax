@@ -279,7 +279,7 @@ export default function ChatPage({ viewerRole = "Supplier" }) {
   const latestProposalIndex = [...proposals]
     .map((p, i) => ({ p, i }))
     .reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected")?.i ?? -1;
+    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   const latestSubmitterRole = latestProposalIndex % 2 === 0 ? "Supplier" : "Business Owner";
 

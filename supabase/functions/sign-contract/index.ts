@@ -205,9 +205,8 @@ Deno.serve(async (req) => {
       ? fmtDate(contract.due_date as string)
       : fmtDate(new Date(now.getFullYear(), now.getMonth() + 1, now.getDate() + 1).toISOString());
 
-    const totalAmount = Number(snapshotTerms.negotiated_price_per_kg)
-                      * 1000 * Number(snapshotTerms.contracted_tons);
-    const priceWords  = numberToWords(Math.round(totalAmount));
+    // Price words = price per kilogram in words, NOT the total contract value.
+    const priceWords  = numberToWords(Math.round(Number(snapshotTerms.negotiated_price_per_kg)));
 
     const signedPdfBytes = await renderContractPDF({
       contract_number:              snapshotTerms.contract_number,

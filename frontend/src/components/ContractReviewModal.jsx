@@ -19,7 +19,7 @@ export default function ContractReviewModal({ contract, onClose, onGenerated }) 
   const [loading, setLoading]                   = useState(false);
   const [error, setError]                       = useState(null);
 
-  const pricePerTon  = Number(contract.negotiated_price_per_kg) * 1000;
+  const pricePerTon  = Number(contract.negotiated_price_per_kg) * 1000; 
   const totalAmount  = pricePerTon * Number(contract.contracted_tons);
 
   function peso(n) {

@@ -163,8 +163,8 @@ Deno.serve(async (req) => {
     const contractHash = await computeContractHash(terms);
 
     // ── 5. Render unsigned preview PDF ───────────────────────────────────────
-    const totalAmount = Number(pricePerKgStr) * 1000 * Number(tonsStr);
-    const priceWords  = numberToWords(Math.round(totalAmount));
+    // Price words = price per kilogram in words (e.g. "Twenty Eight Pesos"), NOT total value.
+    const priceWords  = numberToWords(Math.round(Number(pricePerKgStr)));
 
     const pdfBytes = await renderContractPDF({
       contract_number:        terms.contract_number,

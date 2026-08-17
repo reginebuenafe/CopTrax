@@ -112,16 +112,16 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
           </div>
         ) : (
           <div className="flex gap-2">
-            <button onClick={onAccept}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all">
+            <button onClick={onAccept} disabled={!onAccept}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuCheck className="w-3.5 h-3.5" /> Accept
             </button>
-            <button onClick={onCounter}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all">
+            <button onClick={onCounter} disabled={!onCounter}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuPencil className="w-3.5 h-3.5" /> Counter
             </button>
-            <button onClick={onReject}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 font-semibold text-xs py-2 rounded-xl hover:bg-red-100 transition-all">
+            <button onClick={onReject} disabled={!onReject}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 font-semibold text-xs py-2 rounded-xl hover:bg-red-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuX className="w-3.5 h-3.5" /> Decline
             </button>
           </div>
@@ -156,6 +156,7 @@ export default function BOChatLayout() {
   const [supplierData, setSupplierData] = useState(null);
   const [contracts, setContracts] = useState([]);
   const [contractError, setContractError] = useState(null);
+  const [proposalActing, setProposalActing] = useState(false); // prevent double-click
   const [toast, setToast] = useState(null);
 
   function showToast(msg, type = "success") {
@@ -273,7 +274,7 @@ export default function BOChatLayout() {
   // ── Latest pending proposal logic ─────────────────────────────────────────
   const latestProposalIndex = [...proposals]
     .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified")?.i ?? -1;
+    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // odd index = BO's counter (submitted by BO), even = supplier's proposal
   const latestSubmittedByBO = latestProposalIndex % 2 === 1;
@@ -301,12 +302,13 @@ export default function BOChatLayout() {
   }
 
   async function acceptProposal(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
     await supabase.from("proposal_forms").update({ proposal_status: "Accepted", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
       message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
     });
-    // Notify supplier
     await supabase.from("notifications").insert({
       user_id: currentConv?.supplier?.user_id, notification_type: "Contract Signed",
       message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated — check the chat to review and sign.`,
@@ -314,9 +316,12 @@ export default function BOChatLayout() {
     });
     await createAndSendContract(proposal);
     await loadChat(conversationId);
+    setProposalActing(false);
   }
 
   async function rejectProposal(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
@@ -328,6 +333,7 @@ export default function BOChatLayout() {
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+    setProposalActing(false);
   }
 
   // Creates the contract row then immediately generates + sends the contract PDF in chat.
@@ -566,9 +572,9 @@ export default function BOChatLayout() {
                   proposal={latestProposal}
                   submittedByBO={latestSubmittedByBO}
                   submittedByMe={latestSubmittedByBO}
-                  onAccept={() => acceptProposal(latestProposal)}
-                  onReject={() => rejectProposal(latestProposal)}
-                  onCounter={() => setCounterModal(latestProposal)}
+                  onAccept={proposalActing ? null : () => acceptProposal(latestProposal)}
+                  onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
+                  onCounter={proposalActing ? null : () => setCounterModal(latestProposal)}
                 />
               )}
               <div ref={bottomRef} />
