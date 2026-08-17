@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { NavLink, useNavigate, Outlet } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { NavLink, useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
   LuLeaf, LuLogOut, LuMenu, LuX, LuChevronRight,
   LuLayoutDashboard, LuMessageSquare, LuFileText, LuTruck,
   LuWallet, LuStar, LuSettings,
 } from "react-icons/lu";
+import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
 
@@ -20,8 +21,36 @@ const NAV_ITEMS = [
 
 export default function SupplierLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { profile, signOut } = useAuth();
+  const [hasUnread, setHasUnread] = useState(false);
+  const { profile, signOut, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const pathnameRef = useRef(location.pathname);
+
+  useEffect(() => { pathnameRef.current = location.pathname; }, [location.pathname]);
+
+  // Clear dot when on Negotiations page
+  useEffect(() => {
+    if (location.pathname.startsWith("/dashboard/supplier/conversations")) {
+      setHasUnread(false);
+    }
+  }, [location.pathname]);
+
+  // Subscribe to new messages from NERC Copra Trading (BO)
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`supplier-sidebar-msgs:${user.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" },
+        payload => {
+          if (payload.new?.sender_id !== user.id &&
+              !pathnameRef.current.startsWith("/dashboard/supplier/conversations")) {
+            setHasUnread(true);
+          }
+        })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [user?.id]);
 
   async function handleSignOut() {
     await signOut();
@@ -72,6 +101,9 @@ export default function SupplierLayout() {
                 <>
                   <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-green-dark" : "text-brown-light group-hover:text-brown-mid"}`} />
                   <span className="flex-1">{label}</span>
+                  {label === "Negotiations" && hasUnread && !isActive && (
+                    <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                  )}
                   {isActive && <LuChevronRight className="w-3.5 h-3.5 text-green-mid" />}
                 </>
               )}
