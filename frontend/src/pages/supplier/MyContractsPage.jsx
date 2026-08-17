@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuMessageSquare, LuCalendar, LuArrowRight,
@@ -38,24 +38,34 @@ export default function MyContractsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchContracts() {
-      const { data } = await supabase
-        .from("contracts")
-        .select(`
-          contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
-          signing_date, due_date, status, created_at,
-          conversations(conversation_id),
-          deliveries(delivery_id, delivery_status)
-        `)
-        .eq("supplier_id", user.id)
-        .order("created_at", { ascending: false });
-
-      setContracts(data ?? []);
-      setLoading(false);
-    }
-    fetchContracts();
+  const fetchContracts = useCallback(async () => {
+    const { data } = await supabase
+      .from("contracts")
+      .select(`
+        contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
+        signing_date, due_date, status, created_at,
+        conversations(conversation_id),
+        deliveries(delivery_id, delivery_status)
+      `)
+      .eq("supplier_id", user.id)
+      .order("created_at", { ascending: false });
+    setContracts(data ?? []);
+    setLoading(false);
   }, [user.id]);
+
+  useEffect(() => { fetchContracts(); }, [fetchContracts]);
+
+  // Realtime: re-fetch when any of this supplier's contracts change status
+  useEffect(() => {
+    const channel = supabase
+      .channel(`supplier-contracts:${user.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
+        () => fetchContracts())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
+        () => fetchContracts())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [user.id, fetchContracts]);
 
   const filtered = filter === "All" ? contracts : contracts.filter(c => c.status === filter);
 

@@ -67,6 +67,18 @@ export default function BOContractsPage() {
 
   useEffect(() => { fetchContracts(); }, [fetchContracts]);
 
+  // Realtime: update when any contract changes (e.g., supplier signs → Active)
+  useEffect(() => {
+    const channel = supabase
+      .channel(`bo-contracts:${user.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
+        () => fetchContracts())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
+        () => fetchContracts())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [user.id, fetchContracts]);
+
   const filtered = filter === "All" ? contracts : contracts.filter(c => c.status === filter);
 
   async function handleAction() {

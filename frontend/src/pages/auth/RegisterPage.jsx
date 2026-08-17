@@ -595,24 +595,24 @@ export default function RegisterPage() {
             <p className="text-sm font-semibold text-brown-dark">How to prepare your signature:</p>
             <ol className="text-xs text-brown-mid space-y-1.5 list-decimal list-inside">
               <li>Use a plain <strong>white sheet of bond paper</strong> (any size).</li>
-              <li>Write your <strong>full signature three (3) times</strong> using a black or blue pen.</li>
-              <li>Make sure all three signatures are clearly written and not cut off.</li>
+              <li>Write your <strong>full signature</strong> using a black or blue pen.</li>
+              <li>Make sure your signature is clearly written and not cut off.</li>
               <li>Place the paper on a flat, well-lit surface.</li>
               <li>Take a clear, straight-on photo — avoid shadows and blurriness.</li>
             </ol>
             <div className="mt-3 border border-beige-dark rounded-xl px-4 py-3 bg-white text-xs text-brown-light text-center italic">
-              ✦ Your handwritten signature will be used on all contracts you sign in CopTrax ✦
+              Your handwritten signature will be used on all contracts you sign in CopTrax
             </div>
           </div>
           <ImageField
-            label="Photo of your handwritten signature (3× on white paper)"
+            label="Photo of your handwritten signature on a white sheet of paper"
             required
             preview={signaturePhoto?.dataUrl ?? null}
             onFile={v => setSignaturePhoto(v)}
             onCamera={() => setCamera({
               facing: "environment",
               title: "Photograph your Signature Sheet",
-              instructions: "Point the camera at the white paper with your 3 signatures. Make sure all three are fully visible, well-lit, and in focus.",
+              instructions: "Point the camera at the white paper with your signature. Make sure it is fully visible, well-lit, and in focus.",
               onCapture: v => setSignaturePhoto(v),
             })}
           />

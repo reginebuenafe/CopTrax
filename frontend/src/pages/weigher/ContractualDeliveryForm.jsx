@@ -54,9 +54,9 @@ export default function ContractualDeliveryForm() {
     setSearching(true);
     const { data } = await supabase
       .from("users")
-      .select("user_id, first_name, last_name")
+      .select("user_id, first_name, last_name, roles!inner(role_name)")
       .eq("account_status", "Active")
-      .eq("role_id", 2) // Supplier role
+      .eq("roles.role_name", "Supplier")
       .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
       .limit(10);
     setSearchResults(data ?? []);
