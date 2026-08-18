@@ -35,7 +35,7 @@ export default function SupplierRatingsPage() {
         .from("supplier_performance_snapshot")
         .select(`
           snapshot_id, snapshot_date, performance_score, supplier_rating,
-          overall_supplier_rating, contract_fulfillment_score,
+          overall_supplier_rating, overall_performance_score, contract_fulfillment_score,
           delivered_volume_score, copra_quality_score,
           supplier:supplier_id(user_id, first_name, last_name, email),
           contract:contract_id(contract_number, status, due_date)
@@ -52,12 +52,14 @@ export default function SupplierRatingsPage() {
           acc[sid] = {
             supplier: snap.supplier,
             overall: snap.overall_supplier_rating,
+            overallPct: snap.overall_performance_score,
             snapshots: [],
           };
         }
         // Always keep the latest overall rating
         if (new Date(snap.snapshot_date) >= new Date(acc[sid].snapshots[0]?.snapshot_date ?? "2000-01-01")) {
           acc[sid].overall = snap.overall_supplier_rating;
+          acc[sid].overallPct = snap.overall_performance_score;
         }
         acc[sid].snapshots.push(snap);
         return acc;
@@ -128,10 +130,10 @@ export default function SupplierRatingsPage() {
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="text-right">
                       <StarRating rating={overall} />
-                      <p className="text-xs text-brown-light mt-0.5">{overall.toFixed(2)} / 5.00</p>
+                      <p className="text-xs text-brown-light mt-0.5">{Number(s.overallPct ?? 0).toFixed(1)}% avg</p>
                     </div>
                     <span className={`text-sm font-extrabold px-2.5 py-1 rounded-full ${ratingColor(overall)}`}>
-                      {overall.toFixed(1)}
+                      {overall}
                     </span>
                     {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light" /> : <LuChevronDown className="w-4 h-4 text-brown-light" />}
                   </div>
