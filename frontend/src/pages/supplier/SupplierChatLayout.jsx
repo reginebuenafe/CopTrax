@@ -348,37 +348,17 @@ export default function SupplierChatLayout() {
       .eq("proposal_status", "Pending")
       .neq("proposal_id", proposal.proposal_id);
 
-    // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract)
+    // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract).
+    // The Edge Function inserts the CONTRACT_CARD and text message as the Business Owner
+    // using the service role, so we don't insert them here.
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       const tokenVal = session.access_token;
-      const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
         body: JSON.stringify({ contract_id: contract.contract_id }),
       });
-
-      const genData = await genRes.json();
-
-      if (genRes.ok) {
-        await supabase.from("messages").insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          message_type: "Contract Form",
-          message_text: `CONTRACT_CARD:${JSON.stringify({
-            contract_id:     contract.contract_id,
-            contract_number: contract.contract_number,
-            price_per_kg:    contract.negotiated_price_per_kg,
-            contracted_tons: contract.contracted_tons,
-            due_date:        contract.due_date,
-            document_path:   genData.contract_document_path,
-          })}`,
-        });
-        await supabase.from("messages").insert({
-          conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-          message_text: "The contract has been generated. Please review and sign when you're ready.",
-        });
-      }
     }
 
     await loadChat(conversationId);

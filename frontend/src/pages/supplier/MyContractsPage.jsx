@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuMessageSquare, LuCalendar, LuArrowRight,
   LuCircleCheck, LuCircleAlert, LuClock, LuBanknote, LuTruck,
+  LuExternalLink,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -38,23 +39,63 @@ export default function MyContractsPage() {
   const [loading, setLoading] = useState(true);
 
   const fetchContracts = useCallback(async () => {
-    const { data } = await supabase
+    setLoading(true);
+
+    // 1. Fetch contracts belonging to this Supplier
+    const { data: contractData, error: contractErr } = await supabase
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, due_date, status, created_at,
-        conversations(conversation_id),
-        deliveries(delivery_id, delivery_status)
+        contract_hash, contract_document_url, activation_date
       `)
       .eq("supplier_id", user.id)
       .order("created_at", { ascending: false });
-    setContracts(data ?? []);
+
+    if (contractErr || !contractData || contractData.length === 0) {
+      setContracts(contractData ?? []);
+      setLoading(false);
+      return;
+    }
+
+    const ids = contractData.map(c => c.contract_id);
+
+    // 2. Fetch delivered weight from delivery_allocations (Accepted deliveries only)
+    const { data: allocData } = await supabase
+      .from("delivery_allocations")
+      .select("contract_id, allocated_weight_kg, delivery:delivery_id(delivery_status)")
+      .in("contract_id", ids);
+
+    const acceptedKgMap = {};
+    for (const alloc of (allocData ?? [])) {
+      if (alloc.delivery?.delivery_status === "Accepted") {
+        acceptedKgMap[alloc.contract_id] =
+          (acceptedKgMap[alloc.contract_id] ?? 0) + Number(alloc.allocated_weight_kg ?? 0);
+      }
+    }
+
+    // 3. Fetch conversation IDs linked to these contracts
+    const { data: convData } = await supabase
+      .from("conversations")
+      .select("conversation_id, contract_id")
+      .in("contract_id", ids);
+
+    const convMap = {};
+    for (const cv of (convData ?? [])) {
+      if (cv.contract_id) convMap[cv.contract_id] = cv.conversation_id;
+    }
+
+    setContracts(contractData.map(c => ({
+      ...c,
+      delivered_kg: acceptedKgMap[c.contract_id] ?? 0,
+      conversation_id: convMap[c.contract_id] ?? null,
+    })));
     setLoading(false);
   }, [user.id]);
 
   useEffect(() => { fetchContracts(); }, [fetchContracts]);
 
-  // Realtime: re-fetch when any of this supplier's contracts change status
+  // Realtime: re-fetch when any of this supplier's contracts change
   useEffect(() => {
     const channel = supabase
       .channel(`supplier-contracts:${user.id}`)
@@ -119,9 +160,10 @@ export default function MyContractsPage() {
           {filtered.map(c => {
             const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
             const days = daysLeft(c.due_date);
-            const deliveredCount = c.deliveries?.filter(d => d.delivery_status === "Accepted").length ?? 0;
-            const totalDeliveries = c.deliveries?.length ?? 0;
-            const conversationId = c.conversations?.[0]?.conversation_id;
+            const contractedKg = Number(c.contracted_tons ?? 0) * 1000;
+            const deliveredKg = c.delivered_kg ?? 0;
+            const remainingKg = Math.max(0, contractedKg - deliveredKg);
+            const fulfillment = contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0;
 
             return (
               <div key={c.contract_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
@@ -137,22 +179,35 @@ export default function MyContractsPage() {
                     </div>
                     <p className="text-brown-light text-xs">Created {fmtDate(c.created_at)}</p>
                   </div>
-                  {conversationId && (
-                    <button
-                      onClick={() => navigate(`/dashboard/supplier/conversations/${conversationId}`)}
-                      className="flex items-center gap-1.5 text-xs text-green-dark font-semibold hover:underline shrink-0"
-                    >
-                      <LuMessageSquare className="w-3.5 h-3.5" /> View Chat
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {c.contract_document_url && (
+                      <button
+                        onClick={async () => {
+                          const { data } = await supabase.storage.from("contracts").createSignedUrl(c.contract_document_url, 60 * 15);
+                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                        }}
+                        className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline"
+                      >
+                        <LuExternalLink className="w-3.5 h-3.5" /> View Contract
+                      </button>
+                    )}
+                    {c.conversation_id && (
+                      <button
+                        onClick={() => navigate(`/dashboard/supplier/conversations/${c.conversation_id}`)}
+                        className="flex items-center gap-1.5 text-xs text-green-dark font-semibold hover:underline"
+                      >
+                        <LuMessageSquare className="w-3.5 h-3.5" /> View Chat
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Details grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                  <Detail label="Price / kg" value={peso(c.negotiated_price_per_kg)} />
-                  <Detail label="Volume" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
-                  <Detail label="Signing Date" value={fmtDate(c.signing_date)} />
-                  <Detail label="Due Date">
+                  <Detail label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
+                  <Detail label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
+                  <Detail label="Activation Date" value={fmtDate(c.activation_date)} />
+                  <Detail label="Delivery Deadline">
                     <div>
                       <p className="font-semibold text-brown-dark text-sm">{fmtDate(c.due_date)}</p>
                       {days !== null && c.status === "Active" && (
@@ -164,19 +219,27 @@ export default function MyContractsPage() {
                   </Detail>
                 </div>
 
-                {/* Delivery progress */}
-                {totalDeliveries > 0 && (
-                  <div className="bg-beige rounded-xl px-4 py-3 flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-brown-mid">
-                      <LuTruck className="w-4 h-4" />
-                      <span>{deliveredCount} of {totalDeliveries} deliveries accepted</span>
+                {/* Delivery + fulfillment row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <Detail label="Delivered Qty" value={`${(deliveredKg / 1000).toFixed(3)} tons`} />
+                  <Detail label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(3)} tons`} />
+                  <div className="col-span-2">
+                    <p className="text-brown-light text-xs mb-1">Fulfillment</p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-2.5 bg-beige rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            fulfillment >= 100 ? "bg-emerald-500" : fulfillment > 50 ? "bg-green-mid" : "bg-amber-400"
+                          }`}
+                          style={{ width: `${Math.min(100, fulfillment)}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-bold text-brown-dark whitespace-nowrap">
+                        {fulfillment.toFixed(1)}%
+                      </span>
                     </div>
-                    <button onClick={() => navigate("/dashboard/supplier/deliveries")}
-                      className="text-xs text-green-dark font-semibold flex items-center gap-1 hover:underline">
-                      View <LuArrowRight className="w-3 h-3" />
-                    </button>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}

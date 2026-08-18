@@ -337,9 +337,13 @@ export async function renderContractPDF(input: RenderInput): Promise<Uint8Array>
   cur = { y: nameY - BODY_SIZE - LINE_H - 20, page: cur.page };
 
   // Audit footer — visible on every page
+  const toPHT = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) + " PHT";
+  };
   const footerText = input.supplier_signed_at
-    ? `Contract Hash: ${input.contract_hash}  •  Signed by Seller at ${input.supplier_signed_at}${
-        input.business_owner_signed_at ? `  •  Signed by Buyer at ${input.business_owner_signed_at}` : ""
+    ? `Contract Hash: ${input.contract_hash}  •  Signed by Seller at ${toPHT(input.supplier_signed_at)}${
+        input.business_owner_signed_at ? `  •  Signed by Buyer at ${toPHT(input.business_owner_signed_at)}` : ""
       }`
     : `Contract Hash: ${input.contract_hash}  •  Unsigned preview — awaiting Seller authorization`;
 

@@ -215,6 +215,43 @@ Deno.serve(async (req) => {
       related_entity_id:   contract_id,
     });
 
+    // ── 9. Post contract card + message into chat (as Business Owner) ────────
+    // Only when the Supplier triggered contract generation (acceptCounter flow).
+    // When the BO triggers it, the BO frontend already inserts these messages.
+    if (roleName === "Supplier") {
+      const { data: convRow } = await admin
+        .from("conversations")
+        .select("conversation_id")
+        .eq("contract_id", contract_id)
+        .maybeSingle();
+
+      if (convRow?.conversation_id) {
+        const boId = contract.business_owner_id as string;
+        const convId = convRow.conversation_id as string;
+
+        await admin.from("messages").insert({
+          conversation_id: convId,
+          sender_id:       boId,
+          message_type:    "Contract Form",
+          message_text:    `CONTRACT_CARD:${JSON.stringify({
+            contract_id:     contract.contract_id,
+            contract_number: contract.contract_number,
+            price_per_kg:    contract.negotiated_price_per_kg,
+            contracted_tons: contract.contracted_tons,
+            due_date:        contract.due_date,
+            document_path:   previewPath,
+          })}`,
+        });
+
+        await admin.from("messages").insert({
+          conversation_id: convId,
+          sender_id:       boId,
+          message_type:    "Text",
+          message_text:    "The contract has been generated. Please review and sign when you're ready.",
+        });
+      }
+    }
+
     return json({
       success:                true,
       contract_document_path: previewPath,
