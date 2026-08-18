@@ -30,7 +30,6 @@ import BOReportsPage from "./pages/owner/BOReportsPage";
 import AccountSettingsPage from "./pages/shared/AccountSettingsPage";
 
 import SupplierLayout from "./pages/supplier/SupplierLayout";
-import SupplierConversationsPage from "./pages/supplier/SupplierConversationsPage";
 import SupplierChatLayout from "./pages/supplier/SupplierChatLayout";
 import MyRatingPage from "./pages/supplier/MyRatingPage";
 import SupplierOverview from "./pages/supplier/SupplierOverview";
