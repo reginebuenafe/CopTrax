@@ -1,14 +1,9 @@
 -- ============================================================
--- Migration 026: Fix contracts_select so Business Owner sees all contracts
+-- Migration 029: Re-apply contracts policy with Weigher access
 -- ============================================================
--- The original policy used ONLY:
---   supplier_id = auth.uid() OR business_owner_id = auth.uid()
--- Every other BO-visible policy in the system uses get_my_role().
--- If business_owner_id ever mismatches auth.uid() (e.g. seeded BO account,
--- contract inserted via a different path), the BO sees 0 contracts.
--- Adding OR get_my_role() = 'Business Owner' makes it consistent and
--- ensures the BO always sees all contracts in NERC Copra Trading.
--- Also preserves Weigher/Lab Staff access to Active contracts (from migration 020).
+-- Migration 026 was edited to include Weigher/Lab Staff access,
+-- but since 026 was already applied, the edit wasn't re-run.
+-- This migration ensures Weigher can read Active contracts.
 -- ============================================================
 
 DROP POLICY IF EXISTS "contracts_select" ON public.contracts;

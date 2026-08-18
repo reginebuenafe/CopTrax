@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuArrowLeft, LuScale, LuCircleAlert,
@@ -22,15 +22,13 @@ export default function ContractualDeliveryForm() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [searching, setSearching] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
+  const [selectedContract, setSelectedContract] = useState(null);
   const searchRef = useRef(null);
 
   // Supplier's active contracts + spot price (loaded after supplier select)
   const [activeContracts, setActiveContracts] = useState([]);
   const [spotPrice, setSpotPrice] = useState(null);
   const [loadingContracts, setLoadingContracts] = useState(false);
-
-  // Allocation preview (recomputed whenever net weight changes)
-  const [allocationPreview, setAllocationPreview] = useState([]);
 
   // Form fields
   const [form, setForm] = useState({
@@ -82,63 +80,14 @@ export default function ContractualDeliveryForm() {
 
   async function selectSupplier(s) {
     setSelectedSupplier(s);
+    setSelectedContract(null);
     setSupplierQuery(`${s.first_name} ${s.last_name}`);
     setShowDropdown(false);
-    setAllocationPreview([]);
     await fetchSupplierData(s.user_id);
   }
 
-  // ── Load supplier's active contracts + spot price ─────────────────────────
-  async function fetchSupplierData(supplierId) {
-    setLoadingContracts(true);
-
-    const [contractsRes, spotRes] = await Promise.all([
-      supabase
-        .from("contracts")
-        .select("contract_id, contract_number, contracted_tons, negotiated_price_per_kg, due_date")
-        .eq("supplier_id", supplierId)
-        .eq("status", "Active")
-        .order("due_date", { ascending: true }),
-      supabase.from("spot_price").select("price_per_kg").limit(1).single(),
-    ]);
-
-    const contracts = contractsRes.data ?? [];
-    const spot = spotRes.data?.price_per_kg ?? 0;
-
-    // Fetch already-allocated weight for each active contract
-    if (contracts.length > 0) {
-      const contractIds = contracts.map(c => c.contract_id);
-      const { data: existingAllocs } = await supabase
-        .from("delivery_allocations")
-        .select("contract_id, allocated_weight_kg, delivery:delivery_id(delivery_status)")
-        .in("contract_id", contractIds);
-
-      // Compute remaining capacity for each contract
-      const allocsByContract = (existingAllocs ?? []).reduce((acc, a) => {
-        if (a.delivery?.delivery_status === "Rejected") return acc;
-        acc[a.contract_id] = (acc[a.contract_id] ?? 0) + parseFloat(a.allocated_weight_kg);
-        return acc;
-      }, {});
-
-      contracts.forEach(c => {
-        c._contractedKg  = parseFloat(c.contracted_tons) * 1000;
-        c._allocatedKg   = allocsByContract[c.contract_id] ?? 0;
-        c._remainingKg   = Math.max(0, c._contractedKg - c._allocatedKg);
-      });
-    }
-
-    setActiveContracts(contracts);
-    setSpotPrice(parseFloat(spot));
-    setLoadingContracts(false);
-  }
-
-  // ── Live allocation preview ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedSupplier || net <= 0) { setAllocationPreview([]); return; }
-    setAllocationPreview(buildAllocationPreview(net, activeContracts, spotPrice));
-  }, [net, activeContracts, spotPrice, selectedSupplier]);
-
-  function buildAllocationPreview(netKg, contracts, spot) {
+  // ── Allocation preview builder ────────────────────────────────────────────
+  const buildAllocationPreview = useCallback((netKg, contracts, spot) => {
     const result = [];
     let remaining = netKg;
     let seq = 1;
@@ -174,9 +123,67 @@ export default function ContractualDeliveryForm() {
     }
 
     return result;
+  }, []);
+
+  // ── Load supplier's active contracts + spot price ─────────────────────────
+  async function fetchSupplierData(supplierId) {
+    setLoadingContracts(true);
+
+    const [contractsRes, spotRes] = await Promise.all([
+      supabase
+        .from("contracts")
+        .select("contract_id, contract_number, contracted_tons, negotiated_price_per_kg, due_date")
+        .eq("supplier_id", supplierId)
+        .eq("status", "Active")
+        .order("due_date", { ascending: true }),
+      supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+    ]);
+
+    // Log any errors for debugging
+    if (contractsRes.error) {
+      console.error("Error fetching contracts:", contractsRes.error);
+    }
+    if (spotRes.error) {
+      console.error("Error fetching spot price:", spotRes.error);
+    }
+
+    const contracts = contractsRes.data ?? [];
+    const spot = spotRes.data?.price_per_kg ?? 0;
+
+    // Fetch already-allocated weight for each active contract
+    if (contracts.length > 0) {
+      const contractIds = contracts.map(c => c.contract_id);
+      const { data: existingAllocs } = await supabase
+        .from("delivery_allocations")
+        .select("contract_id, allocated_weight_kg, delivery:delivery_id(delivery_status)")
+        .in("contract_id", contractIds);
+
+      // Compute remaining capacity for each contract
+      const allocsByContract = (existingAllocs ?? []).reduce((acc, a) => {
+        if (a.delivery?.delivery_status === "Rejected") return acc;
+        acc[a.contract_id] = (acc[a.contract_id] ?? 0) + parseFloat(a.allocated_weight_kg);
+        return acc;
+      }, {});
+
+      contracts.forEach(c => {
+        c._contractedKg  = parseFloat(c.contracted_tons) * 1000;
+        c._allocatedKg   = allocsByContract[c.contract_id] ?? 0;
+        c._remainingKg   = Math.max(0, c._contractedKg - c._allocatedKg);
+      });
+    }
+
+    const autoSelected = contracts[0] ?? null;
+    setActiveContracts(contracts);
+    setSelectedContract(autoSelected);
+    setSpotPrice(parseFloat(spot));
+    setLoadingContracts(false);
   }
 
-  // ── Form field helpers ─────────────────────────────────────────────────────
+  const allocationPreview = useMemo(() => {
+    if (!selectedSupplier || net <= 0) return [];
+    return buildAllocationPreview(net, activeContracts, spotPrice);
+  }, [selectedSupplier, net, activeContracts, spotPrice, buildAllocationPreview]);
+
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
@@ -187,6 +194,7 @@ export default function ContractualDeliveryForm() {
     setError("");
 
     if (!selectedSupplier) { setError("Search and select a supplier."); return; }
+    if (!selectedContract) { setError("No active contract is available for this supplier."); return; }
     if (gross <= 0)         { setError("Enter a valid gross weight."); return; }
     if (tare < 0)           { setError("Tare weight cannot be negative."); return; }
     if (tare >= gross)      { setError("Tare weight must be less than gross weight."); return; }
@@ -194,7 +202,7 @@ export default function ContractualDeliveryForm() {
 
     setSubmitting(true);
 
-    const primaryContractId = allocationPreview.find(a => a.contract_id)?.contract_id ?? null;
+    const primaryContractId = selectedContract.contract_id;
 
     // 1. Create delivery
     const { data: delivery, error: dErr } = await supabase
@@ -248,9 +256,9 @@ export default function ContractualDeliveryForm() {
   function resetForm() {
     setSuccess(null);
     setSelectedSupplier(null);
+    setSelectedContract(null);
     setSupplierQuery("");
     setActiveContracts([]);
-    setAllocationPreview([]);
     setForm({ deliveryDate: new Date().toISOString().split("T")[0], truckPlate: "", grossWeight: "", tareWeight: "" });
     setError("");
   }
@@ -360,8 +368,8 @@ export default function ContractualDeliveryForm() {
                 setSupplierQuery(e.target.value);
                 if (selectedSupplier && e.target.value !== `${selectedSupplier.first_name} ${selectedSupplier.last_name}`) {
                   setSelectedSupplier(null);
+                  setSelectedContract(null);
                   setActiveContracts([]);
-                  setAllocationPreview([]);
                 }
               }}
               onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
@@ -387,7 +395,7 @@ export default function ContractualDeliveryForm() {
             )}
           </div>
 
-          {/* Supplier contracts summary */}
+          {/* Auto-selected contract summary */}
           {loadingContracts && (
             <div className="flex items-center justify-center py-4 mt-3">
               <div className="w-5 h-5 border-2 border-green-dark border-t-transparent rounded-full animate-spin" />
@@ -395,30 +403,29 @@ export default function ContractualDeliveryForm() {
           )}
           {selectedSupplier && !loadingContracts && (
             <div className="mt-4">
-              {activeContracts.length === 0 ? (
+              {selectedContract ? (
+                <div className="bg-green-pale rounded-xl px-4 py-3">
+                  <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-2">
+                    Auto-selected Contract
+                  </p>
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <div>
+                      <span className="font-semibold text-brown-dark">{selectedContract.contract_number}</span>
+                      <span className="text-xs text-brown-light ml-2">Due {new Date(selectedContract.due_date).toLocaleDateString("en-PH")}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-green-dark">{(selectedContract._remainingKg ?? 0).toFixed(0)} kg</span>
+                      <span className="text-xs text-brown-light"> remaining</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-brown-light mt-2">
+                    The system automatically chooses the supplier’s earliest active contract by due date for this delivery.
+                  </p>
+                </div>
+              ) : (
                 <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
                   <LuCircleAlert className="w-4 h-4 shrink-0" />
                   No active contracts — this delivery will be priced at spot price.
-                </div>
-              ) : (
-                <div className="bg-green-pale rounded-xl px-4 py-3">
-                  <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-2">
-                    Active Contracts ({activeContracts.length})
-                  </p>
-                  <div className="space-y-2">
-                    {activeContracts.map(c => (
-                      <div key={c.contract_id} className="flex items-center justify-between text-sm">
-                        <div>
-                          <span className="font-semibold text-brown-dark">{c.contract_number}</span>
-                          <span className="text-xs text-brown-light ml-2">Due {new Date(c.due_date).toLocaleDateString("en-PH")}</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-semibold text-green-dark">{(c._remainingKg ?? 0).toFixed(0)} kg</span>
-                          <span className="text-xs text-brown-light"> remaining</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>

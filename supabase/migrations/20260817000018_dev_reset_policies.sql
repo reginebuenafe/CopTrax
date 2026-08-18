@@ -6,6 +6,7 @@
 -- ============================================================
 
 -- BO can delete messages in their own conversations
+DROP POLICY IF EXISTS "messages_delete_bo" ON public.messages;
 CREATE POLICY "messages_delete_bo" ON public.messages
   FOR DELETE USING (
     EXISTS (
@@ -16,6 +17,7 @@ CREATE POLICY "messages_delete_bo" ON public.messages
   );
 
 -- BO can delete proposal_forms in their own conversations
+DROP POLICY IF EXISTS "proposal_forms_delete_bo" ON public.proposal_forms;
 CREATE POLICY "proposal_forms_delete_bo" ON public.proposal_forms
   FOR DELETE USING (
     EXISTS (
@@ -28,6 +30,7 @@ CREATE POLICY "proposal_forms_delete_bo" ON public.proposal_forms
 -- BO can delete their own contracts (unsigned only — signed ones
 -- will fail due to the immutability trigger on contract_signatures,
 -- which is intentional; the reset function falls back to Breached)
+DROP POLICY IF EXISTS "contracts_delete_bo" ON public.contracts;
 CREATE POLICY "contracts_delete_bo" ON public.contracts
   FOR DELETE USING (
     business_owner_id = auth.uid()
