@@ -93,7 +93,48 @@ interface RenderContext {
   bold: PDFFont;
 }
 
-/** Draw a paragraph, wrapped, returning the new cursor. */
+/** Draw one line with expanded inter-word spacing so it fills `targetWidth`. */
+function drawJustifiedLine(
+  page: PDFPage,
+  text: string,
+  font: PDFFont,
+  size: number,
+  x: number,
+  y: number,
+  targetWidth: number,
+  justify: boolean,
+) {
+  const words = text.trim().split(/\s+/);
+  if (!justify || words.length < 2) {
+    page.drawText(text, { x, y, size, font, color: rgb(0, 0, 0) });
+    return;
+  }
+
+  const wordsWidth = words.reduce(
+    (total, word) => total + font.widthOfTextAtSize(word, size),
+    0,
+  );
+  const gap = (targetWidth - wordsWidth) / (words.length - 1);
+  if (!Number.isFinite(gap) || gap < 0) {
+    page.drawText(text, { x, y, size, font, color: rgb(0, 0, 0) });
+    return;
+  }
+
+  let cursorX = x;
+  words.forEach((word, index) => {
+    page.drawText(word, {
+      x: cursorX,
+      y,
+      size,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    cursorX += font.widthOfTextAtSize(word, size);
+    if (index < words.length - 1) cursorX += gap;
+  });
+}
+
+/** Draw a justified paragraph, wrapped, returning the new cursor. */
 function drawParagraph(
   ctx: RenderContext,
   cur: Cursor,
@@ -105,15 +146,21 @@ function drawParagraph(
   const indent = opts.indent ?? 0;
   const lines  = wrapLines(text, font, size, CONTENT_W - indent);
   let c = cur;
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     c = ensureSpace(ctx, c, LINE_H);
-    c.page.drawText(line, {
-      x: MARGIN_L + indent,
-      y: c.y - size,
-      size,
+    drawJustifiedLine(
+      c.page,
+      line,
       font,
-      color: rgb(0, 0, 0),
-    });
+      size,
+      MARGIN_L + indent,
+      c.y - size,
+      CONTENT_W - indent,
+      // Word-style justification: expand every wrapped line except the final
+      // line of the paragraph, which remains naturally left-aligned.
+      index < lines.length - 1,
+    );
     c = { y: c.y - LINE_H, page: c.page };
   }
   return { y: c.y - (opts.extraGap ?? PARA_H), page: c.page };
@@ -135,16 +182,30 @@ function drawLabelValue(
   const remainingW = CONTENT_W - lw - 6;
   const lines = wrapLines(value, ctx.body, BODY_SIZE, remainingW);
   if (lines.length > 0) {
-    c.page.drawText(lines[0], {
-      x: MARGIN_L + lw + 6, y: c.y - BODY_SIZE, size: BODY_SIZE, font: ctx.body, color: rgb(0, 0, 0),
-    });
+    drawJustifiedLine(
+      c.page,
+      lines[0],
+      ctx.body,
+      BODY_SIZE,
+      MARGIN_L + lw + 6,
+      c.y - BODY_SIZE,
+      remainingW,
+      lines.length > 1,
+    );
   }
   let next = { y: c.y - LINE_H, page: c.page };
   for (let i = 1; i < lines.length; i++) {
     next = ensureSpace(ctx, next, LINE_H);
-    next.page.drawText(lines[i], {
-      x: MARGIN_L + lw + 6, y: next.y - BODY_SIZE, size: BODY_SIZE, font: ctx.body, color: rgb(0, 0, 0),
-    });
+    drawJustifiedLine(
+      next.page,
+      lines[i],
+      ctx.body,
+      BODY_SIZE,
+      MARGIN_L + lw + 6,
+      next.y - BODY_SIZE,
+      remainingW,
+      i < lines.length - 1,
+    );
     next = { y: next.y - LINE_H, page: next.page };
   }
   return next;
@@ -337,9 +398,13 @@ export async function renderContractPDF(input: RenderInput): Promise<Uint8Array>
   cur = { y: nameY - BODY_SIZE - LINE_H - 20, page: cur.page };
 
   // Audit footer — visible on every page
+  const toPHT = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) + " PHT";
+  };
   const footerText = input.supplier_signed_at
-    ? `Contract Hash: ${input.contract_hash}  •  Signed by Seller at ${input.supplier_signed_at}${
-        input.business_owner_signed_at ? `  •  Signed by Buyer at ${input.business_owner_signed_at}` : ""
+    ? `Contract Hash: ${input.contract_hash}  •  Signed by Seller at ${toPHT(input.supplier_signed_at)}${
+        input.business_owner_signed_at ? `  •  Signed by Buyer at ${toPHT(input.business_owner_signed_at)}` : ""
       }`
     : `Contract Hash: ${input.contract_hash}  •  Unsigned preview — awaiting Seller authorization`;
 

@@ -7,6 +7,95 @@ import {
   LuChevronLeft, LuChevronRight, LuScanLine,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import jsQR from "jsqr";
+
+const PH_BANKS = [
+  "AllBank", "Asia United Bank", "Bank of China (Manila)", "Bank of Commerce",
+  "Bank of the Philippine Islands (BPI)", "BDO Network Bank", "BDO Unibank",
+  "BPI Direct BanKo", "CARD Bank", "Cebuana Lhuillier Rural Bank", "China Bank",
+  "China Bank Savings", "City Savings Bank", "Development Bank of the Philippines (DBP)",
+  "EastWest Bank", "GoTyme Bank", "Land Bank of the Philippines", "Maya Bank",
+  "Maybank Philippines", "Metropolitan Bank and Trust Company (Metrobank)", "Netbank",
+  "Overseas Filipino Bank", "Philippine Bank of Communications (PBCOM)",
+  "Philippine Business Bank", "Philippine National Bank (PNB)", "Philippine Savings Bank (PSBank)",
+  "Philippine Veterans Bank", "Queenbank", "RCBC", "SeaBank Philippines",
+  "Security Bank", "Sterling Bank of Asia", "Tonik Digital Bank", "UnionBank of the Philippines",
+  "UNO Digital Bank", "Wealth Development Bank", "GCash", "Maya Wallet",
+];
+
+const QR_MAX_FILE_SIZE = 5 * 1024 * 1024;
+const QR_MAX_PAYLOAD_LENGTH = 4096;
+const QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function formatPhoneNumber(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return [digits.slice(0, 4), digits.slice(4, 7), digits.slice(7, 11)].filter(Boolean).join(" ");
+}
+
+function parseTlv(value) {
+  const fields = {};
+  let offset = 0;
+  while (offset + 4 <= value.length) {
+    const tag = value.slice(offset, offset + 2);
+    const lengthText = value.slice(offset + 2, offset + 4);
+    if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lengthText)) break;
+    const end = offset + 4 + Number(lengthText);
+    if (end > value.length) break;
+    fields[tag] = value.slice(offset + 4, end);
+    offset = end;
+  }
+  return fields;
+}
+
+function matchBankName(value = "") {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    bdo: "BDO Unibank", bpi: "Bank of the Philippine Islands (BPI)", metrobank: "Metropolitan Bank and Trust Company (Metrobank)",
+    mbtc: "Metropolitan Bank and Trust Company (Metrobank)", pnb: "Philippine National Bank (PNB)",
+    rcbc: "RCBC", unionbank: "UnionBank of the Philippines", ubp: "UnionBank of the Philippines",
+    landbank: "Land Bank of the Philippines", lbp: "Land Bank of the Philippines", dbp: "Development Bank of the Philippines (DBP)",
+    securitybank: "Security Bank", eastwest: "EastWest Bank", chinabank: "China Bank",
+    psbank: "Philippine Savings Bank (PSBank)", seabank: "SeaBank Philippines", gotyme: "GoTyme Bank",
+    mayabank: "Maya Bank", maya: "Maya Wallet", gcash: "GCash",
+  };
+  const alias = Object.entries(aliases).find(([key]) => normalized.includes(key));
+  if (alias) return alias[1];
+  return PH_BANKS.find(bank => normalized.includes(bank.toLowerCase().replace(/[^a-z0-9]/g, ""))) || "";
+}
+
+function parseQrBankDetails(payload) {
+  if (!payload || payload.length > QR_MAX_PAYLOAD_LENGTH) throw new Error("The QR code contains an oversized or malformed payload.");
+  const details = { bankName: "", accountName: "", accountNumber: "" };
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed && typeof parsed === "object") {
+      details.bankName = parsed.bankName || parsed.bank_name || parsed.bank || parsed.institution || "";
+      details.accountName = parsed.accountName || parsed.account_name || parsed.accountHolder || parsed.name || "";
+      details.accountNumber = parsed.accountNumber || parsed.account_number || parsed.account || parsed.number || "";
+    }
+  } catch { /* QR payloads are commonly not JSON */ }
+  try {
+    const params = new URL(payload).searchParams;
+    details.bankName ||= params.get("bank_name") || params.get("bank") || "";
+    details.accountName ||= params.get("account_name") || params.get("accountHolder") || params.get("name") || "";
+    details.accountNumber ||= params.get("account_number") || params.get("account") || params.get("number") || "";
+  } catch { /* QR payload may not be a URL */ }
+  const labeled = labels => {
+    const pattern = labels.map(label => label.replace(/\s+/g, "[ _-]*")).join("|");
+    return payload.match(new RegExp(`(?:${pattern})\\s*[:=]\\s*([^;|\\n\\r]+)`, "i"))?.[1]?.trim() || "";
+  };
+  details.bankName ||= labeled(["bank name", "bank", "institution"]);
+  details.accountName ||= labeled(["account holder name", "account name", "holder", "name"]);
+  details.accountNumber ||= labeled(["account number", "account no", "account"]);
+  const emv = parseTlv(payload);
+  details.accountName ||= emv["59"] || "";
+  for (let tag = 26; tag <= 51 && !details.accountNumber; tag += 1) {
+    const nested = emv[String(tag)] && parseTlv(emv[String(tag)]);
+    if (nested) details.accountNumber = nested["01"] || nested["02"] || "";
+  }
+  details.bankName = matchBankName(details.bankName || payload);
+  return details;
+}
 
 const GOV_ID_TYPES = [
   "Driver's License",
@@ -243,6 +332,8 @@ export default function RegisterPage() {
   const [selfiePhoto,     setSelfiePhoto]     = useState(null);
   const [signaturePhoto,  setSignaturePhoto]  = useState(null);
   const [idExtracting,    setIdExtracting]    = useState(false);
+  const [qrDecoding,      setQrDecoding]      = useState(false);
+  const qrFileRef = useRef(null);
 
   const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
@@ -251,6 +342,52 @@ export default function RegisterPage() {
 
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
+  }
+
+  async function decodeBankQr(file) {
+    setError("");
+    if (!QR_IMAGE_TYPES.has(file.type)) {
+      setError("Please upload a PNG, JPEG, or WebP QR code image.");
+      return;
+    }
+    if (file.size > QR_MAX_FILE_SIZE) {
+      setError("The QR code image must be 5 MB or smaller.");
+      return;
+    }
+    setQrDecoding(true);
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await createImageBitmap(file);
+      if (image.width > 4096 || image.height > 4096) {
+        image.close();
+        throw new Error("The QR image dimensions are too large.");
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      image.close();
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: "attemptBoth" });
+      if (!result?.data) throw new Error("No readable QR code was found in the image.");
+      const details = parseQrBankDetails(result.data);
+      if (!details.bankName && !details.accountName && !details.accountNumber) {
+        throw new Error("The QR code does not contain recognizable bank account details.");
+      }
+      setForm(current => ({
+        ...current,
+        bankName: details.bankName || current.bankName,
+        accountName: details.accountName || current.accountName,
+        accountNumber: details.accountNumber || current.accountNumber,
+      }));
+    } catch (qrError) {
+      setError(qrError.message || "The QR code could not be read. Please enter the account details manually.");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+      setQrDecoding(false);
+      if (qrFileRef.current) qrFileRef.current.value = "";
+    }
   }
 
   async function extractIdInfo(photoObj) {
@@ -324,6 +461,10 @@ export default function RegisterPage() {
       if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
       if (!form.accountName.trim())   { setError("Account holder name is required."); return false; }
       if (!form.accountNumber.trim()) { setError("Account number is required."); return false; }
+      if (/[*•●xX]/.test(form.accountNumber)) {
+        setError("The account number contains masked digits. Please manually replace them with the real account number.");
+        return false;
+      }
     }
     return true;
   }
@@ -520,8 +661,9 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium text-brown-dark mb-1.5">Phone number</label>
             <div className="relative">
               <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-              <input type="tel" value={form.phone} onChange={set("phone")}
-                placeholder="+63 9XX XXX XXXX" className={`${inputClass} pl-10`} />
+              <input type="tel" inputMode="numeric" value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: formatPhoneNumber(e.target.value) }))}
+                placeholder="0917 123 4567" maxLength={13} className={`${inputClass} pl-10`} />
             </div>
           </div>
 
@@ -625,12 +767,36 @@ export default function RegisterPage() {
           <p className="text-xs text-brown-light">
             This account will receive electronic payments after every accepted delivery.
           </p>
+          <div className="rounded-2xl border border-beige-dark bg-beige/50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-green-pale text-green-dark flex items-center justify-center shrink-0">
+                <LuScanLine className="w-4.5 h-4.5" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-brown-dark">Auto-fill from a bank QR code</p>
+                <p className="text-xs text-brown-light mt-0.5">Decoded privately in your browser. The image and QR contents are never uploaded or saved.</p>
+                <button type="button" disabled={qrDecoding} onClick={() => qrFileRef.current?.click()}
+                  className="mt-3 flex items-center gap-2 px-4 py-2 rounded-xl border border-beige-dark bg-white text-brown-mid font-semibold text-xs hover:bg-green-pale disabled:opacity-50 transition-all">
+                  {qrDecoding ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuUpload className="w-4 h-4" />}
+                  {qrDecoding ? "Reading QR code…" : "Upload QR image"}
+                </button>
+                <input ref={qrFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                  onChange={e => { const file = e.target.files?.[0]; if (file) decodeBankQr(file); }} />
+                <p className="text-[11px] text-brown-light mt-2">PNG, JPEG, or WebP · max 5 MB</p>
+              </div>
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">
               Bank name <span className="text-red-500">*</span>
             </label>
-            <input type="text" value={form.bankName} onChange={set("bankName")}
-              placeholder="e.g. BDO, BPI, Metrobank, GCash…" className={`${inputClass} px-4`} />
+            <div className="relative">
+              <select value={form.bankName} onChange={set("bankName")} className={`${inputClass} px-4 pr-10 appearance-none`}>
+                <option value="">Select a bank</option>
+                {PH_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
+              </select>
+              <LuChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">

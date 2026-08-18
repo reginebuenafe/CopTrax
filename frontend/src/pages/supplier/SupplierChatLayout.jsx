@@ -1,26 +1,21 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
-  LuClock, LuFileText, LuStar, LuCheckCheck, LuPaperclip, LuPlus,
+  LuSend, LuCoins, LuCheck, LuX, LuPencil,
+  LuClock, LuFileText, LuStar, LuCheckCheck, LuMessageSquare, LuArrowLeft,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ProposePriceModal from "../../components/ProposePriceModal";
 import SupplierContractReviewModal from "../../components/SupplierContractReviewModal";
+import ContractDocumentModal from "../../components/ContractDocumentModal";
+import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 
-function fmtTime(dateStr) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  const diff = Date.now() - d;
-  if (diff < 60_000)    return "Just now";
-  if (diff < 86_400_000) return d.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  if (diff < 7 * 86_400_000) return days[d.getDay()];
-  return d.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
-}
+const SUPPLIER_QUICK_SUGGESTIONS = [
+  "I'll review the contract shortly.",
+  "Can I receive payment earlier?",
+  "What moisture content is acceptable?",
+];
 
 function fmtDate(d) {
   if (!d) return "—";
@@ -48,31 +43,31 @@ function peso(n) {
 // ── Contract card shown in chat ───────────────────────────────────────────────
 function ContractCard({ contractData, onReviewSign, onView, signed }) {
   return (
-    <div className="flex justify-start my-2 px-4">
-      <div className={`text-white rounded-2xl rounded-bl-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"}`}>
+    <div className="my-3 flex justify-start px-1 sm:px-4">
+      <div className="w-72 max-w-full rounded-2xl rounded-bl-sm border border-[#A2D5AB] bg-[#EDF7EF] p-4 text-[#3D2B1F] shadow-sm">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2E7D32] text-white">
             <LuFileText className="w-4 h-4" />
           </div>
           <div>
             <p className="font-bold text-sm">{contractData.contract_number}</p>
-            <p className="text-white/70 text-xs">
+            <p className="text-xs text-[#5F7D63]">
               {signed ? "Signed & Active" : "Awaiting your signature"}
             </p>
           </div>
         </div>
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between">
-            <span className="text-white/70">Price/kg</span>
+            <span className="text-[#8B7355]">Price/kg</span>
             <span className="font-semibold">{peso(contractData.price_per_kg)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-white/70">Volume</span>
+            <span className="text-[#8B7355]">Volume</span>
             <span className="font-bold">{contractData.contracted_tons} tons</span>
           </div>
           {contractData.due_date && (
             <div className="flex justify-between">
-              <span className="text-white/70">Due Date</span>
+              <span className="text-[#8B7355]">Due Date</span>
               <span className="font-semibold">{fmtDate(contractData.due_date)}</span>
             </div>
           )}
@@ -80,27 +75,27 @@ function ContractCard({ contractData, onReviewSign, onView, signed }) {
         {!signed && onReviewSign && (
           <button
             onClick={onReviewSign}
-            className="mt-3 w-full py-2 rounded-xl bg-white text-[#2d5a27] font-bold text-xs hover:bg-white/90 transition-all"
+            className="mt-3 w-full rounded-xl bg-white py-2 text-xs font-bold text-[#17682D] shadow-sm ring-1 ring-[#A2D5AB]/50 transition-all hover:bg-[#F7FCF8]"
           >
             Review & Sign Contract
           </button>
         )}
         {!signed && !onReviewSign && (
-          <div className="mt-3 w-full py-2 rounded-xl bg-white/10 text-white/60 text-xs text-center">
+          <div className="mt-3 w-full rounded-xl bg-white py-2 text-center text-xs text-[#8B7355] ring-1 ring-[#A2D5AB]/40">
             Loading contract details…
           </div>
         )}
         {signed && (
           <div className="mt-3 space-y-1.5">
-            <div className="w-full py-1.5 rounded-xl bg-white/10 text-white font-semibold text-xs text-center">
+            <div className="w-full rounded-xl bg-[#D9EFDE] py-1.5 text-center text-xs font-semibold text-[#17682D]">
               ✓ Contract Active
             </div>
             {onView && (
               <button
                 onClick={onView}
-                className="w-full py-2 rounded-xl bg-white text-[#1f4a1a] font-bold text-xs hover:bg-white/90 transition-all flex items-center justify-center gap-1.5"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-white py-2 text-xs font-bold text-[#17682D] ring-1 ring-[#A2D5AB]/50 transition-all hover:bg-[#F7FCF8]"
               >
-                <LuFileText className="w-3.5 h-3.5" /> View Contract
+                <LuFileText className="w-3.5 h-3.5" /> View Contract Document
               </button>
             )}
           </div>
@@ -114,7 +109,7 @@ function ContractCard({ contractData, onReviewSign, onView, signed }) {
 function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
   return (
     <div className="flex justify-center my-3 px-4">
-      <div className="bg-white border-2 border-[#2d5a27]/20 rounded-2xl p-4 w-full max-w-xs shadow-sm">
+      <div className="w-full max-w-xs rounded-2xl border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <LuCoins className="w-4 h-4 text-[#2d5a27]" />
           <p className="text-sm font-bold text-[#2d5a27]">
@@ -164,12 +159,6 @@ export default function SupplierChatLayout() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
 
-  // Left panel
-  const [conversations, setConversations] = useState([]);
-  const [search, setSearch] = useState("");
-  const [convLoading, setConvLoading] = useState(true);
-  const [starting, setStarting] = useState(false);
-
   // Middle panel
   const [currentConv, setCurrentConv] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -178,9 +167,21 @@ export default function SupplierChatLayout() {
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [proposalActing, setProposalActing] = useState(false);
-  const [showProposeModal, setShowProposeModal] = useState(false);
-  const [counterModal, setCounterModal] = useState(null);
+  const {
+    modalState: proposalModalState,
+    openPropose,
+    openCounter,
+    clearModal: clearProposalModal,
+  } = usePersistentProposalModal({
+    storageKey: `coptrax:proposal-modal:supplier-chat:${user?.id ?? "anonymous"}`,
+    conversationId,
+  });
+  const showProposeModal = proposalModalState?.type === "propose";
+  const counterModal = proposalModalState?.type === "counter" ? proposalModalState.proposal : null;
   const [signContract, setSignContract] = useState(null);
+  const [viewContract, setViewContract] = useState(null);
+  const [resolvingConversation, setResolvingConversation] = useState(!conversationId);
+  const [onlineBusinessOwnerIds, setOnlineBusinessOwnerIds] = useState(() => new Set());
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
 
@@ -198,25 +199,75 @@ export default function SupplierChatLayout() {
   // Right panel
   const [contracts, setContracts] = useState([]);
 
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    if (conversationId) {
+      const timer = window.setTimeout(() => setResolvingConversation(false), 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    let cancelled = false;
+    const resolveConversation = async () => {
+      setResolvingConversation(true);
+      const { data: existing } = await supabase
+        .from("conversations")
+        .select("conversation_id, status")
+        .eq("supplier_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let targetId = existing?.conversation_id ?? null;
+      if (targetId && existing.status !== "Open") {
+        const [{ count: messageCount }, { count: proposalCount }] = await Promise.all([
+          supabase.from("messages").select("message_id", { count: "exact", head: true }).eq("conversation_id", targetId),
+          supabase.from("proposal_forms").select("proposal_id", { count: "exact", head: true }).eq("conversation_id", targetId),
+        ]);
+        if ((messageCount ?? 0) === 0 && (proposalCount ?? 0) === 0) {
+          await supabase.from("conversations").update({ status: "Open" }).eq("conversation_id", targetId);
+        }
+      }
+
+      if (!targetId) {
+        const { data: owners } = await supabase
+          .from("users")
+          .select("user_id, roles!inner(role_name)")
+          .eq("roles.role_name", "Business Owner")
+          .eq("account_status", "Active")
+          .limit(1);
+        const ownerId = owners?.[0]?.user_id;
+        if (ownerId) {
+          const { data: created } = await supabase
+            .from("conversations")
+            .upsert(
+              { supplier_id: user.id, business_owner_id: ownerId, status: "Open" },
+              { onConflict: "supplier_id,business_owner_id" },
+            )
+            .select("conversation_id")
+            .single();
+          targetId = created?.conversation_id ?? null;
+        }
+      }
+
+      if (!cancelled && targetId) {
+        navigate(`/dashboard/supplier/conversations/${targetId}`, { replace: true });
+      }
+      if (!cancelled) setResolvingConversation(false);
+    };
+    resolveConversation();
+    return () => { cancelled = true; };
+  }, [conversationId, navigate, user?.id]);
+
+  useEffect(() => {
+    const channel = supabase.channel("online-business-owners");
+    const syncPresence = () => {
+      setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
+    };
+    channel.on("presence", { event: "sync" }, syncPresence).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
   // ── Load conversations ────────────────────────────────────────────────────
-  const fetchConversations = useCallback(async () => {
-    setConvLoading(true);
-    const { data } = await supabase
-      .from("conversations")
-      .select(`conversation_id, status, created_at, messages(message_text, sent_at, sender_id)`)
-      .eq("supplier_id", user.id)
-      .order("created_at", { ascending: false });
-
-    const enriched = (data ?? []).map(c => {
-      const sorted = [...(c.messages ?? [])].sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
-      return { ...c, lastMsg: sorted[0] ?? null };
-    });
-    setConversations(enriched);
-    setConvLoading(false);
-  }, [user.id]);
-
-  useEffect(() => { fetchConversations(); }, [fetchConversations]);
-
   // ── Load chat ─────────────────────────────────────────────────────────────
   const loadChat = useCallback(async (convId) => {
     setChatLoading(true);
@@ -348,37 +399,17 @@ export default function SupplierChatLayout() {
       .eq("proposal_status", "Pending")
       .neq("proposal_id", proposal.proposal_id);
 
-    // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract)
+    // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract).
+    // The Edge Function inserts the CONTRACT_CARD and text message as the Business Owner
+    // using the service role, so we don't insert them here.
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       const tokenVal = session.access_token;
-      const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
         body: JSON.stringify({ contract_id: contract.contract_id }),
       });
-
-      const genData = await genRes.json();
-
-      if (genRes.ok) {
-        await supabase.from("messages").insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          message_type: "Contract Form",
-          message_text: `CONTRACT_CARD:${JSON.stringify({
-            contract_id:     contract.contract_id,
-            contract_number: contract.contract_number,
-            price_per_kg:    contract.negotiated_price_per_kg,
-            contracted_tons: contract.contracted_tons,
-            due_date:        contract.due_date,
-            document_path:   genData.contract_document_path,
-          })}`,
-        });
-        await supabase.from("messages").insert({
-          conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-          message_text: "The contract has been generated. Please review and sign when you're ready.",
-        });
-      }
     }
 
     await loadChat(conversationId);
@@ -416,45 +447,10 @@ export default function SupplierChatLayout() {
     setSending(false);
   }
 
-  async function startNewConversation() {
-    setStarting(true);
-
-    // Find the BO
-    const { data: boRows } = await supabase
-      .from("users")
-      .select("user_id, roles!inner(role_name)")
-      .eq("roles.role_name", "Business Owner")
-      .eq("account_status", "Active");
-    const boId = boRows?.[0]?.user_id;
-    if (!boId) { setStarting(false); return; }
-
     // ── UPSERT: reuse existing conversation, never create a duplicate ──────
-    // First check if a conversation with this BO already exists.
-    const { data: existing } = await supabase
-      .from("conversations")
-      .select("conversation_id")
-      .eq("supplier_id", user.id)
-      .eq("business_owner_id", boId)
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
       // Already have one — just navigate to it
-      setStarting(false);
-      navigate(`/dashboard/supplier/conversations/${existing.conversation_id}`);
-      return;
-    }
 
     // No existing conversation — create one
-    const { data: conv } = await supabase
-      .from("conversations")
-      .insert({ supplier_id: user.id, business_owner_id: boId, status: "Open" })
-      .select("conversation_id")
-      .single();
-
-    setStarting(false);
-    if (conv) navigate(`/dashboard/supplier/conversations/${conv.conversation_id}`);
-  }
 
   // ── First Pending contract in this supplier's list, for the "Review & Sign" shortcut ─
   const pendingContractRow = contracts.find(c => c.status === "Pending" && c.contract_hash);
@@ -464,76 +460,34 @@ export default function SupplierChatLayout() {
   // Contract status of the current conversation does NOT block proposing.
   const activeContractCount = contracts.filter(c => c.status === "Active").length;
   const canPropose = activeContractCount < 3;
+  const businessOwnerId = currentConv?.business_owner_id ?? currentConv?.business_owner?.user_id;
+  const isBusinessOwnerOnline = Boolean(
+    businessOwnerId && onlineBusinessOwnerIds.has(businessOwnerId),
+  );
 
   return (
-    <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
+    <div className="flex flex-col gap-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px]">
+      <button type="button" onClick={() => navigate("/dashboard/supplier")}
+        className="group flex w-fit shrink-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-[#5D4037] transition-colors hover:text-[#17682D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17682D]/40">
+        <LuArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+        <span>Return to Home</span>
+      </button>
 
-      {/* ── LEFT PANEL ────────────────────────────────────────────────────── */}
-      <div className="w-[280px] shrink-0 bg-white flex flex-col border-r border-[#e8e0d0]">
-        <div className="px-4 pt-4 pb-3 border-b border-[#f0e8d8] flex items-center justify-between gap-2">
-          <div className="relative flex-1">
-            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#b09a7a]" />
-            <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-full bg-[#f5f0e8] text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none border-0" />
-          </div>
-          <button onClick={startNewConversation} disabled={starting}
-            className="w-8 h-8 rounded-full bg-[#2d5a27] text-white flex items-center justify-center hover:bg-[#234820] transition-all disabled:opacity-60 shrink-0">
-            {starting ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LuPlus className="w-4 h-4" />}
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {convLoading ? (
-            <div className="flex items-center justify-center py-10">
-              <div className="w-6 h-6 border-2 border-[#2d5a27] border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <p className="text-[#8b7355] text-sm mb-3">No negotiations yet</p>
-              <button onClick={startNewConversation} disabled={starting}
-                className="text-xs bg-[#2d5a27] text-white px-4 py-2 rounded-xl hover:bg-[#234820] transition-all">
-                Start Negotiation
-              </button>
-            </div>
-          ) : (
-            conversations.filter(c => {
-              const last = c.lastMsg?.message_text ?? "";
-              return last.toLowerCase().includes(search.toLowerCase()) || "nerc copra".includes(search.toLowerCase());
-            }).map(c => {
-              const isActive = c.conversation_id === conversationId;
-              return (
-                <button key={c.conversation_id}
-                  onClick={() => navigate(`/dashboard/supplier/conversations/${c.conversation_id}`)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors relative
-                    ${isActive ? "bg-[#f0ebe0] border-l-4 border-[#2d5a27]" : "hover:bg-[#faf7f2] border-l-4 border-transparent"}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${isActive ? "bg-[#2d5a27]" : "bg-[#4a7c40]"}`}>
-                    N
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="font-semibold text-[#3d2b1f] text-sm">NERC Copra Trading</p>
-                      <span className="text-[10px] text-[#b09a7a] shrink-0">{fmtTime(c.lastMsg?.sent_at ?? c.created_at)}</span>
-                    </div>
-                    <p className="text-[#8b7355] text-xs truncate mt-0.5">
-                      {c.lastMsg?.message_text?.replace(/^CONTRACT_CARD:.*/, "Contract sent") ?? "No messages yet"}
-                    </p>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
+      <div className="flex flex-col gap-4 overflow-visible rounded-[22px] bg-[#FAF7EF] p-2 xl:min-h-0 xl:flex-1 xl:flex-row xl:overflow-hidden">
 
       {/* ── MIDDLE PANEL ──────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-[#faf7f4] min-w-0">
-        {!conversationId ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
-            <div className="w-16 h-16 bg-[#e8f0e5] rounded-2xl flex items-center justify-center mb-4">
-              <LuFileText className="w-8 h-8 text-[#2d5a27]" />
+      <div className="flex h-[70vh] min-h-[560px] min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:h-full">
+        {resolvingConversation ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="h-7 w-7 animate-spin rounded-full border-3 border-[#2d5a27] border-t-transparent" />
+          </div>
+        ) : !conversationId ? (
+          <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5E9]">
+              <LuMessageSquare className="h-6 w-6 text-[#2E7D32]" />
             </div>
-            <p className="text-[#3d2b1f] font-bold text-lg mb-1">Select a conversation</p>
-            <p className="text-[#8b7355] text-sm">Choose a negotiation from the list or start a new one.</p>
+            <p className="mb-1 text-lg font-bold text-[#3d2b1f]">No conversations yet</p>
+            <p className="text-sm text-[#8b7355]">Your negotiation will be ready after the first message or proposal.</p>
           </div>
         ) : chatLoading ? (
           <div className="flex-1 flex items-center justify-center">
@@ -542,18 +496,20 @@ export default function SupplierChatLayout() {
         ) : (
           <>
             {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-3.5 bg-white border-b border-[#e8e0d0] shrink-0">
-              <div className="w-10 h-10 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-sm">N</div>
+            <div className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7">
+              <div className="relative shrink-0">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white ${isBusinessOwnerOnline ? "bg-[#35AB50]" : "bg-[#9CA3AF]"}`}>N</div>
+                <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#FFFEFB] ${isBusinessOwnerOnline ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
+              </div>
               <div className="flex-1">
-                <p className="font-bold text-[#3d2b1f]">NERC Copra Trading</p>
+                <p className="text-base font-extrabold leading-tight text-[#5D4037] sm:text-[18px]">NERC Copra Trading</p>
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full" />
-                  <p className="text-[#8b7355] text-xs">{currentConv?.status === "Open" ? "Active negotiation" : "Closed"}</p>
+                  <p className="text-[#8b7355] text-xs">{isBusinessOwnerOnline ? "Online" : "Offline"}</p>
                 </div>
               </div>
               {currentConv?.status === "Open" && (
                 <button
-                  onClick={() => { if (canPropose) setShowProposeModal(true); }}
+                  onClick={() => { if (canPropose) openPropose(); }}
                   disabled={!canPropose}
                   title={!canPropose ? "You already have 3 Active contracts — complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
                   className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all
@@ -567,10 +523,27 @@ export default function SupplierChatLayout() {
             </div>
 
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-4 space-y-1">
+            <div ref={scrollContainerRef} className="flex-1 space-y-1 overflow-y-auto bg-[#FFFEFB] px-3 py-3">
               {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
-                  <p>Say hello, then tap "Propose Price" to start negotiating.</p>
+                <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-4 text-center">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5E9]">
+                    <LuMessageSquare className="h-6 w-6 text-[#2E7D32]" />
+                  </div>
+                  <h4 className="mb-2 text-sm font-bold text-[#3D2B1F]">Start Your First Message</h4>
+                  <p className="max-w-sm text-xs leading-relaxed text-[#8B7355]">
+                    Send a message or submit a price proposal to begin negotiating with NERC Copra Trading.
+                  </p>
+                  <div className="mt-4 w-full max-w-sm space-y-2">
+                    <p className="text-[11px] font-medium uppercase text-[#3D2B1F]/70">Quick Actions:</p>
+                    <button type="button" onClick={() => setText("I'd like to propose a price.")}
+                      className="w-full rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-700 transition-colors hover:bg-blue-100">
+                      Send First Message
+                    </button>
+                    <button type="button" onClick={openPropose}
+                      className="w-full rounded-lg bg-green-50 px-3 py-2 text-[11px] font-medium text-green-700 transition-colors hover:bg-green-100">
+                      Submit Price Proposal
+                    </button>
+                  </div>
                 </div>
               )}
               {messages.map((msg, index) => {
@@ -603,10 +576,11 @@ export default function SupplierChatLayout() {
                           document_path:   cardData.document_path ?? contractRow?.contract_document_url,
                           contract_hash:   contractRow?.contract_hash,
                         }) : null}
-                        onView={isSigned && viewPath ? async () => {
-                          const { data } = await supabase.storage.from("contracts").createSignedUrl(viewPath, 60 * 15);
-                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                        } : null}
+                        onView={isSigned && viewPath ? () => setViewContract({
+                          contractId: resolvedId,
+                          contractNumber: cardData.contract_number,
+                          documentPath: viewPath,
+                        }) : null}
                       />
                     );
                   } catch { /* fall through */ }
@@ -622,8 +596,8 @@ export default function SupplierChatLayout() {
 
                 if (!messageEl) {
                   messageEl = (
-                    <div className={`flex px-4 ${isMine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    <div className={`flex px-1 sm:px-4 ${isMine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed sm:max-w-[65%] ${
                         isMine
                           ? "bg-[#2d5a27] text-white rounded-br-sm"
                           : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
@@ -659,7 +633,7 @@ export default function SupplierChatLayout() {
                   submittedByMe={latestSubmittedBySupplier}
                   onAccept={proposalActing ? null : () => acceptCounter(latestProposal)}
                   onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
-                  onCounter={proposalActing ? null : () => setCounterModal(latestProposal)}
+                  onCounter={proposalActing ? null : () => openCounter(latestProposal)}
                 />
               )}
 
@@ -669,26 +643,31 @@ export default function SupplierChatLayout() {
             </div>
 
             {/* Action chips */}
-            {currentConv?.status === "Open" && canPropose && (
-              <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
-                <button onClick={() => setShowProposeModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all">
-                  <LuCoins className="w-3.5 h-3.5" /> Propose Price
-                </button>
+            {currentConv?.status === "Open" && (
+              <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-[#E7DCC9] bg-[#FFFEFB] px-3 pb-0.5 pt-2 no-scrollbar">
+                {canPropose && (
+                  <button onClick={openPropose}
+                    className="flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-[#17682D] px-4 py-1.5 text-[10px] font-semibold text-white transition-all hover:bg-[#105523]">
+                    <LuCoins className="w-3.5 h-3.5" /> Propose Price
+                  </button>
+                )}
+                {SUPPLIER_QUICK_SUGGESTIONS.map((suggestion) => (
+                  <button key={suggestion} type="button" onClick={() => setText(suggestion)}
+                    className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-1.5 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]">
+                    {suggestion}
+                  </button>
+                ))}
               </div>
             )}
 
             {/* Message input */}
             {currentConv?.status === "Open" && (
-              <form onSubmit={sendMessage} className="flex items-center gap-3 px-4 py-3 bg-white border-t border-[#e8e0d0] shrink-0">
-                <button type="button" className="text-[#b09a7a] hover:text-[#8b7355] transition-colors">
-                  <LuPaperclip className="w-5 h-5" />
-                </button>
+              <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
                 <input type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder="Message NERC Copra Trading…"
-                  className="flex-1 px-4 py-2.5 rounded-full bg-[#f5f0e8] text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none border-0" />
+                  className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none" />
                 <button type="submit" disabled={!text.trim() || sending}
-                  className="w-9 h-9 rounded-full bg-[#2d5a27] text-white flex items-center justify-center hover:bg-[#234820] transition-all disabled:opacity-50">
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-[#17682D] text-white transition-all hover:bg-[#105523] disabled:opacity-50">
                   <LuSend className="w-4 h-4" />
                 </button>
               </form>
@@ -698,16 +677,16 @@ export default function SupplierChatLayout() {
       </div>
 
       {/* ── RIGHT PANEL ─────────────────────────────────────────────────── */}
-      <div className="w-[200px] shrink-0 bg-white border-l border-[#e8e0d0] flex flex-col overflow-y-auto">
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[300px]`}>
         {!conversationId ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see details</p>
           </div>
         ) : (
-          <div className="p-4 space-y-4">
+          <div className="space-y-5">
             {/* NERC avatar + name */}
-            <div className="flex flex-col items-center text-center pt-2">
-              <div className="w-14 h-14 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-xl mb-2">N</div>
+            <div className="flex flex-col items-center border-b border-[#E7DCC9] px-5 pb-7 pt-12 text-center">
+              <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#35AB50] text-sm font-bold text-white">N</div>
               <p className="font-bold text-[#3d2b1f] text-sm">NERC Copra Trading</p>
               <p className="text-[#8b7355] text-[11px] mt-0.5">General Santos City</p>
               <div className="flex items-center gap-1 mt-1.5">
@@ -728,16 +707,16 @@ export default function SupplierChatLayout() {
                   document_path:   pendingContractRow.contract_document_url,
                   contract_hash:   pendingContractRow.contract_hash,
                 })}
-                className="block w-full py-2.5 rounded-xl bg-[#2d5a27] text-white font-bold text-sm text-center hover:bg-[#234820] transition-all"
+                className="mx-auto block w-[calc(100%-2.5rem)] rounded-[9px] bg-[#17682D] py-2.5 text-center text-xs font-bold text-white transition-all hover:bg-[#105523]"
               >
                 Review & Sign Contract
               </button>
             )}
 
             {/* Negotiation summary */}
-            <div>
-              <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Negotiation Summary</p>
-              <div className="space-y-2">
+            <div className="px-5">
+              <p className="mb-3 text-xs font-semibold uppercase text-[#6B4A40]">Negotiation Summary</p>
+              <div className="space-y-3.5 rounded-xl bg-[#FAF5EC] p-4">
                 <div className="flex justify-between text-xs">
                   <span className="text-[#8b7355]">Proposed volume</span>
                   <span className="font-semibold text-[#3d2b1f]">{acceptedProposal ? `${acceptedProposal.proposed_volume_tons} tons` : "—"}</span>
@@ -754,16 +733,16 @@ export default function SupplierChatLayout() {
             </div>
 
             {/* Contracts */}
-            <div>
-              <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Signed Contracts</p>
+            <div className="px-5 pb-5">
+              <p className="mb-3 text-xs font-semibold uppercase text-[#6B4A40]">Signed Contracts</p>
               {contracts.length === 0 ? (
-                <div className="bg-[#f5f0e8] rounded-xl p-3 text-[11px] text-[#8b7355] leading-relaxed">
+                <div className="rounded-xl bg-[#FAF5EC] p-3 text-[11px] leading-relaxed text-[#8b7355]">
                   No contracts yet. Agree on price and volume, then send one.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {contracts.map(c => (
-                    <div key={c.contract_id} className="bg-[#f5f0e8] rounded-xl p-2.5">
+                    <div key={c.contract_id} className="rounded-xl border border-[#EEE4D4] bg-[#FAF5EC] p-3">
                       <p className="font-semibold text-[#3d2b1f] text-[11px]">{c.contract_number}</p>
                       <div className="flex items-center justify-between mt-1">
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
@@ -788,6 +767,19 @@ export default function SupplierChatLayout() {
                             Review & Sign
                           </button>
                         )}
+                        {c.contract_document_url && c.status !== "Pending" && (
+                          <button
+                            type="button"
+                            onClick={() => setViewContract({
+                              contractId: c.contract_id,
+                              contractNumber: c.contract_number,
+                              documentPath: c.contract_document_url,
+                            })}
+                            className="text-[10px] font-semibold text-[#2d5a27] hover:underline"
+                          >
+                            View
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -798,15 +790,17 @@ export default function SupplierChatLayout() {
         )}
       </div>
 
+      </div>
+
       {/* Propose Price Modal */}
       {showProposeModal && currentConv && (
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
           supplierId={user.id}
-          onClose={() => setShowProposeModal(false)}
+          onClose={clearProposalModal}
           onSubmitted={async (msg) => {
-            setShowProposeModal(false);
+            clearProposalModal();
             await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify BO
             await supabase.from("notifications").insert({
@@ -827,7 +821,9 @@ export default function SupplierChatLayout() {
           supplierId={user.id}
           isCounter
           supersedesId={counterModal?.proposal_id}
-          onClose={() => setCounterModal(null)}
+          initialPrice={counterModal?.proposed_price_per_kg}
+          initialVolume={counterModal?.proposed_volume_tons}
+          onClose={clearProposalModal}
           onSubmitted={async (msg) => {
             if (counterModal) {
               await supabase.from("proposal_forms").update({ proposal_status: "Modified" }).eq("proposal_id", counterModal.proposal_id);
@@ -838,7 +834,7 @@ export default function SupplierChatLayout() {
               message: `${profile?.first_name ?? "Supplier"} sent a counteroffer.`,
               related_entity_type: "conversations", related_entity_id: conversationId,
             });
-            setCounterModal(null);
+            clearProposalModal();
             await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
           }}
         />
@@ -849,10 +845,25 @@ export default function SupplierChatLayout() {
         <SupplierContractReviewModal
           contract={signContract}
           onClose={() => setSignContract(null)}
-          onSigned={async () => {
+          onSigned={async (result) => {
+            const signedContract = signContract;
             setSignContract(null);
+            setViewContract({
+              contractId: signedContract.contract_id,
+              contractNumber: signedContract.contract_number,
+              documentPath: result?.contract_document_path ?? signedContract.document_path,
+            });
             await loadChat(conversationId);
           }}
+        />
+      )}
+
+      {viewContract && (
+        <ContractDocumentModal
+          contractId={viewContract.contractId}
+          contractNumber={viewContract.contractNumber}
+          documentPath={viewContract.documentPath}
+          onClose={() => setViewContract(null)}
         />
       )}
     </div>

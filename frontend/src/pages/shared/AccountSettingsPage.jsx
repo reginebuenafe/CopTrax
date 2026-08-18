@@ -5,6 +5,7 @@ import {
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { useSensitiveSessionTimeout } from "../../hooks/useSensitiveSessionTimeout";
 
 /* ─── small helpers ───────────────────────────────────────────────────────── */
 
@@ -256,6 +257,7 @@ export default function AccountSettingsPage() {
 
 function BankAccountSection({ showToast }) {
   const { user } = useAuth();
+  useSensitiveSessionTimeout(true);
   const [loading, setLoading] = useState(true);
   const [form, setForm]       = useState({ bank_name: "", account_name: "", account_number: "" });
   const [saving, setSaving]   = useState(false);
