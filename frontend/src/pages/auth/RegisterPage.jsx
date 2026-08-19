@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
+  LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
   LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuLandmark,
   LuChevronLeft, LuChevronRight, LuScanLine,
@@ -855,8 +855,8 @@ export default function RegisterPage() {
         <div className="relative w-full max-w-lg">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3">
-              <LuLeaf className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3 p-2">
+              <BrandLogo className="w-full h-full" size="100%" />
             </div>
             <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
             <p className="text-brown-light text-sm mt-1">Supplier Registration — NERC Copra Trading</p>

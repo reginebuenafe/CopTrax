@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert } from "react-icons/lu";
+import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import BrandLogo from "../../components/BrandLogo";
 
 const ROLE_REDIRECT = {
   "Business Owner": "/dashboard/owner",
@@ -101,8 +102,8 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3">
-            <LuLeaf className="w-7 h-7 text-white" />
+          <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3 p-2">
+            <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
           <p className="text-brown-light text-sm mt-1">NERC Copra Trading Portal</p>
