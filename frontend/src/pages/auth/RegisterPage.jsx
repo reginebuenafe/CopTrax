@@ -4,7 +4,7 @@ import {
   LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
   LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuLandmark,
-  LuChevronLeft, LuChevronRight, LuScanLine,
+  LuChevronLeft, LuChevronRight, LuScanLine, LuArrowLeft,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
@@ -27,6 +27,56 @@ const PH_BANKS = [
 const QR_MAX_FILE_SIZE = 5 * 1024 * 1024;
 const QR_MAX_PAYLOAD_LENGTH = 4096;
 const QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const OCR_MAX_IMAGE_DIMENSION = 2048;
+const OCR_JPEG_QUALITY = 0.9;
+
+function toTitleCase(value = "") {
+  return value
+    .trim()
+    .toLocaleLowerCase("en-PH")
+    .replace(/(^|[^\p{L}\p{N}])\p{L}/gu, match => match.toLocaleUpperCase("en-PH"));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(event.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function prepareImageForOcr(photoObj) {
+  const source = photoObj.file || photoObj.dataUrl;
+  if (!source) throw new Error("The ID photo could not be read.");
+
+  let image;
+  try {
+    image = await createImageBitmap(source);
+  } catch {
+    const response = await fetch(photoObj.dataUrl);
+    image = await createImageBitmap(await response.blob());
+  }
+
+  const scale = Math.min(1, OCR_MAX_IMAGE_DIMENSION / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      result => result ? resolve(result) : reject(new Error("The ID photo could not be compressed.")),
+      "image/jpeg",
+      OCR_JPEG_QUALITY,
+    );
+  });
+  return blobToDataUrl(blob);
+}
 
 function formatPhoneNumber(value) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -333,8 +383,10 @@ export default function RegisterPage() {
   const [selfiePhoto,     setSelfiePhoto]     = useState(null);
   const [signaturePhoto,  setSignaturePhoto]  = useState(null);
   const [idExtracting,    setIdExtracting]    = useState(false);
+  const [idScanSucceeded, setIdScanSucceeded] = useState(false);
   const [qrDecoding,      setQrDecoding]      = useState(false);
   const qrFileRef = useRef(null);
+  const idScanRequestRef = useRef(0);
 
   const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
@@ -392,18 +444,24 @@ export default function RegisterPage() {
   }
 
   async function extractIdInfo(photoObj) {
+    const requestId = ++idScanRequestRef.current;
     setIdExtracting(true);
+    setIdScanSucceeded(false);
     setError("");
     try {
-      const dataUrl = photoObj.dataUrl ?? await new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = e => res(e.target.result);
-        reader.onerror = rej;
-        reader.readAsDataURL(photoObj.file);
-      });
+      // Preserve the original for registration and send a smaller OCR-only copy.
+      // Fall back to the original for formats the browser cannot decode (such as
+      // HEIC in some browsers) so preprocessing never prevents the scan itself.
+      let dataUrl;
+      try {
+        dataUrl = await prepareImageForOcr(photoObj);
+      } catch {
+        dataUrl = photoObj.dataUrl || await blobToDataUrl(photoObj.file);
+      }
       const { data, error: fnError } = await supabase.functions.invoke("extract-id-info", {
         body: { image_data_url: dataUrl },
       });
+      if (requestId !== idScanRequestRef.current) return;
       // supabase-js buries the response body inside fnError.context for non-2xx returns
       if (fnError) {
         let msg = fnError.message;
@@ -417,15 +475,28 @@ export default function RegisterPage() {
       if (data?.first_name || data?.last_name || data?.address) {
         setForm(f => ({
           ...f,
-          firstName: data.first_name || f.firstName,
-          lastName:  data.last_name  || f.lastName,
-          address:   data.address    || f.address,
+          firstName: data.first_name ? toTitleCase(data.first_name) : f.firstName,
+          lastName:  data.last_name  ? toTitleCase(data.last_name)  : f.lastName,
+          address:   data.address    ? toTitleCase(data.address)    : f.address,
         }));
+        setIdScanSucceeded(true);
+      } else {
+        throw new Error("No readable name or address was found. Try a clearer, closer photo.");
       }
     } catch (err) {
+      if (requestId !== idScanRequestRef.current) return;
       setError("ID scan failed: " + err.message + " — you can still fill in your details manually.");
+    } finally {
+      if (requestId === idScanRequestRef.current) setIdExtracting(false);
     }
-    setIdExtracting(false);
+  }
+
+  function updateGovIdPhoto(photo) {
+    idScanRequestRef.current += 1;
+    setGovIdPhoto(photo);
+    setIdScanSucceeded(false);
+    if (photo) extractIdInfo(photo);
+    else setIdExtracting(false);
   }
 
   function fileToDataUrl(fileObj) {
@@ -462,8 +533,12 @@ export default function RegisterPage() {
       if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
       if (!form.accountName.trim())   { setError("Account holder name is required."); return false; }
       if (!form.accountNumber.trim()) { setError("Account number is required."); return false; }
-      if (/[*•●xX]/.test(form.accountNumber)) {
-        setError("The account number contains masked digits. Please manually replace them with the real account number.");
+      if (!/^\d+$/.test(form.accountNumber.trim())) {
+        setError("Enter a valid bank account number using digits only. Letters, spaces, symbols, and SWIFT/BIC codes are not accepted.");
+        return false;
+      }
+      if (!/^\d{9,18}$/.test(form.accountNumber.trim())) {
+        setError("Enter a valid bank account number containing 9 to 18 digits.");
         return false;
       }
     }
@@ -471,6 +546,10 @@ export default function RegisterPage() {
   }
 
   function goNext() {
+    if (currentStep === 0 && idExtracting) {
+      setError("Please wait while your government ID is being scanned.");
+      return;
+    }
     if (!validateStep(currentStep)) return;
     setCurrentStep(s => s + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -602,12 +681,12 @@ export default function RegisterPage() {
             required
             hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
             preview={govIdPhoto?.dataUrl ?? null}
-            onFile={v => { setGovIdPhoto(v); if (v) extractIdInfo(v); }}
+            onFile={updateGovIdPhoto}
             onCamera={() => setCamera({
               facing: "environment",
               title: "Photograph your Government ID",
               instructions: "Place your ID on a flat surface in good lighting. Make sure all four corners are visible and the text is sharp.",
-              onCapture: v => { setGovIdPhoto(v); extractIdInfo(v); },
+              onCapture: updateGovIdPhoto,
             })}
           />
           {idExtracting && (
@@ -616,7 +695,7 @@ export default function RegisterPage() {
               Reading your ID… your details will be filled in automatically
             </div>
           )}
-          {govIdPhoto && !idExtracting && (
+          {govIdPhoto && !idExtracting && idScanSucceeded && (
             <div className="flex items-center gap-2 text-xs text-green-dark">
               <LuCheck className="w-3.5 h-3.5" />
               ID scanned — your information will be pre-filled in the next step
@@ -858,6 +937,10 @@ export default function RegisterPage() {
       )}
 
       <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+        <Link to="/" aria-label="Back to homepage"
+          className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
+          <LuArrowLeft className="w-4 h-4 text-green-dark" />
+        </Link>
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
           <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />
@@ -911,9 +994,9 @@ export default function RegisterPage() {
                   </button>
                 )}
                 {currentStep < STEPS.length - 1 ? (
-                  <button type="button" onClick={goNext}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
-                    Next <LuChevronRight className="w-4 h-4" />
+                  <button type="button" onClick={goNext} disabled={currentStep === 0 && idExtracting}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green disabled:opacity-60 disabled:cursor-wait transition-all">
+                    {currentStep === 0 && idExtracting ? "Scanning ID…" : <>Next <LuChevronRight className="w-4 h-4" /></>}
                   </button>
                 ) : (
                   <button type="submit"

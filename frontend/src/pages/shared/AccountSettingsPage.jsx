@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   LuUser, LuMail, LuPhone, LuMapPin, LuLock, LuCheck, LuTriangleAlert,
-  LuLandmark, LuPenLine, LuUpload,
+  LuLandmark, LuPenLine, LuUpload, LuCamera,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -11,7 +11,7 @@ import { useSensitiveSessionTimeout } from "../../hooks/useSensitiveSessionTimeo
 
 function Section({ title, children, icon: Icon }) {
   return (
-    <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6 mb-5">
+    <div className="bg-[#f8f4ec] rounded-2xl shadow-[0_2px_2px_rgba(78,52,46,0.22)] border border-[#dfd1bb] p-5 sm:p-6 mb-4">
       <div className="flex items-center gap-2 mb-4">
         {Icon && <Icon className="w-4 h-4 text-green-dark" />}
         <h2 className="text-base font-bold text-brown-dark">{title}</h2>
@@ -24,7 +24,7 @@ function Section({ title, children, icon: Icon }) {
 function Field({ label, children }) {
   return (
     <div className="flex flex-col gap-1.5 mb-4 last:mb-0">
-      <label className="text-xs font-semibold text-brown-mid uppercase tracking-wide">{label}</label>
+      <label className="text-xs font-medium text-brown-mid">{label}</label>
       {children}
     </div>
   );
@@ -42,8 +42,24 @@ function Toast({ toast }) {
   );
 }
 
-const inputBase = "w-full px-4 py-2.5 rounded-xl border border-beige-dark text-brown-dark text-sm placeholder:text-brown-light/60 focus:outline-none focus:ring-2 focus:ring-green-dark/30 focus:border-green-dark transition-all";
-const inputLocked = "w-full px-4 py-2.5 rounded-xl border border-beige-dark text-sm bg-beige text-brown-light cursor-not-allowed";
+const inputBase = "w-full px-4 py-2.5 rounded-xl border border-[#e4ddd2] bg-white text-brown-dark text-sm shadow-sm placeholder:text-brown-light/60 focus:outline-none focus:ring-2 focus:ring-green-dark/25 focus:border-green-dark transition-all";
+const inputLocked = "w-full px-4 py-2.5 rounded-xl border border-[#e4ddd2] text-sm bg-white text-brown-light shadow-sm cursor-not-allowed";
+const tabs = ["Account", "Security", "Notifications", "Appearance"];
+
+function SettingToggle({ label, description, checked, onChange }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#eee7dc] bg-white px-5 py-3 shadow-sm">
+      <div>
+        <p className="text-sm font-semibold text-brown-dark">{label}</p>
+        {description && <p className="mt-0.5 text-[11px] text-brown-light">{description}</p>}
+      </div>
+      <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}
+        className={`relative h-6 w-12 shrink-0 rounded-full border transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-dark/25 focus:ring-offset-2 ${checked ? "border-green-dark bg-green-dark" : "border-[#dedbd5] bg-white"}`}>
+        <span className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full shadow-sm transition-all duration-300 ease-in-out ${checked ? "translate-x-6 bg-white" : "translate-x-0 bg-[#c7b7ae]"}`} />
+      </button>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN
@@ -52,6 +68,12 @@ const inputLocked = "w-full px-4 py-2.5 rounded-xl border border-beige-dark text
 export default function AccountSettingsPage() {
   const { profile, user, refreshProfile } = useAuth();
   const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState("Account");
+  const [preferences, setPreferences] = useState({
+    contractUpdates: true, paymentAlerts: true, deliveryUpdates: true,
+    weeklyPayments: true, emailNotifications: true, smsNotifications: false,
+    darkMode: false, compactTables: false,
+  });
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -138,7 +160,7 @@ export default function AccountSettingsPage() {
   const isBO       = profile.roles?.role_name === "Business Owner";
 
   return (
-    <div className="max-w-xl">
+    <div className="mx-auto w-full max-w-3xl mt-5">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
@@ -150,6 +172,17 @@ export default function AccountSettingsPage() {
         </div>
       </div>
 
+      <div className="mb-5 flex overflow-x-auto rounded-2xl border border-[#d8c7ac] bg-[#e9ddc9] p-1 shadow-sm">
+        {tabs.map(tab => (
+          <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+            className={`min-w-fit flex-1 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${activeTab === tab ? "bg-white text-brown-dark shadow-sm" : "text-brown-mid hover:text-green-dark"}`}>
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <div className={activeTab === "Account" ? "block" : "hidden"}>
+
       {/* Read-only identity */}
       <Section title="Personal Information" icon={LuUser}>
         <div className="grid grid-cols-2 gap-4 mb-2">
@@ -159,6 +192,11 @@ export default function AccountSettingsPage() {
           <Field label="Last Name">
             <input value={profile.last_name ?? ""} disabled className={inputLocked} />
           </Field>
+          {isSupplier && (
+            <Field label="Supplier ID">
+              <input value={`SUPP-${(user?.id ?? "").replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase()}`} disabled className={inputLocked} />
+            </Field>
+          )}
         </div>
         <p className="text-xs text-brown-light flex items-center gap-1.5 mt-1">
           <LuTriangleAlert className="w-3.5 h-3.5 shrink-0" />
@@ -207,9 +245,11 @@ export default function AccountSettingsPage() {
           <SignatureSection showToast={showToast} />
         </>
       )}
+      </div>
 
       {/* Password */}
-      <Section title="Change Password" icon={LuLock}>
+      <div className={activeTab === "Security" ? "block" : "hidden"}>
+      <Section title="Change password" icon={LuLock}>
         <form onSubmit={handlePasswordChange}>
           <Field label="Current Password">
             <div className="relative">
@@ -245,6 +285,26 @@ export default function AccountSettingsPage() {
           </button>
         </form>
       </Section>
+      </div>
+
+      {activeTab === "Notifications" && (
+        <Section title="Notification preferences">
+          <div className="space-y-2">
+            {[["contractUpdates", "Contract Updates"], ["paymentAlerts", "Payment Alerts"], ["deliveryUpdates", "Delivery Updates"], ["weeklyPayments", "Weekly Payment Notifications"], ["emailNotifications", "Email Notifications"], ["smsNotifications", "SMS Notifications"]].map(([key, label]) => (
+              <SettingToggle key={key} label={label} checked={preferences[key]} onChange={value => setPreferences(p => ({ ...p, [key]: value }))} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {activeTab === "Appearance" && (
+        <Section title="Appearance">
+          <div className="space-y-3">
+            <SettingToggle label="Dark mode" description="Use a darker color palette across CopTrax." checked={preferences.darkMode} onChange={value => setPreferences(p => ({ ...p, darkMode: value }))} />
+            <SettingToggle label="Compact tables" description="Reduce row height in delivery history tables." checked={preferences.compactTables} onChange={value => setPreferences(p => ({ ...p, compactTables: value }))} />
+          </div>
+        </Section>
+      )}
 
       <Toast toast={toast} />
     </div>
@@ -433,24 +493,28 @@ function SignatureSection({ showToast }) {
         )}
       </div>
 
-      {/* Upload */}
-      <label className={`w-full py-2.5 rounded-xl border-2 border-dashed border-green-dark/40 flex items-center justify-center gap-2 cursor-pointer transition-all hover:bg-green-pale/30 ${uploading ? "opacity-60 cursor-wait" : ""}`}>
-        <LuUpload className="w-4 h-4 text-green-dark" />
-        <span className="text-sm font-semibold text-green-dark">
-          {uploading ? "Uploading…" : signatureUrl ? "Replace Signature" : "Upload Signature"}
-        </span>
-        <input
-          type="file"
-          accept="image/*"
-          disabled={uploading}
-          onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) handleUpload(file);
-            e.target.value = "";
-          }}
-          className="hidden"
-        />
-      </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-green-dark/40 py-2.5 transition-all hover:bg-green-pale/30 ${uploading ? "cursor-wait opacity-60" : ""}`}>
+          <LuUpload className="h-4 w-4 text-green-dark" />
+          <span className="text-sm font-semibold text-green-dark">{uploading ? "Saving Signature…" : "Replace Signature"}</span>
+          <input type="file" accept="image/*" disabled={uploading} className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) handleUpload(file);
+              e.target.value = "";
+            }} />
+        </label>
+        <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-green-dark/40 py-2.5 transition-all hover:bg-green-pale/30 ${uploading ? "cursor-wait opacity-60" : ""}`}>
+          <LuCamera className="h-4 w-4 text-green-dark" />
+          <span className="text-sm font-semibold text-green-dark">Capture Signature</span>
+          <input type="file" accept="image/*" capture="environment" disabled={uploading} className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) handleUpload(file);
+              e.target.value = "";
+            }} />
+        </label>
+      </div>
       <p className="text-[11px] text-brown-light mt-2 leading-relaxed">
         Tip: Sign on plain white paper with a black or blue pen, then take a clear, well-lit photo.
       </p>

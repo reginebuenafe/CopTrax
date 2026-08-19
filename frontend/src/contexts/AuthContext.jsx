@@ -25,10 +25,15 @@ export function AuthProvider({ children }) {
   const warningOpenRef       = useRef(false);
   const logoutDeadlineRef    = useRef(0);
   const lastActivityRef      = useRef(0);
+  const inactivityTimeoutMsRef = useRef(DEFAULT_INACTIVITY_TIMEOUT_MS);
 
   const inactivityTimeoutMs = sensitiveContextCount > 0
     ? SENSITIVE_INACTIVITY_TIMEOUT_MS
     : DEFAULT_INACTIVITY_TIMEOUT_MS;
+
+  useEffect(() => {
+    inactivityTimeoutMsRef.current = inactivityTimeoutMs;
+  }, [inactivityTimeoutMs]);
 
   const fetchProfile = useCallback(async (userId) => {
     setProfileLoading(true);
@@ -63,7 +68,8 @@ export function AuthProvider({ children }) {
     setShowIdleWarning(false);
     setWarningSeconds(60);
 
-    logoutDeadlineRef.current = Date.now() + inactivityTimeoutMs;
+    const timeoutMs = inactivityTimeoutMsRef.current;
+    logoutDeadlineRef.current = Date.now() + timeoutMs;
     warningTimerRef.current = setTimeout(() => {
       warningOpenRef.current = true;
       setShowIdleWarning(true);
@@ -75,15 +81,15 @@ export function AuthProvider({ children }) {
         );
         setWarningSeconds(secondsRemaining);
       }, 1000);
-    }, inactivityTimeoutMs - WARNING_DURATION_MS);
+    }, timeoutMs - WARNING_DURATION_MS);
 
     inactivityTimerRef.current = setTimeout(async () => {
       if (wasAuthenticatedRef.current) {
         explicitSignOutRef.current = false;
         await supabase.auth.signOut();
       }
-    }, inactivityTimeoutMs);
-  }, [clearInactivityTimer, inactivityTimeoutMs]);
+    }, timeoutMs);
+  }, [clearInactivityTimer]);
 
   const handleActivity = useCallback(() => {
     // Once the warning is visible, require an explicit confirmation. This avoids
@@ -161,6 +167,14 @@ export function AuthProvider({ children }) {
       );
     };
   }, [session, handleActivity]);
+
+  // Switching into or out of a sensitive page changes the timeout duration.
+  // Keep auth initialization stable and only restart the existing idle timer.
+  useEffect(() => {
+    if (!session) return undefined;
+    const timerId = window.setTimeout(resetInactivityTimer, 0);
+    return () => window.clearTimeout(timerId);
+  }, [inactivityTimeoutMs, session, resetInactivityTimer]);
 
   // ── signOut ───────────────────────────────────────────────────────────────
   async function signOut() {

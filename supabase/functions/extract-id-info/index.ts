@@ -15,6 +15,14 @@ Rules:
 - If a field cannot be read or is not present, use ""
 - Return ONLY the JSON object, no explanation, no markdown code fences`;
 
+function toTitleCase(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .trim()
+    .toLocaleLowerCase("en-PH")
+    .replace(/(^|[^\p{L}\p{N}])\p{L}/gu, (match) => match.toLocaleUpperCase("en-PH"));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -89,9 +97,9 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({
-      first_name: parsed.first_name ?? "",
-      last_name:  parsed.last_name  ?? "",
-      address:    parsed.address    ?? "",
+      first_name: toTitleCase(parsed.first_name),
+      last_name:  toTitleCase(parsed.last_name),
+      address:    toTitleCase(parsed.address),
     }), { headers: { ...CORS, "Content-Type": "application/json" } });
 
   } catch (err) {
