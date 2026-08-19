@@ -311,6 +311,13 @@ export default function SupplierChatLayout() {
           if (!m || m.conversation_id !== conversationId) return; // belt-and-suspenders guard
           setMessages(prev =>
             prev.some(x => x.message_id === m.message_id) ? prev : [...prev, m]);
+          // Belt-and-suspenders: when the BO inserts a Contract Form message (acceptance,
+          // contract card, etc.) also refresh proposals. This covers the case where the
+          // proposal_forms UPDATE realtime event is delayed or not delivered — ensuring the
+          // Accepted status is reflected without waiting for an unreliable UPDATE event.
+          if (m.message_type === "Contract Form" && m.sender_id !== user.id) {
+            supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+          }
         })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
@@ -359,57 +366,50 @@ export default function SupplierChatLayout() {
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
   // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
+  // All DB writes (proposal status, contract row, PDF) are handled server-side
+  // by generate-contract using the service role, because the Supplier's JWT
+  // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
   async function acceptCounter(proposal) {
     if (proposalActing) return;
     setProposalActing(true);
-    // Immediately hide the proposal card
+
+    // Optimistically hide the card immediately
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Accepted" }).eq("proposal_id", proposal.proposal_id);
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
-      message_text: `✅ Counteroffer accepted: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
-    });
-    await supabase.from("notifications").insert({
-      user_id: currentConv?.business_owner_id, notification_type: "Contract Signed",
-      message: `${profile?.first_name ?? "Supplier"} accepted your counteroffer. The contract is being generated.`,
-      related_entity_type: "conversations", related_entity_id: conversationId,
-    });
 
-    // Create contract record
-    const { data: numData } = await supabase.rpc("generate_contract_number");
-    const { data: contract, error: insertErr } = await supabase.from("contracts").insert({
-      contract_number: numData,
-      supplier_id: user.id,
-      business_owner_id: currentConv?.business_owner_id,
-      negotiated_price_per_kg: proposal.proposed_price_per_kg,
-      contracted_tons: proposal.proposed_volume_tons,
-      signing_date: new Date().toISOString().split("T")[0],
-      status: "Pending",
-    }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please log in again.");
 
-    if (insertErr || !contract) { await loadChat(conversationId); return; }
-
-    await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-
-    // Close ALL pending proposals so no stale "Incoming Counteroffer" can appear.
-    await supabase.from("proposal_forms")
-      .update({ proposal_status: "Modified" })
-      .eq("conversation_id", conversationId)
-      .eq("proposal_status", "Pending")
-      .neq("proposal_id", proposal.proposal_id);
-
-    // Auto-generate the contract PDF (supplier is allowed to trigger this for their own contract).
-    // The Edge Function inserts the CONTRACT_CARD and text message as the Business Owner
-    // using the service role, so we don't insert them here.
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const tokenVal = session.access_token;
-      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+      const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
-        body: JSON.stringify({ contract_id: contract.contract_id }),
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token },
+        body: JSON.stringify({ proposal_id: proposal.proposal_id }),
       });
+
+      const genData = await genRes.json();
+      if (!genRes.ok) {
+        // Revert optimistic update so the card re-appears and the error is visible
+        setProposals(prev => prev.map(p =>
+          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        console.error("acceptCounter: generate-contract failed:", genData);
+        alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        setProposalActing(false);
+        return;
+      }
+
+      await supabase.from("notifications").insert({
+        user_id: currentConv?.business_owner_id, notification_type: "Contract Signed",
+        message: `${profile?.first_name ?? "Supplier"} accepted your counteroffer. The contract is being generated.`,
+        related_entity_type: "conversations", related_entity_id: conversationId,
+      });
+    } catch (err) {
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      console.error("acceptCounter error:", err);
+      alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      setProposalActing(false);
+      return;
     }
 
     await loadChat(conversationId);
@@ -688,11 +688,7 @@ export default function SupplierChatLayout() {
             <div className="flex flex-col items-center border-b border-[#E7DCC9] px-5 pb-7 pt-12 text-center">
               <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#35AB50] text-sm font-bold text-white">N</div>
               <p className="font-bold text-[#3d2b1f] text-sm">NERC Copra Trading</p>
-              <p className="text-[#8b7355] text-[11px] mt-0.5">General Santos City</p>
-              <div className="flex items-center gap-1 mt-1.5">
-                <LuStar className="w-3 h-3 text-amber-400 fill-amber-400" />
-                <span className="text-xs font-semibold text-[#3d2b1f]">Verified Buyer</span>
-              </div>
+              <p className="text-[#8b7355] text-[11px] mt-0.5">Kumalarang, Zamboanga del Sur</p>
             </div>
 
             {/* Pending contract review shortcut */}

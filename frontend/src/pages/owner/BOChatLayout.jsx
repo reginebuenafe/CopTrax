@@ -422,7 +422,28 @@ export default function BOChatLayout() {
     // Immediately hide the proposal card so the BO isn't left with a stale open card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Accepted", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
+
+    // Persist Accepted status — check for errors so a DB failure is visible
+    const { error: acceptErr } = await supabase.from("proposal_forms")
+      .update({ proposal_status: "Accepted", reviewed_by: user.id })
+      .eq("proposal_id", proposal.proposal_id);
+    if (acceptErr) {
+      console.error("acceptProposal: failed to update proposal status:", acceptErr);
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      setContractError(`Failed to accept proposal: ${acceptErr.message}`);
+      setProposalActing(false);
+      return;
+    }
+
+    // Mark every other Pending proposal in this conversation as Modified immediately,
+    // so no stale action card can appear on either side while contract is being generated.
+    await supabase.from("proposal_forms")
+      .update({ proposal_status: "Modified" })
+      .eq("conversation_id", conversationId)
+      .eq("proposal_status", "Pending")
+      .neq("proposal_id", proposal.proposal_id);
+
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
       message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
@@ -479,14 +500,6 @@ export default function BOChatLayout() {
     }
 
     await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-
-    // Close ALL other pending proposals in this conversation so no stale
-    // "Incoming Counteroffer" cards can appear after the contract is generated.
-    await supabase.from("proposal_forms")
-      .update({ proposal_status: "Modified" })
-      .eq("conversation_id", conversationId)
-      .eq("proposal_status", "Pending")
-      .neq("proposal_id", proposal.proposal_id);
 
     // 2. Call generate-contract to hash + render the PDF
     const { data: { session } } = await supabase.auth.getSession();

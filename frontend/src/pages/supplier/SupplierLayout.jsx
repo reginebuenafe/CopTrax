@@ -1,13 +1,14 @@
 import { createElement, useState, useEffect } from "react";
 import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
-  LuLeaf, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
+  LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
   LuWallet, LuStar, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
 import NotificationBell from "../../components/NotificationBell";
+import BrandLogo from "../../components/BrandLogo";
 import NegotiationChatWidget from "../../components/NegotiationChatWidget";
 
 const NAV_ITEMS = [
@@ -87,8 +88,8 @@ export default function SupplierLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[#E7DCC9] shrink-0">
-          <div className="w-9 h-9 shrink-0 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm">
-            <LuLeaf className="w-4.5 h-4.5 text-white" />
+          <div className="w-9 h-9 shrink-0 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm p-1.5">
+            <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap
             ${collapsed ? "lg:opacity-0 lg:max-w-0" : "opacity-100 max-w-[160px]"}`}>

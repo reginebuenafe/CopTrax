@@ -1,0 +1,10 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.2"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.112.2": "ea8a8dc3bcfe3cd929a9f6f83a5c266ad3f9d8101c34f71d465dd73f7ff1b796",
+    "https://esm.sh/pdf-lib@1.17.1": "cf7c5527829cb9bbb3aa20d339c530067441c10eb98880360aea9e77c3c87ff8"
+  }
+}

@@ -7,6 +7,7 @@ import {
   LuChevronLeft, LuChevronRight, LuScanLine,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import BrandLogo from "../../components/BrandLogo";
 import jsQR from "jsqr";
 
 const PH_BANKS = [
@@ -488,12 +489,18 @@ export default function RegisterPage() {
     setLoading(true);
     setUploadProgress("Creating account…");
 
+    try {
     const { data, error: authError } = await supabase.auth.signUp({
       email: form.email, password: form.password,
       options: { data: { role: "Supplier" } },
     });
     if (authError) { setError(authError.message); setLoading(false); return; }
-    const userId = data.user.id;
+    const userId = data?.user?.id;
+    if (!userId) {
+      setError("Account creation failed — this email may already be registered, or email confirmation may be pending. Try logging in or use a different email.");
+      setLoading(false);
+      return;
+    }
 
     let govIdData, faceIdData, esignData;
     try {
@@ -536,6 +543,10 @@ export default function RegisterPage() {
     await supabase.auth.signOut();
     setLoading(false);
     navigate("/pending-approval");
+    } catch (unexpectedErr) {
+      setError("An unexpected error occurred: " + (unexpectedErr?.message ?? "Please try again."));
+      setLoading(false);
+    }
   }
 
   const inputClass = `w-full py-2.5 rounded-xl border border-beige-dark bg-white/70

@@ -108,7 +108,7 @@ function getSupplierProposalEvent(message = "", isMine = false) {
 }
 
 export default function NegotiationChatWidget() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(() => {
@@ -120,16 +120,17 @@ export default function NegotiationChatWidget() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [proposalActing, setProposalActing] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [businessOwnerId, setBusinessOwnerId] = useState(null); 
   const [onlineBusinessOwnerIds, setOnlineBusinessOwnerIds] = useState(() => new Set());
   const [activeContracts, setActiveContracts] = useState([]);
+  const [contracts, setContracts] = useState([]); // all statuses — used to determine signed state in CONTRACT_CARD
   const [contractsLoading, setContractsLoading] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);
   const [viewContract, setViewContract] = useState(null);
   const [signContract, setSignContract] = useState(null);
   const messagesEndRef = useRef(null);
-  const proposalActionInFlight = useRef(new Set());
   const isOpenRef = useRef(isOpen);
   const knownMessageIdsRef = useRef(new Set());
   const {
@@ -228,13 +229,15 @@ export default function NegotiationChatWidget() {
 
       if (convData) {
         setConversation(convData);
-        const [{ data: messageRows }, { data: proposalRows }] = await Promise.all([
+        const [{ data: messageRows }, { data: proposalRows }, { data: contractRows }] = await Promise.all([
           supabase.from("messages").select("*").eq("conversation_id", convData.conversation_id).order("sent_at", { ascending: true }),
           supabase.from("proposal_forms").select("*").eq("conversation_id", convData.conversation_id).order("submitted_at", { ascending: true }),
+          supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }),
         ]);
         const loadedMessages = messageRows ?? [];
         knownMessageIdsRef.current = new Set(loadedMessages.map(message => message.message_id));
         setMessages(loadedMessages);
+        setContracts(contractRows ?? []);
         const lastSeenKey = `coptrax_chat_widget_last_seen:${user.id}`;
         const storedLastSeen = localStorage.getItem(lastSeenKey);
         if (isOpenRef.current) {
@@ -276,13 +279,24 @@ export default function NegotiationChatWidget() {
       setContractsLoading(false);
     };
 
+    const refreshAllContracts = async () => {
+      const { data } = await supabase
+        .from("contracts")
+        .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url")
+        .eq("supplier_id", user.id)
+        .order("created_at", { ascending: false });
+      if (!mounted) return;
+      setContracts(data ?? []);
+    };
+
     refreshActiveContracts();
+    refreshAllContracts();
     const contractsChannel = supabase
       .channel(`chat_widget_contracts:${user.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "contracts", filter: `supplier_id=eq.${user.id}` },
-        refreshActiveContracts,
+        () => { refreshActiveContracts(); refreshAllContracts(); },
       )
       .subscribe();
 
@@ -494,58 +508,86 @@ export default function NegotiationChatWidget() {
     }
   }
 
-  async function respondToCounteroffer(proposal, decision) {
-    if (proposalActionInFlight.current.has(proposal.proposal_id)) return;
-    proposalActionInFlight.current.add(proposal.proposal_id);
-    try {
-      let decided = null;
-      let finalized = null;
-      if (decision === "accepted") {
-        const { data: finalizedRows } = await supabase.rpc("finalize_negotiation", {
-          p_proposal_id: proposal.proposal_id,
-        });
-        finalized = finalizedRows?.[0] ?? null;
-        decided = finalized;
-      } else {
-        const { data } = await supabase.from("proposal_forms")
-          .update({ proposal_status: "Rejected", reviewed_by: user.id })
-          .eq("proposal_id", proposal.proposal_id)
-          .eq("proposal_status", "Pending")
-          .select("proposal_id")
-          .maybeSingle();
-        decided = data;
-      }
-      if (!decided) return;
+  // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
+  // Mirrors SupplierChatLayout.acceptCounter exactly.
+  // All DB writes (proposal status, contract row, PDF) are handled server-side
+  // by generate-contract using the service role, because the Supplier's JWT
+  // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
+  async function acceptCounter(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
+    const conversationId = conversation?.conversation_id;
 
-      const action = decision === "accepted" ? "accepted" : "rejected";
-      const convId = conversation.conversation_id;
-      await supabase.from("messages").insert({
-        conversation_id: convId,
-        sender_id: user.id,
-        message_type: "Contract Form",
-        message_text: `Counteroffer ${action}: ₱${Number(proposal.proposed_price_per_kg).toFixed(2)}/kg for ${proposal.proposed_volume_tons} tons.`,
+    // Optimistically hide the card immediately
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please log in again.");
+
+      const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token },
+        body: JSON.stringify({ proposal_id: proposal.proposal_id }),
       });
-      await supabase.from("notifications").insert({
-        user_id: conversation.business_owner_id ?? businessOwnerId,
-        notification_type: decision === "accepted" ? "Proposal Accepted" : "Proposal Rejected",
-        message: `The Supplier ${action} your counteroffer.`,
-        related_entity_type: "proposal_forms",
-        related_entity_id: proposal.proposal_id,
-      });
-      if (finalized) {
-        setConversation(previous => ({
-          ...previous,
-          accepted_proposal_id: finalized.final_proposal_id,
-          agreed_price_per_kg: finalized.final_price_per_kg,
-          agreed_volume_tons: finalized.final_volume_tons,
-          negotiation_finalized_at: finalized.finalized_at,
-        }));
+
+      const genData = await genRes.json();
+      if (!genRes.ok) {
+        setProposals(prev => prev.map(p =>
+          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        console.error("acceptCounter: generate-contract failed:", genData);
+        alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        setProposalActing(false);
+        return;
       }
-      await fetchMessages(convId);
-      await fetchProposals(convId);
-    } finally {
-      proposalActionInFlight.current.delete(proposal.proposal_id);
+
+      await supabase.from("notifications").insert({
+        user_id: conversation?.business_owner_id ?? businessOwnerId,
+        notification_type: "Contract Signed",
+        message: `${profile?.first_name ?? "Supplier"} accepted your counteroffer. The contract is being generated.`,
+        related_entity_type: "conversations",
+        related_entity_id: conversationId,
+      });
+    } catch (err) {
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      console.error("acceptCounter error:", err);
+      alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      setProposalActing(false);
+      return;
     }
+
+    if (conversationId) {
+      await fetchMessages(conversationId);
+      await fetchProposals(conversationId);
+    }
+    setProposalActing(false);
+  }
+
+  // ── Supplier declines BO's counteroffer ───────────────────────────────────
+  // Mirrors SupplierChatLayout.rejectProposal exactly.
+  async function rejectCounteroffer(proposal) {
+    if (proposalActing) return;
+    setProposalActing(true);
+    const conversationId = conversation?.conversation_id;
+
+    setProposals(prev => prev.map(p =>
+      p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
+    await supabase.from("proposal_forms")
+      .update({ proposal_status: "Rejected" })
+      .eq("proposal_id", proposal.proposal_id);
+    await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      message_type: "Text",
+      message_text: `❌ Counteroffer declined.`,
+    });
+    if (conversationId) {
+      await fetchMessages(conversationId);
+      await fetchProposals(conversationId);
+    }
+    setProposalActing(false);
   }
 
   function formatTime(dateStr) {
@@ -566,10 +608,22 @@ export default function NegotiationChatWidget() {
   const boName = conversation?.business_owner
     ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
     : "Edison Buenafe";
-  const negotiationFinalized = Boolean(
-    conversation?.negotiation_finalized_at
-    || proposals.some(proposal => proposal.proposal_status === "Accepted"),
-  );
+
+  // ── Latest-proposal logic (matches SupplierChatLayout exactly) ───────────
+  // Only the most-recent non-resolved proposal triggers action buttons.
+  const latestProposalIndex = [...proposals]
+    .map((p, i) => ({ p, i })).reverse()
+    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
+  // submitted_by (migration 025+) is authoritative; fall back to index parity for legacy rows.
+  const latestSubmittedBySupplier = latestProposal
+    ? (latestProposal.submitted_by != null
+        ? latestProposal.submitted_by === user.id
+        : latestProposalIndex % 2 === 0)
+    : false;
+
+  // ── Propose eligibility (matches SupplierChatLayout: max 3 Active contracts) ─
+  const canPropose = activeContracts.length < 3;
   // Merge messages and proposal cards chronologically for chat feed display
   const combinedItems = [];
   messages.forEach((m) => {
@@ -753,17 +807,11 @@ export default function NegotiationChatWidget() {
                                     ? new Date(contract.due_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
                                     : "after activation"}
                                 </span>
-                                <button type="button" onClick={async () => {
-                                  let contractRow = null;
-                                  let query = supabase
-                                    .from("contracts")
-                                    .select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_document_url, contract_hash");
-                                  query = contract.contract_id
-                                    ? query.eq("contract_id", contract.contract_id)
-                                    : query.eq("contract_number", contract.contract_number);
-                                  const { data } = await query.maybeSingle();
-                                  contractRow = data;
-
+                                {(() => {
+                                  const contractRow = contract.contract_id
+                                    ? contracts.find(c => c.contract_id === contract.contract_id)
+                                    : contracts.find(c => c.contract_number === contract.contract_number);
+                                  const isSigned = ["Active", "Completed", "Breached"].includes(contractRow?.status);
                                   const resolved = {
                                     contract_id: contractRow?.contract_id ?? contract.contract_id,
                                     contract_number: contractRow?.contract_number ?? contract.contract_number,
@@ -773,20 +821,24 @@ export default function NegotiationChatWidget() {
                                     document_path: contractRow?.contract_document_url ?? contract.document_path,
                                     contract_hash: contractRow?.contract_hash ?? contract.contract_hash,
                                   };
-                                  const isSigned = ["Active", "Completed", "Breached"].includes(contractRow?.status);
                                   if (isSigned) {
-                                    setViewContract({
-                                      contractId: resolved.contract_id,
-                                      contractNumber: resolved.contract_number,
-                                      documentPath: resolved.document_path,
-                                    });
-                                  } else {
-                                    setSignContract(resolved);
+                                    return (
+                                      <button type="button" onClick={() => setViewContract({
+                                        contractId: resolved.contract_id,
+                                        contractNumber: resolved.contract_number,
+                                        documentPath: resolved.document_path,
+                                      })} className="font-bold text-[#2E7D32] hover:underline">
+                                        View Contract
+                                      </button>
+                                    );
                                   }
-                                }}
-                                  className="font-bold text-[#2E7D32] hover:underline">
-                                  Review &amp; Sign Contract
-                                </button>
+                                  return (
+                                    <button type="button" onClick={() => setSignContract(resolved)}
+                                      className="font-bold text-[#2E7D32] hover:underline">
+                                      Review &amp; Sign Contract
+                                    </button>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -881,9 +933,10 @@ export default function NegotiationChatWidget() {
                             {formatTime(p.submitted_at)}
                           </span>
                         </div>
-                        {!isMine && !negotiationFinalized && (
+                        {/* action buttons: only on the latest pending offer not submitted by me */}
+                        {p.proposal_id === latestProposal?.proposal_id && !latestSubmittedBySupplier && !proposalActing && (
                           <div className="mx-3.5 flex gap-1.5 border-t border-[#B7DDBD] py-3">
-                            <button type="button" onClick={() => respondToCounteroffer(p, "accepted")}
+                            <button type="button" onClick={() => acceptCounter(p)}
                               className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#E8F0E5] py-2 text-[10px] font-semibold text-[#2D5A27] hover:bg-[#D4E5CF]">
                               <LuCheck className="h-3 w-3" /> Accept
                             </button>
@@ -891,7 +944,7 @@ export default function NegotiationChatWidget() {
                               className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-2 text-[10px] font-semibold text-[#5C4A32] hover:bg-[#EBE5D5]">
                               <LuPencil className="h-3 w-3" /> Counter
                             </button>
-                            <button type="button" onClick={() => respondToCounteroffer(p, "rejected")}
+                            <button type="button" onClick={() => rejectCounteroffer(p)}
                               className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-red-50 py-2 text-[10px] font-semibold text-red-600 hover:bg-red-100">
                               <LuX className="h-3 w-3" /> Reject
                             </button>
@@ -934,9 +987,10 @@ export default function NegotiationChatWidget() {
 
           {/* Prominent Submit Price Proposal Button */}
           <button
-            disabled={negotiationFinalized}
+            disabled={!canPropose}
+            title={!canPropose ? "You already have 3 Active contracts — complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
             onClick={async () => {
-              if (negotiationFinalized) return;
+              if (!canPropose) return;
               const conv = await ensureConversationExists();
               if (conv) {
                 openPropose(conv.conversation_id);
@@ -948,7 +1002,7 @@ export default function NegotiationChatWidget() {
               rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <LuFileText className="w-4.5 h-4.5 text-white" />
-            {negotiationFinalized ? "Negotiation Finalized" : "Submit Price Proposal"}
+            {!canPropose ? "3 Active Contracts — Limit Reached" : "Submit Price Proposal"}
           </button>
 
           {/* Rounded Input Bar */}
@@ -1071,7 +1125,7 @@ export default function NegotiationChatWidget() {
         </div>
       )}
 
-      {showProposeModal && conversation?.conversation_id && !negotiationFinalized && (
+      {showProposeModal && conversation?.conversation_id && canPropose && (
         <ProposePriceModal
           conversationId={conversation.conversation_id}
           userId={user.id}
