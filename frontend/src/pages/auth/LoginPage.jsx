@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert } from "react-icons/lu";
+import { LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
 const ROLE_REDIRECT = {
@@ -87,11 +87,18 @@ export default function LoginPage() {
     }
 
     const roleName = profile.roles?.role_name;
+    if (roleName === "Supplier") {
+      localStorage.setItem("coptrax_chat_widget_open", "false");
+    }
     navigate(ROLE_REDIRECT[roleName] ?? "/");
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      <Link to="/" aria-label="Back to homepage"
+        className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
+        <LuArrowLeft className="w-4 h-4 text-green-dark" />
+      </Link>
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />

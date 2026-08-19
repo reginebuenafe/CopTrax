@@ -96,6 +96,12 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
+### 2026-08-19 — Registration ID scan performance and formatting
+
+- Government ID OCR now receives a compressed, maximum-2048px JPEG while registration retains the original image, with an original-image fallback for browser-incompatible formats such as HEIC. Stale overlapping scan results are ignored, navigation waits for active scanning, scan success is reported accurately, and extracted first name, last name, and address values are normalized to Title Case in both the registration UI and extraction Edge Function. Login and registration pages include responsive Back to Homepage controls.
+- Fixed Account Settings repeatedly mounting and unmounting when its sensitive-session timeout activated. Authentication initialization now remains stable while timeout-duration changes restart only the idle timer.
+- Account Settings now follows the compact cream tabbed reference layout with Account, Security, Notifications, and Appearance panels. Supplier identity/contact fields, bank details, and electronic-signature preview/upload/camera controls are grouped in the Account panel while the existing update behavior is preserved.
+
 ### 2026-08-19 — Chat UX, Negotiation Finalization, Contract Documents, Session Security
 
 **Negotiation and realtime chat:**

@@ -58,7 +58,7 @@ export default function SupplierDeliveriesPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mt-5 mb-6">
         <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
           <LuTruck className="w-5 h-5 text-blue-600" />
         </div>
