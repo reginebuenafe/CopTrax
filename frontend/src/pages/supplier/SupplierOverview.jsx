@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuLayoutDashboard, LuFileText, LuTruck, LuWallet,
@@ -8,19 +8,22 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
-function StatCard({ icon: Icon, label, value, sub, color, onClick }) {
+function StatCard({ icon, label, value, sub, color, onClick }) {
   return (
     <button
       onClick={onClick}
       className={`bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 text-left w-full
-        hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 ${onClick ? "cursor-pointer" : "cursor-default"}`}
+        hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200
+        flex items-center justify-between gap-3 ${onClick ? "cursor-pointer" : "cursor-default"}`}
     >
-      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center mb-3`}>
-        <Icon className="w-5 h-5" />
+      <div className="min-w-0 flex-1">
+        <p className="text-brown-mid text-xs font-semibold mb-1">{label}</p>
+        <p className="text-2xl font-extrabold text-brown-dark leading-none">{value}</p>
+        {sub && <p className="text-brown-light text-xs mt-1 truncate">{sub}</p>}
       </div>
-      <p className="text-2xl font-extrabold text-brown-dark leading-none">{value}</p>
-      <p className="text-brown-mid text-sm font-medium mt-1">{label}</p>
-      {sub && <p className="text-brown-light text-xs mt-0.5">{sub}</p>}
+      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center shrink-0`}>
+        {createElement(icon, { className: "w-5 h-5" })}
+      </div>
     </button>
   );
 }
@@ -91,20 +94,56 @@ export default function SupplierOverview() {
   }, [user.id]);
 
   const STATUS_META = {
-    Pending:   { label: "Pending",   color: "bg-beige text-brown-mid",          icon: LuClock },
-    Weighed:   { label: "Weighed",   color: "bg-blue-50 text-blue-600",          icon: LuClock },
-    Inspected: { label: "Inspected", color: "bg-purple-50 text-purple-600",      icon: LuClock },
-    Accepted:  { label: "Accepted",  color: "bg-green-pale text-green-dark",     icon: LuCircleCheck },
-    Rejected:  { label: "Rejected",  color: "bg-red-50 text-red-600",            icon: LuCircleAlert },
+    Pending: { label: "Pending", color: "bg-beige text-brown-mid", icon: LuClock },
+    Weighed: { label: "Weighed", color: "bg-blue-50 text-blue-600", icon: LuClock },
+    Inspected: { label: "Inspected", color: "bg-purple-50 text-purple-600", icon: LuClock },
+    Accepted: { label: "Accepted", color: "bg-green-pale text-green-dark", icon: LuCircleCheck },
+    Rejected: { label: "Rejected", color: "bg-red-50 text-red-600", icon: LuCircleAlert },
   };
+
+  const now = new Date();
+  const weekday = now.toLocaleDateString("en-PH", {
+    weekday: "long",
+  });
+  
+  const calendarDate = now.toLocaleDateString("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-brown-dark">
-          Welcome back, {profile?.first_name} 👋
-        </h1>
-        <p className="text-brown-light text-sm mt-0.5">Here's a summary of your account activity</p>
+      {/* Header section with Welcome text & Spot Price */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 mb-6">
+        <div>
+          <p className="text-[11px] font-semibold">
+            <span className="text-[#60463D]">{weekday}, </span>
+            <span className="text-[#17682D]">{calendarDate}</span>
+          </p>
+          <h1 className="text-2xl font-bold text-brown-dark">
+            Welcome Back, {profile?.first_name} 👋
+          </h1>
+          <p className="text-brown-light text-sm mt-0.5">Here's a summary of your account activity</p>
+        </div>
+
+        {/* Spot Price badge */}
+        <div className="bg-[#024023] border-2 border-[#2E7D32] rounded-2xl px-4 py-4 text-white shrink-0 flex items-center gap-3.5 shadow-sm">
+          <div className="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
+            <LuTrendingUp className="w-5 h-5 text-emerald-300" />
+          </div>
+          <div>
+            <p className="text-[9px] font-medium text-white-100/50 uppercase opacity-80 mb-1 tracking-wider">
+              Current Spot Price
+            </p>
+            <p className="text-xl font-extrabold text-white leading-tight">
+              {spotPrice !== null
+                ? `₱${Number(spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                : "—"}
+              <span className="text-emerald-200/80 text-xs font-normal ml-1">/kg</span>
+            </p>
+          </div>
+        </div>
       </div>
 
       {loading ? (
@@ -127,7 +166,7 @@ export default function SupplierOverview() {
               icon={LuTruck}
               label="Pending Deliveries"
               value={stats.pendingDeliveries}
-              sub="awaiting processing"
+              sub="Awaiting Processing"
               color="bg-blue-50 text-blue-600"
               onClick={() => navigate("/dashboard/supplier/deliveries")}
             />
@@ -135,7 +174,7 @@ export default function SupplierOverview() {
               icon={LuWallet}
               label="Total Earned"
               value={peso(stats.totalEarned)}
-              sub={stats.pendingPayment > 0 ? `${peso(stats.pendingPayment)} pending` : "all released"}
+              sub={stats.pendingPayment > 0 ? `${peso(stats.pendingPayment)} Pending` : "All Released"}
               color="bg-amber-50 text-amber-600"
               onClick={() => navigate("/dashboard/supplier/payments")}
             />
@@ -143,34 +182,13 @@ export default function SupplierOverview() {
               icon={LuStar}
               label="My Rating"
               value={stats.overallRating !== null ? `${Number(stats.overallRating).toFixed(1)} / 5` : "—"}
-              sub={stats.overallRating !== null ? "overall performance" : "no rated contracts yet"}
+              sub={stats.overallRating !== null ? "Overall Performance" : "No Rated Contracts Yet"}
               color="bg-amber-50 text-amber-500"
               onClick={() => navigate("/dashboard/supplier/rating")}
             />
           </div>
 
-          {/* Current Spot Price */}
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                <LuTrendingUp className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-0.5">
-                  Current Spot Price (Price of the Day)
-                </p>
-                <p className="text-2xl font-extrabold text-brown-dark">
-                  {spotPrice !== null
-                    ? `₱${Number(spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                    : "—"}
-                  <span className="text-brown-light text-base font-normal ml-1">/kg</span>
-                </p>
-              </div>
-            </div>
-            <p className="text-xs text-brown-light mt-3">
-              The spot price is used when a delivery has no eligible active contract remaining. Set by the Business Owner.
-            </p>
-          </div>
+
 
           {/* Recent deliveries */}
           <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 mb-5">

@@ -2,12 +2,20 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
-  LuClock, LuFileText, LuStar, LuLoader, LuPaperclip,
+  LuClock, LuFileText, LuStar, LuLoader,
   LuCheckCheck, LuCircleAlert, LuTrash2,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ProposePriceModal from "../../components/ProposePriceModal";
+import ContractDocumentModal from "../../components/ContractDocumentModal";
+import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
+
+const BO_QUICK_ACTIONS = [
+  ["Ask Proposal", "I would like to buy some copras. Have you harvested some?"],
+  ["Ask Availability", "How many tons of copra are currently available?"],
+  ["Confirm Delivery", "When would you be available to deliver the agreed volume?"],
+];
 
 function initials(first, last) {
   return [(first ?? "")[0], (last ?? "")[0]].filter(Boolean).join("").toUpperCase() || "?";
@@ -54,9 +62,9 @@ function peso(n) {
 function ContractCard({ contractData, onTapPreview, signed }) {
   const hasDoc = !!contractData.document_path;
   return (
-    <div className="flex justify-end my-2 px-4">
+    <div className="flex justify-center my-3 px-3 sm:justify-end sm:px-5">
       <div
-        className={`text-white rounded-2xl rounded-br-sm p-4 w-72 shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${hasDoc ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
+        className={`w-full max-w-[320px] rounded-[18px] rounded-br-sm p-4 text-white shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${hasDoc ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
         onClick={() => hasDoc && onTapPreview?.(contractData.document_path)}
       >
         <div className="flex items-center gap-2 mb-3">
@@ -99,8 +107,8 @@ function ContractCard({ contractData, onTapPreview, signed }) {
 // ── Proposal card (inline in chat) ───────────────────────────────────────────
 function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
   return (
-    <div className="flex justify-center my-3 px-4">
-      <div className="bg-white border-2 border-[#2d5a27]/20 rounded-2xl p-4 w-full max-w-xs shadow-sm">
+    <div className="flex justify-center my-4 px-3 sm:px-5">
+      <div className="w-full max-w-sm rounded-[18px] border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-[0_2px_6px_rgba(76,58,42,0.10)]">
         <div className="flex items-center gap-2 mb-3">
           <LuCoins className="w-4 h-4 text-[#2d5a27]" />
           <p className="text-sm font-bold text-[#2d5a27]">
@@ -162,7 +170,17 @@ export default function BOChatLayout() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
-  const [counterModal, setCounterModal] = useState(null);
+  const {
+    modalState: proposalModalState,
+    openCounter,
+    clearModal: clearProposalModal,
+  } = usePersistentProposalModal({
+    storageKey: `coptrax:proposal-modal:bo-chat:${user?.id ?? "anonymous"}`,
+    conversationId,
+  });
+  const counterModal = proposalModalState?.type === "counter"
+    ? proposalModalState.proposal
+    : null;
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const currentConvRef = useRef(null); // stable ref so realtime callbacks don't go stale
@@ -181,9 +199,11 @@ export default function BOChatLayout() {
   // Right panel
   const [supplierData, setSupplierData] = useState(null);
   const [contracts, setContracts] = useState([]);
+  const [viewContract, setViewContract] = useState(null);
   const [contractError, setContractError] = useState(null);
   const [proposalActing, setProposalActing] = useState(false); // prevent double-click
   const [toast, setToast] = useState(null);
+  const [onlineSupplierIds, setOnlineSupplierIds] = useState(() => new Set());
 
   function showToast(msg, type = "success") {
     setToast({ msg, type });
@@ -202,9 +222,30 @@ export default function BOChatLayout() {
       `)
       .order("created_at", { ascending: false });
 
-    const enriched = (data ?? []).map(c => {
+    const conversationIds = (data ?? []).map(c => c.conversation_id);
+    const { data: proposalActivity } = conversationIds.length
+      ? await supabase
+          .from("proposal_forms")
+          .select("conversation_id, submitted_at")
+          .in("conversation_id", conversationIds)
+          .order("submitted_at", { ascending: false })
+      : { data: [] };
+    const latestProposalByConversation = new Map();
+    (proposalActivity ?? []).forEach((proposal) => {
+      if (!latestProposalByConversation.has(proposal.conversation_id)) {
+        latestProposalByConversation.set(proposal.conversation_id, proposal);
+      }
+    });
+
+    const enriched = (data ?? []).filter(c =>
+      (c.messages?.length ?? 0) > 0 || latestProposalByConversation.has(c.conversation_id)
+    ).map(c => {
       const sorted = [...(c.messages ?? [])].sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
-      const lastMsg = sorted[0] ?? null;
+      const proposal = latestProposalByConversation.get(c.conversation_id);
+      const latestMessage = sorted[0] ?? null;
+      const lastMsg = proposal && (!latestMessage || new Date(proposal.submitted_at) > new Date(latestMessage.sent_at))
+        ? { message_text: "Price proposal received", sent_at: proposal.submitted_at, sender_id: c.supplier?.user_id }
+        : latestMessage;
       const unread = sorted.filter(m => m.sender_id !== user.id).length > 0 &&
         lastMsg?.sender_id !== user.id;
       return { ...c, lastMsg, unread };
@@ -214,6 +255,24 @@ export default function BOChatLayout() {
   }, [user.id]);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  useEffect(() => {
+    const listChannel = supabase
+      .channel(`bo-conversation-list:${user.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, fetchConversations)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms" }, fetchConversations)
+      .subscribe();
+    return () => supabase.removeChannel(listChannel);
+  }, [fetchConversations, user.id]);
+
+  useEffect(() => {
+    const channel = supabase.channel("online-suppliers");
+    const syncPresence = () => {
+      setOnlineSupplierIds(new Set(Object.keys(channel.presenceState())));
+    };
+    channel.on("presence", { event: "sync" }, syncPresence).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   // ── Middle panel: load chat on conversationId change ──────────────────────
   const loadChat = useCallback(async (convId) => {
@@ -363,7 +422,28 @@ export default function BOChatLayout() {
     // Immediately hide the proposal card so the BO isn't left with a stale open card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Accepted", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
+
+    // Persist Accepted status — check for errors so a DB failure is visible
+    const { error: acceptErr } = await supabase.from("proposal_forms")
+      .update({ proposal_status: "Accepted", reviewed_by: user.id })
+      .eq("proposal_id", proposal.proposal_id);
+    if (acceptErr) {
+      console.error("acceptProposal: failed to update proposal status:", acceptErr);
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      setContractError(`Failed to accept proposal: ${acceptErr.message}`);
+      setProposalActing(false);
+      return;
+    }
+
+    // Mark every other Pending proposal in this conversation as Modified immediately,
+    // so no stale action card can appear on either side while contract is being generated.
+    await supabase.from("proposal_forms")
+      .update({ proposal_status: "Modified" })
+      .eq("conversation_id", conversationId)
+      .eq("proposal_status", "Pending")
+      .neq("proposal_id", proposal.proposal_id);
+
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
       message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
@@ -420,14 +500,6 @@ export default function BOChatLayout() {
     }
 
     await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-
-    // Close ALL other pending proposals in this conversation so no stale
-    // "Incoming Counteroffer" cards can appear after the contract is generated.
-    await supabase.from("proposal_forms")
-      .update({ proposal_status: "Modified" })
-      .eq("conversation_id", conversationId)
-      .eq("proposal_status", "Pending")
-      .neq("proposal_id", proposal.proposal_id);
 
     // 2. Call generate-contract to hash + render the PDF
     const { data: { session } } = await supabase.auth.getSession();
@@ -504,14 +576,17 @@ export default function BOChatLayout() {
     const name = `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.toLowerCase();
     return name.includes(search.toLowerCase());
   });
+  const isSupplierOnline = Boolean(
+    currentConv?.supplier?.user_id && onlineSupplierIds.has(currentConv.supplier.user_id),
+  );
 
   return (
-    <div className="flex h-[calc(100vh-88px)] rounded-2xl overflow-hidden shadow-sm border border-[#e8e0d0]">
+    <div className="flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px] xl:flex-row xl:overflow-hidden">
 
       {/* ── LEFT PANEL — Conversations list ──────────────────────────────── */}
-      <div className="w-[280px] shrink-0 bg-white flex flex-col border-r border-[#e8e0d0]">
+      <div className={`${conversationId ? "hidden xl:flex" : "flex"} h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:h-full xl:w-[280px]`}>
         {/* Search */}
-        <div className="px-4 pt-4 pb-3 border-b border-[#f0e8d8]">
+        <div className="border-b border-[#E7DCC9] px-4 pb-3 pt-4">
           <div className="relative">
             <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#b09a7a]" />
             <input
@@ -519,7 +594,7 @@ export default function BOChatLayout() {
               placeholder="Search conversations..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-full bg-[#f5f0e8] border-0 text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none focus:ring-2 focus:ring-[#2d5a27]/20"
+              className="w-full rounded-xl border border-[#E4D5BD] bg-[#F7F0E5] py-2 pl-9 pr-4 text-sm text-[#4E342E] placeholder-[#A18D82] focus:outline-none focus:ring-2 focus:ring-[#2E7D32]/20"
             />
           </div>
         </div>
@@ -541,10 +616,10 @@ export default function BOChatLayout() {
               return (
                 <button key={c.conversation_id}
                   onClick={() => navigate(`/dashboard/owner/conversations/${c.conversation_id}`)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors duration-150 relative
-                    ${isActive ? "bg-[#f0ebe0] border-l-4 border-[#2d5a27]" : "hover:bg-[#faf7f2] border-l-4 border-transparent"}`}>
+                  className={`relative flex min-h-[84px] w-full items-center gap-3 border-b border-[#EEE4D4] px-4 py-3.5 text-left transition-colors duration-150
+                    ${isActive ? "border-l-[3px] border-l-[#17682D] bg-[#E9DDC7]" : "border-l-[3px] border-l-transparent hover:bg-[#FAF5EA]"}`}>
                   {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${isActive ? "bg-[#2d5a27]" : "bg-[#4a7c40]"}`}>
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#35AB50] text-sm font-bold text-white">
                     {ini}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -572,7 +647,7 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── MIDDLE PANEL — Chat ──────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-[#faf7f4] min-w-0">
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} relative h-[70vh] min-h-[560px] min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:h-full`}>
         {!conversationId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
             <div className="w-16 h-16 bg-[#e8f0e5] rounded-2xl flex items-center justify-center mb-4">
@@ -588,18 +663,20 @@ export default function BOChatLayout() {
         ) : (
           <>
             {/* Chat header */}
-            <div className="flex items-center gap-3 px-5 py-3.5 bg-white border-b border-[#e8e0d0] shrink-0">
-              <div className="w-10 h-10 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-sm">
-                {initials(currentConv?.supplier?.first_name, currentConv?.supplier?.last_name)}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 pr-24 sm:px-7 sm:pr-28">
+              <div className="relative shrink-0">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white ${isSupplierOnline ? "bg-[#35AB50]" : "bg-[#9CA3AF]"}`}>
+                  {initials(currentConv?.supplier?.first_name, currentConv?.supplier?.last_name)}
+                </div>
+                <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#FFFEFB] ${isSupplierOnline ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
               </div>
               <div className="flex-1">
-                <p className="font-bold text-[#3d2b1f]">
+                <p className="text-[17px] font-bold leading-tight text-[#5D4037]">
                   {currentConv?.supplier?.first_name} {currentConv?.supplier?.last_name}
                 </p>
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full" />
                   <p className="text-[#8b7355] text-xs">
-                    {currentConv?.status === "Open" ? "Active negotiation" : "Closed"}
+                    {isSupplierOnline ? "Online" : "Offline"}
                     {currentConv?.supplier?.email && <span className="ml-2">· {currentConv.supplier.email}</span>}
                   </p>
                 </div>
@@ -607,12 +684,12 @@ export default function BOChatLayout() {
             </div>
             {/* ⚠ DEV-ONLY reset button */}
             <button onClick={resetChat} title="DEV: Reset this chat for testing"
-              className="ml-auto shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 text-[10px] font-bold border border-red-200 hover:bg-red-100 transition-all">
+              className="absolute right-4 top-4 z-10 flex shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-bold text-red-600 transition-all hover:bg-red-100">
               <LuTrash2 className="w-3 h-3" /> RESET
             </button>
 
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-4 space-y-1">
+            <div ref={scrollContainerRef} className="flex-1 space-y-1 overflow-y-auto bg-[#FFFEFB] px-0 py-4">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
                   <p>No messages yet. Waiting for the supplier to start.</p>
@@ -636,11 +713,11 @@ export default function BOChatLayout() {
                       <ContractCard
                         contractData={cardData}
                         signed={isSigned}
-                        onTapPreview={async (docPath) => {
-                          if (!docPath) return;
-                          const { data } = await supabase.storage.from("contracts").createSignedUrl(docPath, 60 * 15);
-                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                        }}
+                        onTapPreview={(docPath) => setViewContract({
+                          contractId: contractRow?.contract_id ?? cardData.contract_id,
+                          contractNumber: cardData.contract_number,
+                          documentPath: contractRow?.contract_document_url ?? docPath,
+                        })}
                       />
                     );
                   } catch { /* fall through */ }
@@ -656,8 +733,8 @@ export default function BOChatLayout() {
 
                 if (!messageEl) {
                   messageEl = (
-                    <div className={`flex px-4 ${isMine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    <div className={`flex px-3 sm:px-5 ${isMine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed sm:max-w-[65%] ${
                         isMine
                           ? "bg-[#2d5a27] text-white rounded-br-sm"
                           : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
@@ -694,7 +771,7 @@ export default function BOChatLayout() {
                   submittedByMe={latestSubmittedByBO}
                   onAccept={proposalActing ? null : () => acceptProposal(latestProposal)}
                   onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
-                  onCounter={proposalActing ? null : () => setCounterModal(latestProposal)}
+                  onCounter={proposalActing ? null : () => openCounter(latestProposal)}
                 />
               )}
               <div ref={bottomRef} />
@@ -702,21 +779,28 @@ export default function BOChatLayout() {
 
             {/* Quick action chips */}
             {currentConv?.status === "Open" && (
-              <div className="flex gap-2 px-4 py-2 bg-white border-t border-[#f0e8d8] shrink-0">
+              <div className="flex shrink-0 flex-wrap gap-2 border-t border-[#E7DCC9] bg-[#FFFEFB] px-4 py-2">
                 {sentContract?.contract_document_url && sentContract.status === "Pending" && (
-                  <button onClick={async () => {
-                    const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);
-                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                  }}
+                  <button onClick={() => setViewContract({
+                    contractId: sentContract.contract_id,
+                    contractNumber: sentContract.contract_number,
+                    documentPath: sentContract.contract_document_url,
+                  })}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-all">
                     <LuFileText className="w-3.5 h-3.5" /> View Contract Document
                   </button>
                 )}
-                <button onClick={() => setCounterModal(latestProposal ?? null)}
+                <button onClick={() => openCounter(latestProposal)}
                   disabled={!latestProposal || latestProposal.proposal_status !== "Pending" || latestSubmittedByBO || contracts.some(c => c.status === "Active" || c.status === "Completed")}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs hover:bg-[#ebe5d5] transition-all disabled:opacity-40">
                   <LuCoins className="w-3.5 h-3.5" /> Counteroffer
                 </button>
+                {BO_QUICK_ACTIONS.map(([label, message]) => (
+                  <button key={label} type="button" onClick={() => setText(message)}
+                    className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-2 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]">
+                    {label}
+                  </button>
+                ))}
               </div>
             )}
 
@@ -731,14 +815,11 @@ export default function BOChatLayout() {
 
             {/* Message input */}
             {currentConv?.status === "Open" && (
-              <form onSubmit={sendMessage} className="flex items-center gap-3 px-4 py-3 bg-white border-t border-[#e8e0d0] shrink-0">
-                <button type="button" className="text-[#b09a7a] hover:text-[#8b7355] transition-colors">
-                  <LuPaperclip className="w-5 h-5" />
-                </button>
+              <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full border border-[#E0D5C1] bg-[#EDE3D1] px-4 py-2.5">
                 <input
                   type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder={`Message ${currentConv?.supplier?.first_name ?? ""}…`}
-                  className="flex-1 px-4 py-2.5 rounded-full bg-[#f5f0e8] text-sm text-[#3d2b1f] placeholder-[#b09a7a] focus:outline-none focus:ring-2 focus:ring-[#2d5a27]/20 border-0"
+                  className="min-w-0 flex-1 border-0 bg-transparent px-1 py-1 text-sm text-[#4E342E] placeholder-[#A18D82] focus:outline-none"
                 />
                 <button type="submit" disabled={!text.trim() || sending}
                   className="w-9 h-9 rounded-full bg-[#2d5a27] text-white flex items-center justify-center hover:bg-[#234820] transition-all disabled:opacity-50">
@@ -751,16 +832,16 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── RIGHT PANEL — Supplier info ───────────────────────────────────── */}
-      <div className="w-[200px] shrink-0 bg-white border-l border-[#e8e0d0] flex flex-col overflow-y-auto">
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:w-[280px]`}>
         {!conversationId || !supplierData ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see supplier details</p>
           </div>
         ) : (
-          <div className="p-4 space-y-4">
+          <div className="space-y-5 p-5">
             {/* Avatar + name + location */}
-            <div className="flex flex-col items-center text-center pt-2">
-              <div className="w-14 h-14 rounded-full bg-[#2d5a27] flex items-center justify-center text-white font-bold text-lg mb-2">
+            <div className="flex flex-col items-center border-b border-[#E7DCC9] pb-6 pt-5 text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#35AB50] text-sm font-bold text-white">
                 {initials(supplierData.first_name, supplierData.last_name)}
               </div>
               <p className="font-bold text-[#3d2b1f] text-sm">{supplierData.first_name} {supplierData.last_name}</p>
@@ -778,10 +859,11 @@ export default function BOChatLayout() {
             </div>
 
             {sentContract?.contract_document_url && sentContract.status === "Pending" && (
-              <button onClick={async () => {
-                const { data } = await supabase.storage.from("contracts").createSignedUrl(sentContract.contract_document_url, 60 * 15);
-                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-              }}
+              <button onClick={() => setViewContract({
+                contractId: sentContract.contract_id,
+                contractNumber: sentContract.contract_number,
+                documentPath: sentContract.contract_document_url,
+              })}
                 className="block w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm text-center hover:bg-blue-700 transition-all">
                 View Contract Document
               </button>
@@ -795,7 +877,7 @@ export default function BOChatLayout() {
             {/* Negotiation summary */}
             <div>
               <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Negotiation Summary</p>
-              <div className="space-y-2">
+              <div className="space-y-3 rounded-xl bg-[#FAF5EC] p-4">
                 <div className="flex justify-between text-xs">
                   <span className="text-[#8b7355]">Proposed volume</span>
                   <span className="font-semibold text-[#3d2b1f]">
@@ -819,13 +901,13 @@ export default function BOChatLayout() {
             <div>
               <p className="text-[10px] font-bold text-[#b09a7a] uppercase tracking-wider mb-2">Signed Contracts</p>
               {contracts.filter(c => c.status !== "Pending" || c.contract_hash).length === 0 ? (
-                <div className="bg-[#f5f0e8] rounded-xl p-3 text-[11px] text-[#8b7355] leading-relaxed">
+                <div className="rounded-xl bg-[#FAF5EC] p-4 text-[11px] leading-relaxed text-[#8b7355]">
                   No contracts yet. Agree on price and volume, then send one.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {contracts.map(c => (
-                    <div key={c.contract_id} className="bg-[#f5f0e8] rounded-xl p-2.5">
+                    <div key={c.contract_id} className="rounded-xl border border-[#EEE4D4] bg-[#FAF5EC] p-3">
                       <p className="font-semibold text-[#3d2b1f] text-[11px]">{c.contract_number}</p>
                       <div className="flex items-center justify-between mt-1">
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
@@ -835,10 +917,11 @@ export default function BOChatLayout() {
                           "bg-amber-50 text-amber-700"
                         }`}>{c.status}</span>
                         {c.contract_document_url && (
-                          <button onClick={async () => {
-                            const { data } = await supabase.storage.from("contracts").createSignedUrl(c.contract_document_url, 60 * 15);
-                            if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                          }}
+                          <button onClick={() => setViewContract({
+                            contractId: c.contract_id,
+                            contractNumber: c.contract_number,
+                            documentPath: c.contract_document_url,
+                          })}
                             className="text-[10px] text-blue-600 hover:underline">View</button>
                         )}
                       </div>
@@ -868,7 +951,9 @@ export default function BOChatLayout() {
           supplierId={currentConv.supplier?.user_id}
           isCounter
           supersedesId={counterModal?.proposal_id}
-          onClose={() => setCounterModal(null)}
+          initialPrice={counterModal?.proposed_price_per_kg}
+          initialVolume={counterModal?.proposed_volume_tons}
+          onClose={clearProposalModal}
           onSubmitted={async (msg) => {
             if (counterModal) {
               await supabase.from("proposal_forms").update({ proposal_status: "Modified", reviewed_by: user.id }).eq("proposal_id", counterModal.proposal_id);
@@ -880,9 +965,18 @@ export default function BOChatLayout() {
               message: "NERC Copra Trading sent a counteroffer. Review it in the chat.",
               related_entity_type: "conversations", related_entity_id: conversationId,
             });
-            setCounterModal(null);
+            clearProposalModal();
             await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
           }}
+        />
+      )}
+
+      {viewContract && (
+        <ContractDocumentModal
+          contractId={viewContract.contractId}
+          contractNumber={viewContract.contractNumber}
+          documentPath={viewContract.documentPath}
+          onClose={() => setViewContract(null)}
         />
       )}
     </div>

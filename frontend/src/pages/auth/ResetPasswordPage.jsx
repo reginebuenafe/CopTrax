@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LuLeaf, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuCircleCheck } from "react-icons/lu";
+import { LuLock, LuEye, LuEyeOff, LuCircleAlert, LuCircleCheck } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import BrandLogo from "../../components/BrandLogo";
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -69,8 +70,8 @@ export default function ResetPasswordPage() {
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3">
-            <LuLeaf className="w-7 h-7 text-white" />
+          <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3 p-2">
+            <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
           <p className="text-brown-light text-sm mt-1">NERC Copra Trading Portal</p>

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { LuLeaf, LuPhone, LuMail, LuMapPin, LuArrowUpRight } from "react-icons/lu";
+import { LuPhone, LuMail, LuMapPin, LuArrowUpRight } from "react-icons/lu";
+import BrandLogo from "./components/BrandLogo";
 
 export default function Footer() {
   return (
@@ -12,8 +13,8 @@ export default function Footer() {
 
           <div className="sm:col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 bg-gradient-to-br from-green-dark to-green-light rounded-full flex items-center justify-center shadow-md">
-                <LuLeaf className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 bg-gradient-to-br from-green-dark to-green-light rounded-full flex items-center justify-center shadow-md p-1.5">
+                <BrandLogo className="w-full h-full" size="100%" />
               </div>
               <span className="text-lg font-extrabold text-white">NERC Copra</span>
             </div>

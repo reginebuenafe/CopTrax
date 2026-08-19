@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { LuLeaf, LuPhone, LuLogIn } from "react-icons/lu";
+import { LuPhone, LuLogIn } from "react-icons/lu";
+import BrandLogo from "./components/BrandLogo";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
@@ -57,8 +58,8 @@ export default function Navbar() {
             scrolled ? "px-3 py-2 shadow-lg" : "px-4 py-2.5 shadow-md"
           }`}
         >
-          <div className="w-7 h-7 bg-gradient-to-br from-green-dark to-green-light rounded-full flex items-center justify-center shadow-sm group-hover:shadow-glow-green transition-all duration-300 group-hover:scale-110">
-            <LuLeaf className="w-3.5 h-3.5 text-white" />
+          <div className="w-7 h-7 bg-gradient-to-br from-green-dark to-green-light rounded-full flex items-center justify-center shadow-sm group-hover:shadow-glow-green transition-all duration-300 group-hover:scale-110 overflow-hidden p-1.5">
+            <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <span className="text-sm font-extrabold tracking-tight text-green-dark hidden sm:block">
             NERC

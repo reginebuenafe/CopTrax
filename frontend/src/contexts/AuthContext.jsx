@@ -3,7 +3,9 @@ import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+const SENSITIVE_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const WARNING_DURATION_MS = 60 * 1000;
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
 
 export function AuthProvider({ children }) {
@@ -11,10 +13,22 @@ export function AuthProvider({ children }) {
   const [profile, setProfile]               = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [sensitiveContextCount, setSensitiveContextCount] = useState(0);
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [warningSeconds, setWarningSeconds] = useState(60);
 
   const wasAuthenticatedRef  = useRef(false);
   const explicitSignOutRef   = useRef(false);
+  const warningTimerRef      = useRef(null);
   const inactivityTimerRef   = useRef(null);
+  const countdownTimerRef    = useRef(null);
+  const warningOpenRef       = useRef(false);
+  const logoutDeadlineRef    = useRef(0);
+  const lastActivityRef      = useRef(0);
+
+  const inactivityTimeoutMs = sensitiveContextCount > 0
+    ? SENSITIVE_INACTIVITY_TIMEOUT_MS
+    : DEFAULT_INACTIVITY_TIMEOUT_MS;
 
   const fetchProfile = useCallback(async (userId) => {
     setProfileLoading(true);
@@ -29,22 +43,70 @@ export function AuthProvider({ children }) {
 
   // ── Inactivity timer ──────────────────────────────────────────────────────
   const clearInactivityTimer = useCallback(() => {
+    if (warningTimerRef.current) {
+      clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
+    }
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
     }
   }, []);
 
   const resetInactivityTimer = useCallback(() => {
     clearInactivityTimer();
+    warningOpenRef.current = false;
+    setShowIdleWarning(false);
+    setWarningSeconds(60);
+
+    logoutDeadlineRef.current = Date.now() + inactivityTimeoutMs;
+    warningTimerRef.current = setTimeout(() => {
+      warningOpenRef.current = true;
+      setShowIdleWarning(true);
+      setWarningSeconds(60);
+      countdownTimerRef.current = setInterval(() => {
+        const secondsRemaining = Math.max(
+          0,
+          Math.ceil((logoutDeadlineRef.current - Date.now()) / 1000),
+        );
+        setWarningSeconds(secondsRemaining);
+      }, 1000);
+    }, inactivityTimeoutMs - WARNING_DURATION_MS);
+
     inactivityTimerRef.current = setTimeout(async () => {
-      // Only sign out if there is an active session
       if (wasAuthenticatedRef.current) {
-        explicitSignOutRef.current = false; // mark as inactivity, not explicit
+        explicitSignOutRef.current = false;
         await supabase.auth.signOut();
       }
-    }, INACTIVITY_TIMEOUT_MS);
-  }, [clearInactivityTimer]);
+    }, inactivityTimeoutMs);
+  }, [clearInactivityTimer, inactivityTimeoutMs]);
+
+  const handleActivity = useCallback(() => {
+    // Once the warning is visible, require an explicit confirmation. This avoids
+    // a stray mouse movement silently extending a sensitive session.
+    if (warningOpenRef.current) return;
+    const now = Date.now();
+    if (now - lastActivityRef.current < 1000) return;
+    lastActivityRef.current = now;
+    resetInactivityTimer();
+  }, [resetInactivityTimer]);
+
+  const staySignedIn = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    resetInactivityTimer();
+  }, [resetInactivityTimer]);
+
+  const beginSensitiveContext = useCallback(() => {
+    setSensitiveContextCount((count) => count + 1);
+  }, []);
+
+  const endSensitiveContext = useCallback(() => {
+    setSensitiveContextCount((count) => Math.max(0, count - 1));
+  }, []);
 
   // ── Auth state ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -90,15 +152,15 @@ export function AuthProvider({ children }) {
     if (!session) return;
 
     ACTIVITY_EVENTS.forEach(evt =>
-      window.addEventListener(evt, resetInactivityTimer, { passive: true })
+      window.addEventListener(evt, handleActivity, { passive: true })
     );
 
     return () => {
       ACTIVITY_EVENTS.forEach(evt =>
-        window.removeEventListener(evt, resetInactivityTimer)
+        window.removeEventListener(evt, handleActivity)
       );
     };
-  }, [session, resetInactivityTimer]);
+  }, [session, handleActivity]);
 
   // ── signOut ───────────────────────────────────────────────────────────────
   async function signOut() {
@@ -116,12 +178,47 @@ export function AuthProvider({ children }) {
     // isLoading is true until both session AND profile are resolved
     isLoading:     session === undefined || (session !== null && profileLoading),
     sessionExpired,
+    idleTimeoutMinutes: inactivityTimeoutMs / 60000,
+    beginSensitiveContext,
+    endSensitiveContext,
     signOut,
     refreshProfile: () =>
       session?.user?.id ? fetchProfile(session.user.id) : Promise.resolve(),
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {session && showIdleWarning && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="idle-warning-title"
+            className="w-full max-w-md rounded-2xl border border-[#DCCDB4] bg-[#FFFEFB] p-6 shadow-2xl"
+          >
+            <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-[#2E7D32]">
+              Session security
+            </p>
+            <h2 id="idle-warning-title" className="text-xl font-bold text-[#4E342E]">
+              You will be signed out soon
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[#765D52]">
+              Your session has been idle. To protect contract, banking, and payment information,
+              you will be signed out in <strong>{warningSeconds} seconds</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={staySignedIn}
+              className="mt-6 w-full rounded-xl bg-[#2E7D32] px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#1F6A29] focus:outline-none focus:ring-2 focus:ring-[#2E7D32] focus:ring-offset-2"
+            >
+              Stay signed in
+            </button>
+          </div>
+        </div>
+      )}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

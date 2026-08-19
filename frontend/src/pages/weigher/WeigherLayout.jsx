@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
-  LuLeaf, LuLogOut, LuMenu, LuX, LuChevronRight,
+  LuLogOut, LuMenu, LuX, LuChevronRight,
   LuTruck, LuClipboardList, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
+import BrandLogo from "../../components/BrandLogo";
 
 const NAV_ITEMS = [
   { to: "/dashboard/weigher", label: "New Delivery", icon: LuTruck, end: true },
@@ -37,8 +38,8 @@ export default function WeigherLayout() {
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:static lg:z-auto`}>
 
         <div className="flex items-center gap-3 px-5 py-5 border-b border-beige-dark/30">
-          <div className="w-9 h-9 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm">
-            <LuLeaf className="w-4.5 h-4.5 text-white" />
+          <div className="w-9 h-9 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm p-1.5">
+            <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <div>
             <p className="font-extrabold text-green-dark text-sm leading-none">CopTrax</p>

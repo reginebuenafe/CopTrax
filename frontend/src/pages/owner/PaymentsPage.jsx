@@ -5,6 +5,7 @@ import {
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { useSensitiveSessionTimeout } from "../../hooks/useSensitiveSessionTimeout";
 
 const TABS = ["Ready to Pay", "Payment Batches"];
 
@@ -29,6 +30,7 @@ export default function PaymentsPage() {
   const [expandedSupplier, setExpandedSupplier] = useState(null);
   const [batchModal, setBatchModal] = useState(null);   // { supplierId, name, deliveries }
   const [releaseModal, setReleaseModal] = useState(null); // { payment }
+  useSensitiveSessionTimeout(Boolean(releaseModal));
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
