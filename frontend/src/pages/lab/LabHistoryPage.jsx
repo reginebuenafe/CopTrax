@@ -70,7 +70,7 @@ export default function LabHistoryPage() {
               <table className="w-full text-sm">
                 <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                   <tr>
-                    {["Supplier", "Type", "Date", "Net Weight", "Moisture %", "Discount", "Final Weight", "Result"].map(h => (
+                    {["Supplier", "Type", "Date", "Net Weight", "Moisture (cc)", "Discount (%)", "Final Weight", "Result"].map(h => (
                       <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                     ))}
                   </tr>
@@ -103,7 +103,7 @@ export default function LabHistoryPage() {
                           {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
                         <td className="px-5 py-3.5 text-brown-mid">{Number(netKg).toFixed(3)} kg</td>
-                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}%</td>
+                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}cc</td>
                         <td className="px-5 py-3.5 text-brown-mid">
                           {result === "Rejected" ? "—" : `${discountPct}%`}
                         </td>
@@ -157,7 +157,7 @@ export default function LabHistoryPage() {
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid ml-10.5">
-                      <p>Moisture: <span className="font-semibold text-brown-dark">{mc}%</span></p>
+                      <p>Moisture: <span className="font-semibold text-brown-dark">{mc}cc</span></p>
                       <p>Net: <span className="font-semibold text-brown-dark">{Number(netKg).toFixed(3)} kg</span></p>
                       {result === "Accepted" && <>
                         <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>

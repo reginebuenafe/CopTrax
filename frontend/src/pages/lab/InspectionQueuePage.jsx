@@ -80,7 +80,7 @@ export default function InspectionQueuePage() {
     setError("");
 
     const mc = parseFloat(moisture);
-    if (isNaN(mc) || mc < 0) { setError("Enter a valid moisture content %."); return; }
+    if (isNaN(mc) || mc < 0) { setError("Enter a valid moisture content cc."); return; }
     if (!preview) { setError("Moisture lookup not complete. Try again."); return; }
 
     setSubmitting(true);
@@ -104,8 +104,8 @@ export default function InspectionQueuePage() {
       inspection_id: inspection.inspection_id,
       result: preview.result,
       remarks: preview.result === "Rejected"
-        ? `Moisture content ${mc}% exceeds 20.2% — automatic rejection.`
-        : `Moisture content ${mc}%. Discount: ${preview.discountValue ?? 0}%.`,
+        ? `Moisture content ${mc}cc exceeds 20.2cc — automatic rejection.`
+        : `Moisture content ${mc}cc. Discount: ${preview.discountValue ?? 0}%.`,
     });
 
     if (qErr) { setError("Inspection saved but quality result failed."); setSubmitting(false); return; }
@@ -143,8 +143,8 @@ export default function InspectionQueuePage() {
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}%.`
-          : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}% exceeds 20.2%.`;
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}cc.`
+          : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}cc exceeds 20.2cc.`;
 
         await supabase.from("notifications").insert({
           user_id: supplierId,
@@ -199,7 +199,7 @@ export default function InspectionQueuePage() {
           </h2>
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span> ·{" "}
-            Moisture: <span className="font-semibold text-brown-dark">{success.moisture}%</span>
+            Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
           </p>
 
           {success.result === "Accepted" ? (
@@ -222,7 +222,7 @@ export default function InspectionQueuePage() {
             </div>
           ) : (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
-              Moisture content {success.moisture}% exceeds 20.2%. This delivery is automatically rejected — no payment will be processed.
+              Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected — no payment will be processed.
             </div>
           )}
 
@@ -299,7 +299,7 @@ export default function InspectionQueuePage() {
           {/* Moisture input */}
           <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
             <label className="block text-sm font-bold text-brown-dark mb-3 flex items-center gap-2">
-              <LuDroplets className="w-4 h-4 text-blue-400" /> Moisture Content (%)
+              <LuDroplets className="w-4 h-4 text-blue-400" /> Moisture Content (cc)
             </label>
             <div className="relative">
               <input
@@ -317,7 +317,7 @@ export default function InspectionQueuePage() {
               )}
             </div>
             <p className="text-xs text-brown-light mt-2">
-              PCA table range: 5.0% – 20.2% · Below 5% → 0% discount · Above 20.2% → Automatic Rejection
+              Above 20.2cc → Automatic Rejection
             </p>
           </div>
 
@@ -359,7 +359,7 @@ export default function InspectionQueuePage() {
                 </div>
               ) : (
                 <p className="text-red-600 text-sm">
-                  Moisture {mc}% exceeds the 20.2% maximum. No payment will be processed for this delivery.
+                  Moisture {mc}cc exceeds the 20.2cc maximum. No payment will be processed for this delivery.
                 </p>
               )}
             </div>

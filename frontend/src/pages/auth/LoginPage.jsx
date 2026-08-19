@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert } from "react-icons/lu";
+import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
 
