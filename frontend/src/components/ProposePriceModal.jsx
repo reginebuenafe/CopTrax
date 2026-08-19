@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LuCoins, LuX, LuPackage } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 
@@ -8,13 +8,42 @@ export default function ProposePriceModal({
   supplierId,
   isCounter = false,
   supersedesId = null,
+  initialPrice = "",
+  initialVolume = "",
   onClose,
   onSubmitted,
 }) {
-  const [pricePerKg, setPricePerKg] = useState("");
-  const [volumeTons, setVolumeTons] = useState("");
+  const draftStorageKey = useMemo(() => [
+    "coptrax-proposal-draft-v2",
+    userId ?? "anonymous",
+    conversationId ?? "no-conversation",
+    isCounter ? "counter" : "proposal",
+    supersedesId ?? "new",
+  ].join(":"), [conversationId, isCounter, supersedesId, userId]);
+  const savedDraft = useMemo(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(draftStorageKey) ?? "null");
+    } catch {
+      return null;
+    }
+  }, [draftStorageKey]);
+  const [pricePerKg, setPricePerKg] = useState(() =>
+    savedDraft?.pricePerKg ?? (isCounter && initialPrice != null ? String(initialPrice) : "")
+  );
+  const [volumeTons, setVolumeTons] = useState(() =>
+    savedDraft?.volumeTons ?? (isCounter && initialVolume != null ? String(initialVolume) : "")
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    sessionStorage.setItem(draftStorageKey, JSON.stringify({ pricePerKg, volumeTons }));
+  }, [draftStorageKey, pricePerKg, volumeTons]);
+
+  function clearDraftAndClose() {
+    sessionStorage.removeItem(draftStorageKey);
+    onClose();
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -49,6 +78,7 @@ export default function ProposePriceModal({
       ? `🔄 Counteroffer: ₱${price.toFixed(2)}/kg for ${volume} tons`
       : `💰 Price proposal: ₱${price.toFixed(2)}/kg for ${volume} tons`;
 
+    sessionStorage.removeItem(draftStorageKey);
     onSubmitted(msg);
   }
 
@@ -65,7 +95,7 @@ export default function ProposePriceModal({
               {isCounter ? "Submit Counteroffer" : "Propose Price"}
             </h3>
           </div>
-          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors p-1">
+          <button onClick={clearDraftAndClose} className="text-brown-light hover:text-brown-dark transition-colors p-1">
             <LuX className="w-5 h-5" />
           </button>
         </div>
@@ -120,7 +150,7 @@ export default function ProposePriceModal({
           </div>
 
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose}
+            <button type="button" onClick={clearDraftAndClose}
               className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
               Cancel
             </button>

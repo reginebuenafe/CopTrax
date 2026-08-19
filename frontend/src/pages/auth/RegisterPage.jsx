@@ -4,9 +4,148 @@ import {
   LuLeaf, LuMail, LuLock, LuEye, LuEyeOff, LuUser, LuPhone,
   LuMapPin, LuCircleAlert, LuChevronDown, LuCamera, LuUpload,
   LuIdCard, LuPenLine, LuCheck, LuX, LuRefreshCw, LuLandmark,
-  LuChevronLeft, LuChevronRight, LuScanLine,
+  LuChevronLeft, LuChevronRight, LuScanLine, LuArrowLeft,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
+import jsQR from "jsqr";
+
+const PH_BANKS = [
+  "AllBank", "Asia United Bank", "Bank of China (Manila)", "Bank of Commerce",
+  "Bank of the Philippine Islands (BPI)", "BDO Network Bank", "BDO Unibank",
+  "BPI Direct BanKo", "CARD Bank", "Cebuana Lhuillier Rural Bank", "China Bank",
+  "China Bank Savings", "City Savings Bank", "Development Bank of the Philippines (DBP)",
+  "EastWest Bank", "GoTyme Bank", "Land Bank of the Philippines", "Maya Bank",
+  "Maybank Philippines", "Metropolitan Bank and Trust Company (Metrobank)", "Netbank",
+  "Overseas Filipino Bank", "Philippine Bank of Communications (PBCOM)",
+  "Philippine Business Bank", "Philippine National Bank (PNB)", "Philippine Savings Bank (PSBank)",
+  "Philippine Veterans Bank", "Queenbank", "RCBC", "SeaBank Philippines",
+  "Security Bank", "Sterling Bank of Asia", "Tonik Digital Bank", "UnionBank of the Philippines",
+  "UNO Digital Bank", "Wealth Development Bank", "GCash", "Maya Wallet",
+];
+
+const QR_MAX_FILE_SIZE = 5 * 1024 * 1024;
+const QR_MAX_PAYLOAD_LENGTH = 4096;
+const QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const OCR_MAX_IMAGE_DIMENSION = 2048;
+const OCR_JPEG_QUALITY = 0.9;
+
+function toTitleCase(value = "") {
+  return value
+    .trim()
+    .toLocaleLowerCase("en-PH")
+    .replace(/(^|[^\p{L}\p{N}])\p{L}/gu, match => match.toLocaleUpperCase("en-PH"));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(event.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function prepareImageForOcr(photoObj) {
+  const source = photoObj.file || photoObj.dataUrl;
+  if (!source) throw new Error("The ID photo could not be read.");
+
+  let image;
+  try {
+    image = await createImageBitmap(source);
+  } catch {
+    const response = await fetch(photoObj.dataUrl);
+    image = await createImageBitmap(await response.blob());
+  }
+
+  const scale = Math.min(1, OCR_MAX_IMAGE_DIMENSION / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      result => result ? resolve(result) : reject(new Error("The ID photo could not be compressed.")),
+      "image/jpeg",
+      OCR_JPEG_QUALITY,
+    );
+  });
+  return blobToDataUrl(blob);
+}
+
+function formatPhoneNumber(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return [digits.slice(0, 4), digits.slice(4, 7), digits.slice(7, 11)].filter(Boolean).join(" ");
+}
+
+function parseTlv(value) {
+  const fields = {};
+  let offset = 0;
+  while (offset + 4 <= value.length) {
+    const tag = value.slice(offset, offset + 2);
+    const lengthText = value.slice(offset + 2, offset + 4);
+    if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lengthText)) break;
+    const end = offset + 4 + Number(lengthText);
+    if (end > value.length) break;
+    fields[tag] = value.slice(offset + 4, end);
+    offset = end;
+  }
+  return fields;
+}
+
+function matchBankName(value = "") {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    bdo: "BDO Unibank", bpi: "Bank of the Philippine Islands (BPI)", metrobank: "Metropolitan Bank and Trust Company (Metrobank)",
+    mbtc: "Metropolitan Bank and Trust Company (Metrobank)", pnb: "Philippine National Bank (PNB)",
+    rcbc: "RCBC", unionbank: "UnionBank of the Philippines", ubp: "UnionBank of the Philippines",
+    landbank: "Land Bank of the Philippines", lbp: "Land Bank of the Philippines", dbp: "Development Bank of the Philippines (DBP)",
+    securitybank: "Security Bank", eastwest: "EastWest Bank", chinabank: "China Bank",
+    psbank: "Philippine Savings Bank (PSBank)", seabank: "SeaBank Philippines", gotyme: "GoTyme Bank",
+    mayabank: "Maya Bank", maya: "Maya Wallet", gcash: "GCash",
+  };
+  const alias = Object.entries(aliases).find(([key]) => normalized.includes(key));
+  if (alias) return alias[1];
+  return PH_BANKS.find(bank => normalized.includes(bank.toLowerCase().replace(/[^a-z0-9]/g, ""))) || "";
+}
+
+function parseQrBankDetails(payload) {
+  if (!payload || payload.length > QR_MAX_PAYLOAD_LENGTH) throw new Error("The QR code contains an oversized or malformed payload.");
+  const details = { bankName: "", accountName: "", accountNumber: "" };
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed && typeof parsed === "object") {
+      details.bankName = parsed.bankName || parsed.bank_name || parsed.bank || parsed.institution || "";
+      details.accountName = parsed.accountName || parsed.account_name || parsed.accountHolder || parsed.name || "";
+      details.accountNumber = parsed.accountNumber || parsed.account_number || parsed.account || parsed.number || "";
+    }
+  } catch { /* QR payloads are commonly not JSON */ }
+  try {
+    const params = new URL(payload).searchParams;
+    details.bankName ||= params.get("bank_name") || params.get("bank") || "";
+    details.accountName ||= params.get("account_name") || params.get("accountHolder") || params.get("name") || "";
+    details.accountNumber ||= params.get("account_number") || params.get("account") || params.get("number") || "";
+  } catch { /* QR payload may not be a URL */ }
+  const labeled = labels => {
+    const pattern = labels.map(label => label.replace(/\s+/g, "[ _-]*")).join("|");
+    return payload.match(new RegExp(`(?:${pattern})\\s*[:=]\\s*([^;|\\n\\r]+)`, "i"))?.[1]?.trim() || "";
+  };
+  details.bankName ||= labeled(["bank name", "bank", "institution"]);
+  details.accountName ||= labeled(["account holder name", "account name", "holder", "name"]);
+  details.accountNumber ||= labeled(["account number", "account no", "account"]);
+  const emv = parseTlv(payload);
+  details.accountName ||= emv["59"] || "";
+  for (let tag = 26; tag <= 51 && !details.accountNumber; tag += 1) {
+    const nested = emv[String(tag)] && parseTlv(emv[String(tag)]);
+    if (nested) details.accountNumber = nested["01"] || nested["02"] || "";
+  }
+  details.bankName = matchBankName(details.bankName || payload);
+  return details;
+}
 
 const GOV_ID_TYPES = [
   "Driver's License",
@@ -243,6 +382,10 @@ export default function RegisterPage() {
   const [selfiePhoto,     setSelfiePhoto]     = useState(null);
   const [signaturePhoto,  setSignaturePhoto]  = useState(null);
   const [idExtracting,    setIdExtracting]    = useState(false);
+  const [idScanSucceeded, setIdScanSucceeded] = useState(false);
+  const [qrDecoding,      setQrDecoding]      = useState(false);
+  const qrFileRef = useRef(null);
+  const idScanRequestRef = useRef(0);
 
   const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
@@ -253,19 +396,71 @@ export default function RegisterPage() {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
 
+  async function decodeBankQr(file) {
+    setError("");
+    if (!QR_IMAGE_TYPES.has(file.type)) {
+      setError("Please upload a PNG, JPEG, or WebP QR code image.");
+      return;
+    }
+    if (file.size > QR_MAX_FILE_SIZE) {
+      setError("The QR code image must be 5 MB or smaller.");
+      return;
+    }
+    setQrDecoding(true);
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await createImageBitmap(file);
+      if (image.width > 4096 || image.height > 4096) {
+        image.close();
+        throw new Error("The QR image dimensions are too large.");
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      image.close();
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: "attemptBoth" });
+      if (!result?.data) throw new Error("No readable QR code was found in the image.");
+      const details = parseQrBankDetails(result.data);
+      if (!details.bankName && !details.accountName && !details.accountNumber) {
+        throw new Error("The QR code does not contain recognizable bank account details.");
+      }
+      setForm(current => ({
+        ...current,
+        bankName: details.bankName || current.bankName,
+        accountName: details.accountName || current.accountName,
+        accountNumber: details.accountNumber || current.accountNumber,
+      }));
+    } catch (qrError) {
+      setError(qrError.message || "The QR code could not be read. Please enter the account details manually.");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+      setQrDecoding(false);
+      if (qrFileRef.current) qrFileRef.current.value = "";
+    }
+  }
+
   async function extractIdInfo(photoObj) {
+    const requestId = ++idScanRequestRef.current;
     setIdExtracting(true);
+    setIdScanSucceeded(false);
     setError("");
     try {
-      const dataUrl = photoObj.dataUrl ?? await new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = e => res(e.target.result);
-        reader.onerror = rej;
-        reader.readAsDataURL(photoObj.file);
-      });
+      // Preserve the original for registration and send a smaller OCR-only copy.
+      // Fall back to the original for formats the browser cannot decode (such as
+      // HEIC in some browsers) so preprocessing never prevents the scan itself.
+      let dataUrl;
+      try {
+        dataUrl = await prepareImageForOcr(photoObj);
+      } catch {
+        dataUrl = photoObj.dataUrl || await blobToDataUrl(photoObj.file);
+      }
       const { data, error: fnError } = await supabase.functions.invoke("extract-id-info", {
         body: { image_data_url: dataUrl },
       });
+      if (requestId !== idScanRequestRef.current) return;
       // supabase-js buries the response body inside fnError.context for non-2xx returns
       if (fnError) {
         let msg = fnError.message;
@@ -279,15 +474,28 @@ export default function RegisterPage() {
       if (data?.first_name || data?.last_name || data?.address) {
         setForm(f => ({
           ...f,
-          firstName: data.first_name || f.firstName,
-          lastName:  data.last_name  || f.lastName,
-          address:   data.address    || f.address,
+          firstName: data.first_name ? toTitleCase(data.first_name) : f.firstName,
+          lastName:  data.last_name  ? toTitleCase(data.last_name)  : f.lastName,
+          address:   data.address    ? toTitleCase(data.address)    : f.address,
         }));
+        setIdScanSucceeded(true);
+      } else {
+        throw new Error("No readable name or address was found. Try a clearer, closer photo.");
       }
     } catch (err) {
+      if (requestId !== idScanRequestRef.current) return;
       setError("ID scan failed: " + err.message + " — you can still fill in your details manually.");
+    } finally {
+      if (requestId === idScanRequestRef.current) setIdExtracting(false);
     }
-    setIdExtracting(false);
+  }
+
+  function updateGovIdPhoto(photo) {
+    idScanRequestRef.current += 1;
+    setGovIdPhoto(photo);
+    setIdScanSucceeded(false);
+    if (photo) extractIdInfo(photo);
+    else setIdExtracting(false);
   }
 
   function fileToDataUrl(fileObj) {
@@ -324,11 +532,23 @@ export default function RegisterPage() {
       if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
       if (!form.accountName.trim())   { setError("Account holder name is required."); return false; }
       if (!form.accountNumber.trim()) { setError("Account number is required."); return false; }
+      if (!/^\d+$/.test(form.accountNumber.trim())) {
+        setError("Enter a valid bank account number using digits only. Letters, spaces, symbols, and SWIFT/BIC codes are not accepted.");
+        return false;
+      }
+      if (!/^\d{9,18}$/.test(form.accountNumber.trim())) {
+        setError("Enter a valid bank account number containing 9 to 18 digits.");
+        return false;
+      }
     }
     return true;
   }
 
   function goNext() {
+    if (currentStep === 0 && idExtracting) {
+      setError("Please wait while your government ID is being scanned.");
+      return;
+    }
     if (!validateStep(currentStep)) return;
     setCurrentStep(s => s + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -450,12 +670,12 @@ export default function RegisterPage() {
             required
             hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
             preview={govIdPhoto?.dataUrl ?? null}
-            onFile={v => { setGovIdPhoto(v); if (v) extractIdInfo(v); }}
+            onFile={updateGovIdPhoto}
             onCamera={() => setCamera({
               facing: "environment",
               title: "Photograph your Government ID",
               instructions: "Place your ID on a flat surface in good lighting. Make sure all four corners are visible and the text is sharp.",
-              onCapture: v => { setGovIdPhoto(v); extractIdInfo(v); },
+              onCapture: updateGovIdPhoto,
             })}
           />
           {idExtracting && (
@@ -464,7 +684,7 @@ export default function RegisterPage() {
               Reading your ID… your details will be filled in automatically
             </div>
           )}
-          {govIdPhoto && !idExtracting && (
+          {govIdPhoto && !idExtracting && idScanSucceeded && (
             <div className="flex items-center gap-2 text-xs text-green-dark">
               <LuCheck className="w-3.5 h-3.5" />
               ID scanned — your information will be pre-filled in the next step
@@ -520,8 +740,9 @@ export default function RegisterPage() {
             <label className="block text-sm font-medium text-brown-dark mb-1.5">Phone number</label>
             <div className="relative">
               <LuPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-              <input type="tel" value={form.phone} onChange={set("phone")}
-                placeholder="+63 9XX XXX XXXX" className={`${inputClass} pl-10`} />
+              <input type="tel" inputMode="numeric" value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: formatPhoneNumber(e.target.value) }))}
+                placeholder="0917 123 4567" maxLength={13} className={`${inputClass} pl-10`} />
             </div>
           </div>
 
@@ -625,12 +846,36 @@ export default function RegisterPage() {
           <p className="text-xs text-brown-light">
             This account will receive electronic payments after every accepted delivery.
           </p>
+          <div className="rounded-2xl border border-beige-dark bg-beige/50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-green-pale text-green-dark flex items-center justify-center shrink-0">
+                <LuScanLine className="w-4.5 h-4.5" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-brown-dark">Auto-fill from a bank QR code</p>
+                <p className="text-xs text-brown-light mt-0.5">Decoded privately in your browser. The image and QR contents are never uploaded or saved.</p>
+                <button type="button" disabled={qrDecoding} onClick={() => qrFileRef.current?.click()}
+                  className="mt-3 flex items-center gap-2 px-4 py-2 rounded-xl border border-beige-dark bg-white text-brown-mid font-semibold text-xs hover:bg-green-pale disabled:opacity-50 transition-all">
+                  {qrDecoding ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuUpload className="w-4 h-4" />}
+                  {qrDecoding ? "Reading QR code…" : "Upload QR image"}
+                </button>
+                <input ref={qrFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                  onChange={e => { const file = e.target.files?.[0]; if (file) decodeBankQr(file); }} />
+                <p className="text-[11px] text-brown-light mt-2">PNG, JPEG, or WebP · max 5 MB</p>
+              </div>
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">
               Bank name <span className="text-red-500">*</span>
             </label>
-            <input type="text" value={form.bankName} onChange={set("bankName")}
-              placeholder="e.g. BDO, BPI, Metrobank, GCash…" className={`${inputClass} px-4`} />
+            <div className="relative">
+              <select value={form.bankName} onChange={set("bankName")} className={`${inputClass} px-4 pr-10 appearance-none`}>
+                <option value="">Select a bank</option>
+                {PH_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
+              </select>
+              <LuChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-brown-dark mb-1.5">
@@ -681,6 +926,10 @@ export default function RegisterPage() {
       )}
 
       <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+        <Link to="/" aria-label="Back to homepage"
+          className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
+          <LuArrowLeft className="w-4 h-4 text-green-dark" />
+        </Link>
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
           <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />
@@ -734,9 +983,9 @@ export default function RegisterPage() {
                   </button>
                 )}
                 {currentStep < STEPS.length - 1 ? (
-                  <button type="button" onClick={goNext}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
-                    Next <LuChevronRight className="w-4 h-4" />
+                  <button type="button" onClick={goNext} disabled={currentStep === 0 && idExtracting}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green disabled:opacity-60 disabled:cursor-wait transition-all">
+                    {currentStep === 0 && idExtracting ? "Scanning ID…" : <>Next <LuChevronRight className="w-4 h-4" /></>}
                   </button>
                 ) : (
                   <button type="submit"
