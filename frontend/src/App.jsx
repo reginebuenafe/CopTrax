@@ -22,7 +22,6 @@ import BOConversationsPage from "./pages/owner/BOConversationsPage";
 import BOChatLayout from "./pages/owner/BOChatLayout";
 import BOContractsPage from "./pages/owner/BOContractsPage";
 import BODeliveriesPage from "./pages/owner/BODeliveriesPage";
-import BOQualityPage from "./pages/owner/BOQualityPage";
 import PaymentsPage from "./pages/owner/PaymentsPage";
 import InventoryPage from "./pages/owner/InventoryPage";
 import SupplierRatingsPage from "./pages/owner/SupplierRatingsPage";
@@ -90,7 +89,6 @@ function App() {
           <Route path="conversations/:conversationId" element={<BOChatLayout />} />
           <Route path="contracts" element={<BOContractsPage />} />
           <Route path="deliveries" element={<BODeliveriesPage />} />
-          <Route path="quality" element={<BOQualityPage />} />
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="suppliers" element={<SupplierRatingsPage />} />

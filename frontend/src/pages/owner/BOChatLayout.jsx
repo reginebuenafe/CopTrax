@@ -298,7 +298,7 @@ export default function BOChatLayout() {
     if (conv?.supplier) {
       // Load supplier rating
       const { data: ratingData } = await supabase
-        .from("supplier_performance_snapshots")
+        .from("supplier_performance_snapshot")
         .select("overall_supplier_rating")
         .eq("supplier_id", conv.supplier.user_id)
         .order("snapshot_date", { ascending: false })
@@ -850,11 +850,13 @@ export default function BOChatLayout() {
                   {supplierData.address.split(",").slice(0, 2).join(",")}
                 </p>
               )}
-              {supplierData.rating !== null && (
+              {supplierData.rating !== null ? (
                 <div className="flex items-center gap-1 mt-1.5">
                   <LuStar className="w-3 h-3 text-amber-400 fill-amber-400" />
-                  <span className="text-xs font-semibold text-[#3d2b1f]">{Number(supplierData.rating).toFixed(1)}</span>
+                  <span className="text-xs font-semibold text-[#3d2b1f]">{Number(supplierData.rating).toFixed(1)} / 5</span>
                 </div>
+              ) : (
+                <p className="text-[11px] text-[#b09a7a] mt-1.5">No rating yet</p>
               )}
             </div>
 

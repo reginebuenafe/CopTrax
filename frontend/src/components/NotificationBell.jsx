@@ -1,23 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { LuBell, LuCheck, LuCheckCheck } from "react-icons/lu";
+import {
+  LuBell, LuCheck, LuCheckCheck,
+  LuTruck, LuFileText, LuWallet, LuPackage, LuTriangleAlert,
+  LuCalendarClock, LuStar, LuUserCheck,
+} from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 
-const TYPE_STYLES = {
-  "Contract Signed":     "bg-green-pale text-green-dark",
-  "Contract Activated":  "bg-green-pale text-green-dark",
-  "Contract Completed":  "bg-green-pale text-green-dark",
-  "Contract Breached":   "bg-red-50 text-red-600",
-  "Delivery Accepted":   "bg-blue-50 text-blue-600",
-  "Delivery Rejected":   "bg-red-50 text-red-600",
-  "Weekly Payment Ready":"bg-amber-50 text-amber-700",
-  "Payment Released":    "bg-emerald-50 text-emerald-700",
-  "Deadline Reminder":   "bg-orange-50 text-orange-600",
-  "Merge Pending":       "bg-purple-50 text-purple-600",
-  "Merge Ready":         "bg-amber-50 text-amber-700",
-  "Merge Completed":     "bg-green-pale text-green-dark",
-  "Other":               "bg-beige text-brown-mid",
+// Map notification type → { icon, bg, text }
+const TYPE_ICON = {
+  "Contract Signed":      { icon: LuFileText,      bg: "bg-green-pale",  text: "text-green-dark" },
+  "Contract Activated":   { icon: LuFileText,      bg: "bg-green-pale",  text: "text-green-dark" },
+  "Contract Completed":   { icon: LuFileText,      bg: "bg-blue-50",     text: "text-blue-600" },
+  "Contract Breached":    { icon: LuTriangleAlert, bg: "bg-red-50",      text: "text-red-600" },
+  "Delivery Accepted":    { icon: LuTruck,         bg: "bg-green-pale",  text: "text-green-dark" },
+  "Delivery Rejected":    { icon: LuTruck,         bg: "bg-red-50",      text: "text-red-600" },
+  "Weekly Payment Ready": { icon: LuWallet,        bg: "bg-amber-50",    text: "text-amber-700" },
+  "Payment Released":     { icon: LuWallet,        bg: "bg-emerald-50",  text: "text-emerald-700" },
+  "Deadline Reminder":    { icon: LuCalendarClock, bg: "bg-orange-50",   text: "text-orange-600" },
+  "Merge Pending":        { icon: LuPackage,       bg: "bg-purple-50",   text: "text-purple-600" },
+  "Merge Ready":          { icon: LuPackage,       bg: "bg-amber-50",    text: "text-amber-700" },
+  "Merge Completed":      { icon: LuPackage,       bg: "bg-green-pale",  text: "text-green-dark" },
+  "Supplier Approved":    { icon: LuUserCheck,     bg: "bg-purple-50",   text: "text-purple-600" },
+  "Supplier Rated":       { icon: LuStar,          bg: "bg-amber-50",    text: "text-amber-700" },
 };
+const FALLBACK_ICON = { icon: LuBell, bg: "bg-beige", text: "text-brown-mid" };
 
 function fmtRelative(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -137,29 +144,37 @@ export default function NotificationBell() {
                 <LuBell className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 No notifications yet
               </li>
-            ) : notifications.map(n => (
-              <li
-                key={n.notification_id}
-                className={`px-4 py-3 transition-colors ${n.is_read ? "bg-white" : "bg-green-pale/30"}`}
-              >
-                <div className="flex items-start gap-3">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 ${TYPE_STYLES[n.notification_type] ?? TYPE_STYLES["Other"]}`}>
-                    {n.notification_type}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-brown-dark text-xs leading-relaxed">{n.message}</p>
-                    <p className="text-brown-light text-[11px] mt-1">{fmtRelative(n.created_at)}</p>
+            ) : notifications.map(n => {
+              const meta  = TYPE_ICON[n.notification_type] ?? FALLBACK_ICON;
+              const NIcon = meta.icon;
+              return (
+                <li
+                  key={n.notification_id}
+                  className={`px-4 py-2.5 transition-colors ${n.is_read ? "bg-white" : "bg-green-pale/20"}`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {/* small icon */}
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${meta.bg}`}>
+                      <NIcon className={`w-3.5 h-3.5 ${meta.text}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-semibold leading-snug ${n.is_read ? "text-brown-mid" : "text-brown-dark"}`}>
+                        {n.notification_type}
+                      </p>
+                      <p className="text-[11px] text-brown-mid leading-snug mt-0.5 line-clamp-2">{n.message}</p>
+                      <p className="text-[10px] text-brown-light mt-0.5">{fmtRelative(n.created_at)}</p>
+                    </div>
+                    {!n.is_read && (
+                      <button onClick={() => markOneRead(n.notification_id)}
+                        className="shrink-0 text-green-dark hover:text-green-mid transition-colors mt-1"
+                        aria-label="Mark as read">
+                        <LuCheck className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                  {!n.is_read && (
-                    <button onClick={() => markOneRead(n.notification_id)}
-                      className="shrink-0 text-green-dark hover:text-green-mid transition-colors mt-0.5"
-                      aria-label="Mark as read">
-                      <LuCheck className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

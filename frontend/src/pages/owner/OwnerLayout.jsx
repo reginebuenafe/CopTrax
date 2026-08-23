@@ -2,7 +2,7 @@ import { createElement, useState, useEffect } from "react";
 import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuUsers, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
-  LuLayoutDashboard, LuFileText, LuTruck, LuFlaskConical,
+  LuLayoutDashboard, LuFileText, LuTruck,
   LuWallet, LuPackage, LuStar, LuMessageSquare, LuFileChartColumn, LuSettings,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
@@ -16,7 +16,6 @@ const NAV_ITEMS = [
   { to: "/dashboard/owner/conversations", label: "Negotiations", icon: LuMessageSquare },
   { to: "/dashboard/owner/contracts", label: "Contracts", icon: LuFileText },
   { to: "/dashboard/owner/deliveries", label: "Deliveries", icon: LuTruck },
-  { to: "/dashboard/owner/quality", label: "Quality Results", icon: LuFlaskConical },
   { to: "/dashboard/owner/payments", label: "Payments", icon: LuWallet },
   { to: "/dashboard/owner/inventory", label: "Inventory", icon: LuPackage },
   { to: "/dashboard/owner/suppliers", label: "Supplier Ratings", icon: LuStar },

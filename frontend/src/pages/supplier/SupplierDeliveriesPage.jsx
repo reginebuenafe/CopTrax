@@ -12,6 +12,14 @@ function fmtDate(d) {
 }
 function fmt3(n) { return Number(n ?? 0).toFixed(3); }
 
+function contractLabel(d) {
+  const allocs = (d.delivery_allocations ?? []).filter(a => a.contract_id);
+  if (allocs.length === 0) return d.contract?.contract_number ?? null;
+  const nums = [...new Set(allocs.map(a => a.contract?.contract_number).filter(Boolean))];
+  if (nums.length === 1) return nums[0];
+  return `${nums.length} Contracts`;
+}
+
 const STATUS_META = {
   Pending:   { color: "bg-beige text-brown-mid",        label: "Pending",   icon: LuClock },
   Weighed:   { color: "bg-blue-50 text-blue-600",        label: "Weighed",   icon: LuTruck },
@@ -104,12 +112,21 @@ export default function SupplierDeliveriesPage() {
             const li = d.laboratory_inspections?.[0];
             const qr = d.quality_results?.[0];
             const payment = d.payments;
-            const isLate = d.contract?.due_date && new Date(d.delivery_date) > new Date(d.contract.due_date);
+            const allocs = (d.delivery_allocations ?? [])
+              .slice()
+              .sort((a, b) => a.sequence_order - b.sequence_order);
+            const label = contractLabel(d);
 
             // Compute discount from remarks
             const remarkMatch = qr?.remarks?.match(/Discount:\s*([\d.]+)%/);
             const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
             const finalKg = wr ? Number(wr.net_weight_kg) * (1 - discountPct / 100) : null;
+
+            // Derive overall price type from allocations
+            const hasSpot = allocs.some(a => a.price_type === "Spot");
+            const hasNeg  = allocs.some(a => a.price_type === "Negotiated");
+            const priceTypeLabel = hasSpot && hasNeg ? "Mixed (Negotiated + Spot)"
+              : hasSpot ? "Spot" : hasNeg ? "Negotiated" : null;
 
             return (
               <div key={d.delivery_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
@@ -123,10 +140,7 @@ export default function SupplierDeliveriesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-brown-dark">{d.contract?.contract_number ?? "—"}</p>
-                      {isLate && (
-                        <span className="text-xs bg-red-50 text-red-500 font-semibold px-1.5 py-0.5 rounded-full">Late</span>
-                      )}
+                      <p className="font-bold text-brown-dark">{label ?? "—"}</p>
                     </div>
                     <p className="text-brown-light text-xs">{fmtDate(d.delivery_date)}</p>
                   </div>
@@ -168,13 +182,41 @@ export default function SupplierDeliveriesPage() {
                       </Section>
                     )}
 
+                    {/* Allocation breakdown */}
+                    {allocs.length > 0 && (
+                      <Section title="Allocation" icon={LuCheck}>
+                        <div className="space-y-1.5">
+                          {allocs.map((a, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs bg-beige rounded-lg px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
+                                  a.price_type === "Spot"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-green-pale text-green-dark"
+                                }`}>
+                                  {a.price_type}
+                                </span>
+                                <span className="font-semibold text-brown-dark">
+                                  {a.contract_id
+                                    ? (a.contract?.contract_number ?? "Contract")
+                                    : "Spot Price"
+                                  }
+                                </span>
+                              </div>
+                              <span className="font-semibold text-brown-dark">{fmt3(a.allocated_weight_kg)} kg</span>
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+
                     {/* Payment */}
                     {payment && (
                       <Section title="Payment" icon={LuCheck}>
                         <Grid items={[
-                          { label: "Status",    value: payment.payment_status },
-                          { label: "Price Type", value: isLate ? "Spot (Late)" : "Negotiated (On-time)" },
-                        ]} />
+                          { label: "Status",     value: payment.payment_status },
+                          priceTypeLabel && { label: "Price Type", value: priceTypeLabel },
+                        ].filter(Boolean)} />
                       </Section>
                     )}
 

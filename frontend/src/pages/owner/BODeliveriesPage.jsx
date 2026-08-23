@@ -10,6 +10,18 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
 function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function peso(n) {
+  return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Build a concise contract label from delivery_allocations (or fall back to primary contract)
+function contractLabel(d) {
+  const allocs = (d.delivery_allocations ?? []).filter(a => a.contract_id);
+  if (allocs.length === 0) return d.contract?.contract_number ?? null;
+  const nums = [...new Set(allocs.map(a => a.contract?.contract_number).filter(Boolean))];
+  if (nums.length === 1) return nums[0];
+  return `${nums.length} Contracts`;
+}
 
 const STATUS_META = {
   Pending:   { color: "bg-beige text-brown-mid",          label: "Pending",   icon: LuClock },
@@ -39,8 +51,11 @@ export default function BODeliveriesPage() {
           walkin_supplier:walkin_supplier_id(first_name, last_name),
           weigher:weigher_id(first_name, last_name),
           weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
-          laboratory_inspections(moisture_content_pct),
-          quality_results(result, remarks)
+          laboratory_inspections(moisture_content_pct, inspected_at,
+            lab_staff:lab_staff_id(first_name, last_name)),
+          quality_results(result, remarks),
+          delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+            contract:contract_id(contract_number, negotiated_price_per_kg))
         `)
         .order("created_at", { ascending: false });
       setDeliveries(data ?? []);
@@ -125,7 +140,10 @@ export default function BODeliveriesPage() {
             const remarkMatch = qr?.remarks?.match(/Discount:\s*([\d.]+)%/);
             const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
             const finalKg = wr ? Number(wr.net_weight_kg) * (1 - discountPct / 100) : null;
-            const isLate = d.contract?.due_date && new Date(d.delivery_date) > new Date(d.contract?.due_date);
+            const contractRef = d.delivery_source === "Contract-based" ? contractLabel(d) : null;
+            const allocs = (d.delivery_allocations ?? [])
+              .slice()
+              .sort((a, b) => a.sequence_order - b.sequence_order);
 
             return (
               <div key={d.delivery_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
@@ -144,11 +162,10 @@ export default function BODeliveriesPage() {
                       }`}>
                         {d.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
                       </span>
-                      {isLate && <span className="text-xs bg-red-50 text-red-500 font-semibold px-1.5 py-0.5 rounded-full">Late</span>}
                     </div>
                     <p className="text-brown-light text-xs">
                       {fmtDate(d.delivery_date)}
-                      {d.contract?.contract_number ? ` · ${d.contract.contract_number}` : ""}
+                      {contractRef ? ` · ${contractRef}` : ""}
                       {wr ? ` · ${fmt3(wr.net_weight_kg)} kg net` : ""}
                     </p>
                   </div>
@@ -160,6 +177,7 @@ export default function BODeliveriesPage() {
 
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-5 py-4">
+                    {/* Weighing + Quality grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
                       {wr && <>
                         <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
@@ -167,17 +185,77 @@ export default function BODeliveriesPage() {
                         <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
                         <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
                       </>}
-                      {li && <>
+                      {li ? <>
                         <InfoItem label="Moisture %" value={`${li.moisture_content_pct}%`} />
                         <InfoItem label="PCA Discount" value={`${discountPct}%`} />
                         <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(3)} kg` : "—"} />
-                        <InfoItem label="Result" value={qr?.result ?? "—"} highlight={qr?.result} />
-                      </>}
+                        <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
+                      </> : (
+                        <InfoItem label="Quality Result" value="Pending" />
+                      )}
                     </div>
+                    {/* Lab staff + inspected date — only when inspection exists */}
+                    {li && (
+                      <div className="flex flex-wrap gap-4 text-xs text-brown-light mb-3">
+                        <span>
+                          Lab Staff:{" "}
+                          <span className="font-semibold text-brown-mid">
+                            {`${li.lab_staff?.first_name ?? ""} ${li.lab_staff?.last_name ?? ""}`.trim() || "—"}
+                          </span>
+                        </span>
+                        {li.inspected_at && (
+                          <span>
+                            Inspected:{" "}
+                            <span className="font-semibold text-brown-mid">{fmtDate(li.inspected_at)}</span>
+                          </span>
+                        )}
+                        {qr?.remarks && (
+                          <span>
+                            Remarks:{" "}
+                            <span className="font-semibold text-brown-mid">{qr.remarks}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {(d.truck_plate_number || d.batch_number) && (
                       <div className="flex gap-4 text-xs text-brown-light">
                         {d.batch_number && <span>Batch: <span className="font-semibold text-brown-mid">{d.batch_number}</span></span>}
                         {d.truck_plate_number && <span>Plate: <span className="font-semibold text-brown-mid">{d.truck_plate_number}</span></span>}
+                      </div>
+                    )}
+                    {/* Allocation breakdown — shown only for contractual deliveries with allocation data */}
+                    {d.delivery_source === "Contract-based" && allocs.length > 0 && (
+                      <div className="mt-3 bg-beige rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-brown-light uppercase tracking-wide mb-2">
+                          Allocation Breakdown
+                        </p>
+                        <div className="space-y-1.5">
+                          {allocs.map((a, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
+                                  a.price_type === "Spot"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-green-pale text-green-dark"
+                                }`}>
+                                  {a.price_type}
+                                </span>
+                                <span className="font-semibold text-brown-dark">
+                                  {a.contract_id
+                                    ? (a.contract?.contract_number ?? "Contract")
+                                    : "Spot Price"
+                                  }
+                                </span>
+                              </div>
+                              <div className="text-right text-brown-mid">
+                                <span className="font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
+                                {a.contract_id && a.contract?.negotiated_price_per_kg && (
+                                  <span className="text-brown-light ml-2">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

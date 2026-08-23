@@ -2,6 +2,250 @@
 
 This file is read automatically at the start of every session in this repo.
 
+# CRITICAL: NEGOTIATION & CHAT LOGIC IS LOCKED
+
+## 🚨 ABSOLUTE RULE — DO NOT MODIFY NEGOTIATION LOGIC
+The existing negotiation and chat functionality is **WORKING AND MUST BE TREATED AS LOCKED / PROTECTED LOGIC**.
+
+When making ANY changes to this project, **DO NOT alter, refactor, rewrite, simplify, optimize, reorganize, replace, or otherwise modify the existing functional logic related to chat-based price negotiation.**
+
+This restriction applies even if you believe the current implementation could be cleaner, more efficient, more maintainable, or better structured.
+
+**IF IT WORKS, LEAVE IT ALONE.**
+
+---
+
+## PROTECTED COMPONENTS / AREAS
+The following components and their associated logic are STRICTLY PROTECTED:
+
+- `NegotiationChatWidget`
+- `SupplierChatLayout`
+- Business Owner `ConversationsPage`
+- Supplier conversation/chat pages
+- Business Owner conversation/chat pages
+- Any component, hook, service, utility, API call, database query, realtime subscription, state handler, or helper involved in negotiation chat
+- Any shared code used by the negotiation/chat system
+This protection is **NOT limited to these exact filenames**.
+
+If another file participates in or affects the negotiation/chat workflow, **its negotiation-related logic must also be treated as protected.**
+
+---
+
+## PROTECTED NEGOTIATION BEHAVIOR
+DO NOT change the logic responsible for:
+
+- Sending normal chat messages
+- Receiving chat messages
+- Realtime chat updates
+- Conversation creation
+- Conversation retrieval
+- Conversation identification
+- Message ordering
+- Chat state management
+- Supplier proposals
+- Price proposals
+- Volume/quantity proposals
+- Counteroffers
+- Accepting offers
+- Declining offers
+- Determining who sent an offer
+- Determining who received an offer
+- Determining which party may respond
+- Proposal status handling
+- Negotiation state transitions
+- Finalizing agreed price
+- Finalizing agreed volume/quantity
+- Contract generation triggered by negotiation
+- Contract messages sent through negotiation
+- Automatic/system-generated negotiation messages
+- Business Owner vs Supplier sender/recipient behavior
+- Realtime subscriptions/listeners
+- Existing Supabase queries/mutations used by negotiation
+- Existing database interactions supporting negotiation
+- Existing negotiation-related side effects
+Do not change these behaviors unless the user **EXPLICITLY requests a modification to that exact behavior.**
+
+---
+
+## BUSINESS RULES THAT MUST REMAIN INTACT
+The existing negotiation workflow must remain unchanged.
+
+The Supplier initiates a negotiation by proposing a price and volume.
+
+The Business Owner may respond according to the existing implementation.
+
+Counteroffers, acceptance, and decline behavior must continue functioning exactly as currently implemented.
+
+The system must continue correctly identifying the sender and recipient of offers.
+
+Only the appropriate recipient of an offer should receive the corresponding negotiation actions according to the existing implementation.
+
+When an agreement is reached, the existing finalized price, finalized volume, contract generation, contract messaging, and related workflow must remain intact.
+
+**DO NOT recreate this logic from scratch.**
+
+**DO NOT introduce a new negotiation architecture.**
+
+**DO NOT modify working behavior while implementing unrelated features.**
+
+---
+
+# FRONTEND / DESIGN CHANGES ARE ALLOWED
+You MAY modify the visual frontend of these components when requested.
+
+Allowed changes include:
+
+- Colors
+- Typography
+- Font sizes
+- Spacing
+- Padding
+- Margins
+- Borders
+- Border radius
+- Shadows
+- Icons
+- Button appearance
+- Message bubble appearance
+- Card appearance
+- Responsive layout
+- Visual hierarchy
+- Alignment
+- CSS
+- Tailwind classes
+- Purely presentational JSX structure when necessary
+However:
+
+> **A frontend/design change MUST NOT change functional behavior.**
+When changing the UI, preserve:
+
+- Existing event handlers
+- Existing callback behavior
+- Existing state behavior
+- Existing props
+- Existing data flow
+- Existing API/database calls
+- Existing Supabase calls
+- Existing realtime subscriptions
+- Existing conditions
+- Existing role checks
+- Existing negotiation actions
+- Existing side effects
+- Existing sender/recipient logic
+If changing the JSX structure requires moving an existing handler, move it **without changing what the handler does**.
+
+---
+
+# DO NOT "CLEAN UP" WORKING NEGOTIATION CODE
+Do NOT perform opportunistic refactoring.
+
+For example, while editing the design, DO NOT:
+
+- Rewrite handlers
+- Merge handlers
+- Rename or restructure negotiation state unnecessarily
+- Replace existing queries
+- Rewrite Supabase subscriptions
+- Change `useEffect` dependencies without necessity
+- Change proposal conditions
+- Change sender/recipient checks
+- Change role checks
+- Change status comparisons
+- Replace existing negotiation functions with "cleaner" versions
+- Extract working logic into new hooks/services
+- Consolidate negotiation components
+- Change database schemas related to negotiation
+- Modify RLS policies related to negotiation
+- Change message/proposal data structures
+- Remove code because it appears redundant
+- Fix unrelated warnings by altering negotiation logic
+- Make speculative bug fixes
+**NO REFACTORING FOR THE SAKE OF REFACTORING.**
+
+---
+
+# MINIMUM-CHANGE RULE
+For every requested modification:
+
+1. Identify the exact code required for the requested change.
+2. Modify the smallest possible amount of code.
+3. Preserve all unrelated behavior.
+4. Do not touch negotiation/chat logic unless the requested task specifically requires it.
+5. Do not modify additional files merely for cleanup or consistency.
+6. Do not introduce architectural changes unless explicitly requested.
+A request involving a page that contains negotiation functionality **does NOT automatically grant permission to modify the negotiation logic.**
+
+For example:
+
+If asked to redesign `NegotiationChatWidget`, you may redesign its appearance.
+
+You **MUST NOT** rewrite how proposals, messages, counteroffers, acceptance, decline, contracts, or realtime updates work.
+
+---
+
+# EXPLICIT OVERRIDE REQUIRED
+Negotiation/chat logic may ONLY be modified when the user explicitly identifies the specific negotiation behavior they want changed.
+
+Example:
+
+> "Change the behavior so that after the Supplier accepts the Business Owner's counteroffer, X should happen."
+Only the logic necessary to implement **X** may be modified.
+
+This does **NOT** grant permission to refactor the rest of the negotiation system.
+
+After making the requested behavioral change, all other negotiation behavior must remain exactly as before.
+
+---
+
+# BEFORE MODIFYING NEGOTIATION-RELATED FILES
+Before editing any protected file, first determine:
+
+**Is this change actually necessary to satisfy the user's request?**
+
+If NO:
+
+**DO NOT MODIFY THE FILE.**
+
+If YES, determine:
+
+**Can this request be completed by changing presentation/UI only?**
+
+If YES:
+
+**CHANGE PRESENTATION ONLY. DO NOT TOUCH LOGIC.**
+
+If logic modification is explicitly required:
+
+**CHANGE ONLY THE MINIMUM LOGIC NECESSARY FOR THE SPECIFIC REQUEST.**
+
+---
+
+# REGRESSION PROTECTION
+Any change involving these components must preserve the complete existing negotiation workflow.
+
+Do not introduce regressions into:
+
+`Supplier → Proposal → Business Owner Response → Counteroffer (if applicable) → Acceptance/Decline → Finalized Terms → Contract Generation → Contract Signing/Viewing`
+
+Normal chat messaging and realtime synchronization must also continue functioning exactly as before.
+
+A change is **NOT successful** if the requested feature works but an existing negotiation/chat feature stops working.
+
+---
+
+# PRIORITY
+These rules have HIGH PRIORITY for all future modifications.
+
+When there is uncertainty about whether a change could affect negotiation/chat functionality:
+
+**DO NOT CHANGE IT.**
+
+Prefer preserving known-working behavior over refactoring, optimization, cleanup, or architectural improvements.
+
+### FINAL RULE
+
+> **THE NEGOTIATION AND CHAT SYSTEM IS WORKING. DO NOT TOUCH ITS FUNCTIONAL LOGIC UNLESS THE USER EXPLICITLY REQUESTS A SPECIFIC LOGIC CHANGE. FRONTEND/DESIGN CHANGES ARE ALLOWED, BUT THEY MUST PRESERVE THE EXISTING LOGIC EXACTLY.**
+
 ## Project
 
 **CopTrax** — a web-based procurement management system for NERC Copra Trading. Digitizes: registration/verification → negotiate price → sign contract → deliver → weigh → test quality → compute payment → manage inventory → rate suppliers → report. Four roles: **Business Owner**, **Supplier**, **Weigher**, **Laboratory Staff**.
@@ -77,6 +321,7 @@ Do not simplify, "improve," or guess differently on these — they were delibera
 11. **Reports**: Business Owner only — Procurement Contract, Delivery, Inventory, Payment, Supplier Performance. Must support date-range filtering and PDF/.xlsx export.
 12. **Notifications**: contract events, delivery accept/reject, payment released, contract completed/breached, negotiation messages, and the three inventory-merge events (Pending, Ready, Completed).
 13. **Bank accounts**: Self-service — every user (Supplier, Business Owner, staff) can edit their own bank details directly in Account Settings. **No approval flow.** Suppliers set their initial bank info during registration.
+14. **Multi-contract delivery allocation**: When a Supplier has multiple Active contracts, the system prioritizes the contract with the **earliest delivery deadline**. If an accepted delivery exceeds the remaining quantity of the current contract, the system completes that contract and automatically allocates the excess to the next eligible Active contract (ordered by earliest deadline) at that contract's negotiated unit price. This cascades until the full delivery is allocated. Any remaining quantity after all Active contracts are exhausted is processed at the current **Spot Price** (as a Non-Contract allocation). This logic lives in an Edge Function — never client-side.
 
 ## Hard constraints
 
@@ -96,7 +341,26 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
-### 2026-08-19 — Registration ID scan performance and formatting
+### 2026-08-24 — BO Dashboard analytics upgrade
+
+- **`OwnerOverview.jsx`** rebuilt into a full analytics dashboard. Existing greeting, spot-price card, 4 summary stat cards, staff-account modal, and toast are all preserved unchanged.
+- **6 new analytics sections** added, all reading existing data with no new business logic:
+  1. **Delivery Volume** — CSS bar chart of accepted net-weight (kg) grouped by month for the last 6 months, with current-month total and month-over-month comparison.
+  2. **Contract Progress** — active contracts with progress bars (delivered kg / contracted kg), remaining kg, supplier name; reuses same contract + `delivery_allocations` query pattern as `BOContractsPage`.
+  3. **Quality Overview** — tile grid: accepted / rejected / awaiting counts + avg MC + avg PCA discount %; reads `laboratory_inspections` + `quality_results`, same discount-from-remarks logic as the rest of the system.
+  4. **Payment Summary** — total paid (Released), pending batch amount, unbatched accepted-delivery count; reads `payments` + `deliveries` with no new payment math.
+  5. **Top Suppliers** — top-5 by `overall_supplier_rating` from `supplier_performance_snapshot` with progress bars; same table/query used by `SupplierRatingsPage`.
+  6. **Recent Activity** — last 8 BO notifications from the `notifications` table with relative timestamps.
+- Staff Account Management section kept but made compact and moved to the bottom of the page.
+- "Awaiting Inspection" stat card path updated to `/deliveries` (Quality Results page was removed from BO sidebar in the previous session).
+
+
+
+- **`BODeliveriesPage`**: now fetches `delivery_allocations` (with per-contract price and weight) and displays an **Allocation Breakdown** panel in the expanded delivery view, showing each slice (contract number + price type + allocated kg + price/kg). The summary subtitle uses `contractLabel()` to show the single contract number or "N Contracts" for multi-contract deliveries; the inaccurate `isLate` badge is removed.
+- **`SupplierDeliveriesPage`**: same `contractLabel()` helper applied to the summary row; an **Allocation** section in the expanded detail lists each allocation slice (Negotiated vs Spot, contract name, weight). The Payment section's price type is now derived from actual `delivery_allocations.price_type` (Negotiated / Spot / Mixed) instead of the incorrect `isLate` flag.
+- No schema or Edge Function changes needed — the cascade allocation engine (`buildAllocationPreview` in `ContractualDeliveryForm`, `delivery_allocations` table, `check_contract_completion_on_acceptance` trigger, and payment calculation in `PaymentsPage`) was already fully correct.
+
+
 
 - Government ID OCR now receives a compressed, maximum-2048px JPEG while registration retains the original image, with an original-image fallback for browser-incompatible formats such as HEIC. Stale overlapping scan results are ignored, navigation waits for active scanning, scan success is reported accurately, and extracted first name, last name, and address values are normalized to Title Case in both the registration UI and extraction Edge Function. Login and registration pages include responsive Back to Homepage controls.
 - Fixed Account Settings repeatedly mounting and unmounting when its sensitive-session timeout activated. Authentication initialization now remains stable while timeout-duration changes restart only the idle timer.

@@ -89,7 +89,7 @@ export default function PaymentsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── payment computation: allocation-aware (spec §3.5) ────────────────────
+  // ── payment computation: one line per allocation (spec §3.5) ──────────────
   function computeLine(delivery, spot) {
     const wr   = delivery.weighing_records?.[0];
     const li   = delivery.laboratory_inspections?.[0];
@@ -102,40 +102,57 @@ export default function PaymentsPage() {
     if (qr.result !== "Accepted") return null;
     if (allocs.length === 0) return null;
 
-    const mc     = parseFloat(li.moisture_content_pct);
-    const netKg  = parseFloat(wr.net_weight_kg);
+    const mc      = parseFloat(li.moisture_content_pct);
+    const netKg   = parseFloat(wr.net_weight_kg);
     const grossKg = parseFloat(wr.gross_weight_kg);
     const tareKg  = parseFloat(wr.tare_weight_kg);
 
     // Derive discount % from quality result remarks
-    const qrRemarks  = qr.remarks ?? "";
-    const remarkMatch = qrRemarks.match(/Discount:\s*([\d.]+)%/);
-    const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
+    const remarkMatch = (qr.remarks ?? "").match(/Discount:\s*([\d.]+)%/);
+    const discountPct  = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
+    const deductionKg  = netKg * (discountPct / 100);
+    const finalKgTotal = netKg - deductionKg;
 
-    const deductionKg = netKg * (discountPct / 100);
-    const finalKg     = netKg - deductionKg;
-
-    // Per-allocation line amounts; moisture discount applied proportionally
-    let lineAmount = 0;
-    for (const alloc of allocs) {
-      const allocFinalKg   = finalKg * (parseFloat(alloc.allocated_weight_kg) / netKg);
-      const allocPricePerKg = alloc.contract_id
+    // One line per allocation — each gets its proportional share of the
+    // moisture deduction applied to its own allocated weight
+    const allocLines = allocs.map(alloc => {
+      const allocNetKg   = parseFloat(alloc.allocated_weight_kg);
+      const deductedKg   = allocNetKg * (discountPct / 100);
+      const allocFinalKg = allocNetKg - deductedKg;
+      const pricePerKg   = alloc.contract_id
         ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
         : parseFloat(spot);
-      lineAmount += allocFinalKg * allocPricePerKg;
-    }
+      const lineAmount   = allocFinalKg * pricePerKg;
+      const priceType    = alloc.contract_id ? "Negotiated" : "Spot";
+      return {
+        allocationId:    alloc.allocation_id,
+        contractId:      alloc.contract_id,
+        contractNumber:  alloc.contract?.contract_number ?? null,
+        allocNetKg,
+        deductedKg,
+        allocFinalKg,
+        pricePerKg,
+        priceType,
+        lineAmount,
+        // shared MC fields (same for every alloc in the same physical delivery)
+        mc,
+        discountPct,
+        grossKg,
+        tareKg,
+      };
+    });
 
-    const hasSpot  = allocs.some(a => !a.contract_id);
-    const hasNeg   = allocs.some(a =>  a.contract_id);
-    const priceType = hasSpot && hasNeg ? "Mixed" : hasSpot ? "Spot" : "Negotiated";
-    const effectivePricePerKg = finalKg > 0 ? lineAmount / finalKg : 0;
+    const totalLineAmount = allocLines.reduce((s, l) => s + l.lineAmount, 0);
+    const hasSpot = allocLines.some(l => l.priceType === "Spot");
+    const hasNeg  = allocLines.some(l => l.priceType === "Negotiated");
 
     return {
-      grossKg, tareKg, netKg, mc, discountPct, deductionKg, finalKg,
-      priceType,
-      pricePerKg: effectivePricePerKg,
-      lineAmount,
-      allocs,
+      grossKg, tareKg, netKg, mc, discountPct, deductionKg, finalKg: finalKgTotal,
+      allocLines,
+      totalLineAmount,
+      // kept for backward-compat with total/badge checks
+      lineAmount: totalLineAmount,
+      priceType: hasSpot && hasNeg ? "Mixed" : hasSpot ? "Spot" : "Negotiated",
     };
   }
 
@@ -170,23 +187,23 @@ export default function PaymentsPage() {
 
     if (pErr) { showToast("Failed to create payment batch.", "error"); setProcessing(false); return; }
 
-    // 2. Insert payment details (one row per delivery)
-    const details = deliveries.map(d => {
+    // 2. Insert payment details (one row per allocation line)
+    const details = deliveries.flatMap(d => {
       const c = d._computed;
-      return {
-        payment_id:           payment.payment_id,
-        delivery_id:          d.delivery_id,
-        gross_weight_kg:      c.grossKg,
-        tare_weight_kg:       c.tareKg,
-        net_weight_kg:        c.netKg,
-        moisture_content_pct: c.mc,
-        moisture_deduction_kg: c.deductionKg,
-        final_weight_kg:      c.finalKg,
-        price_type:           c.priceType === "Mixed" ? "Negotiated" : c.priceType, // mixed → dominant
-        price_per_kg_used:    c.pricePerKg,
-        pca_discount_amount:  c.deductionKg,
-        line_amount:          Math.round(c.lineAmount * 100) / 100,
-      };
+      return c.allocLines.map(l => ({
+        payment_id:            payment.payment_id,
+        delivery_id:           d.delivery_id,
+        gross_weight_kg:       l.grossKg,
+        tare_weight_kg:        l.tareKg,
+        net_weight_kg:         l.allocNetKg,
+        moisture_content_pct:  l.mc,
+        moisture_deduction_kg: l.deductedKg,
+        final_weight_kg:       l.allocFinalKg,
+        price_type:            l.priceType,
+        price_per_kg_used:     l.pricePerKg,
+        pca_discount_amount:   l.deductedKg,
+        line_amount:           Math.round(l.lineAmount * 100) / 100,
+      }));
     });
 
     const { error: dErr } = await supabase.from("payment_details").insert(details);
@@ -333,33 +350,30 @@ export default function PaymentsPage() {
           </div>
 
           <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 mb-4 max-h-56 overflow-y-auto">
-            {batchModal.deliveries.map(d => {
+            {batchModal.deliveries.flatMap(d => {
               const c = d._computed;
-              const contractNums = (d.delivery_allocations ?? [])
-                .filter(a => a.contract_id)
-                .map(a => a.contract?.contract_number)
-                .filter(Boolean)
-                .join(", ");
-              return (
-                <div key={d.delivery_id} className="px-4 py-3 text-sm">
+              return c.allocLines.map((l, i) => (
+                <div key={`${d.delivery_id}-${i}`} className="px-4 py-3 text-sm">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="font-semibold text-brown-dark">{contractNums || "Spot Price"}</p>
-                      <p className="text-brown-light text-xs">{fmtDate(d.delivery_date)} · {fmt3(c.finalKg)} kg final</p>
+                      <p className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</p>
+                      <p className="text-brown-light text-xs">
+                        {fmtDate(d.delivery_date)} · {fmt3(l.allocFinalKg)} kg final · {l.mc}% MC
+                      </p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold text-brown-dark">{peso(c.lineAmount)}</p>
+                      <p className="font-semibold text-brown-dark">{peso(l.lineAmount)}</p>
                       <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
-                        c.priceType === "Spot" ? "bg-red-50 text-red-600"
-                          : c.priceType === "Mixed" ? "bg-amber-50 text-amber-700"
+                        l.priceType === "Spot"
+                          ? "bg-amber-50 text-amber-700"
                           : "bg-green-pale text-green-dark"
                       }`}>
-                        {c.priceType}
+                        {l.priceType} · {peso(l.pricePerKg)}/kg
                       </span>
                     </div>
                   </div>
                 </div>
-              );
+              ));
             })}
           </div>
 
@@ -412,7 +426,7 @@ export default function PaymentsPage() {
               <span className="font-semibold text-brown-dark">{fmtDate(releaseModal.payment.payment_week)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-brown-light">Deliveries</span>
+              <span className="text-brown-light">Allocation Lines</span>
               <span className="font-semibold text-brown-dark">{releaseModal.payment.payment_details?.length ?? 0}</span>
             </div>
             <div className="flex justify-between border-t border-beige-dark/30 pt-2 mt-2">
@@ -501,48 +515,38 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
                   <table className="w-full text-sm">
                     <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                       <tr>
-                        {["Allocations", "Date", "Net kg", "MC%", "Final kg", "Effective ₱/kg", "Amount", "Type"].map(h => (
+                        {["Contract / Allocation", "Date", "Alloc kg", "MC (cc)", "Discount (%)", "Deducted kg", "Final kg", "₱/kg", "Amount", "Type"].map(h => (
                           <th key={h} className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-beige-dark/20">
-                      {deliveries.map(d => {
+                      {deliveries.flatMap(d => {
                         const c = d._computed;
-                        const contractNums = (d.delivery_allocations ?? [])
-                          .filter(a => a.contract_id)
-                          .map(a => a.contract?.contract_number)
-                          .filter(Boolean)
-                          .join(", ");
-                        return (
-                          <tr key={d.delivery_id}>
-                            <td className="px-4 py-3 font-medium text-brown-dark text-xs">{contractNums || "—"}</td>
-                            <td className="px-4 py-3 text-brown-mid text-xs whitespace-nowrap">{fmtDate(d.delivery_date)}</td>
-                            <td className="px-4 py-3 text-brown-mid">{fmt3(c.netKg)}</td>
-                            <td className="px-4 py-3 text-brown-mid">{c.mc}%</td>
-                            <td className="px-4 py-3 font-semibold text-brown-dark">{fmt3(c.finalKg)}</td>
-                            <td className="px-4 py-3 text-brown-mid">
-                              {peso(c.pricePerKg)}
-                              <span className={`ml-1 text-xs font-semibold px-1 rounded ${
-                                c.priceType === "Spot" ? "text-red-500"
-                                  : c.priceType === "Mixed" ? "text-amber-600"
-                                  : "text-green-dark"
-                              }`}>
-                                ({c.priceType})
-                              </span>
+                        return c.allocLines.map((l, i) => (
+                          <tr key={`${d.delivery_id}-${i}`}>
+                            <td className="px-4 py-3 font-medium text-brown-dark text-xs">
+                              {l.contractNumber ?? "Spot Price"}
                             </td>
-                            <td className="px-4 py-3 font-bold text-brown-dark">{peso(c.lineAmount)}</td>
+                            <td className="px-4 py-3 text-brown-mid text-xs whitespace-nowrap">{fmtDate(d.delivery_date)}</td>
+                            <td className="px-4 py-3 text-brown-mid">{fmt3(l.allocNetKg)}</td>
+                            <td className="px-4 py-3 text-brown-mid">{l.mc}</td>
+                            <td className="px-4 py-3 text-brown-mid">{l.discountPct}%</td>
+                            <td className="px-4 py-3 text-red-500">{fmt3(l.deductedKg)}</td>
+                            <td className="px-4 py-3 font-semibold text-brown-dark">{fmt3(l.allocFinalKg)}</td>
+                            <td className="px-4 py-3 text-brown-mid">{peso(l.pricePerKg)}</td>
+                            <td className="px-4 py-3 font-bold text-brown-dark">{peso(l.lineAmount)}</td>
                             <td className="px-4 py-3">
                               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                c.priceType === "Spot" ? "bg-red-50 text-red-600"
-                                  : c.priceType === "Mixed" ? "bg-amber-50 text-amber-700"
+                                l.priceType === "Spot"
+                                  ? "bg-amber-50 text-amber-700"
                                   : "bg-green-pale text-green-dark"
                               }`}>
-                                {c.priceType}
+                                {l.priceType}
                               </span>
                             </td>
                           </tr>
-                        );
+                        ));
                       })}
                     </tbody>
                   </table>
@@ -605,7 +609,7 @@ function BatchesTab({ batches, onRelease }) {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold text-brown-dark">{b.supplier?.first_name} {b.supplier?.last_name}</p>
-                    <p className="text-brown-light text-xs mt-0.5">Week of {fmtDate(b.payment_week)} · {b.payment_details?.length ?? 0} delivery(ies)</p>
+                    <p className="text-brown-light text-xs mt-0.5">Week of {fmtDate(b.payment_week)} · {b.payment_details?.length ?? 0} allocation line(s)</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-bold text-brown-dark text-lg">{peso(b.total_amount)}</p>
@@ -635,8 +639,11 @@ function BatchesTab({ batches, onRelease }) {
                     {(b.payment_details ?? []).map(pd => (
                       <div key={pd.payment_detail_id} className="px-3 py-2 flex justify-between gap-3">
                         <span className="text-brown-mid">
-                          {fmt3(pd.net_weight_kg)} kg net → {fmt3(pd.final_weight_kg)} kg final
-                          · {pd.moisture_content_pct}% MC · {pd.price_type}
+                          {fmt3(pd.net_weight_kg)} kg → {fmt3(pd.final_weight_kg)} kg final
+                          · {pd.moisture_content_pct}% MC · {peso(pd.price_per_kg_used)}/kg
+                          <span className={`ml-1 font-semibold ${
+                            pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"
+                          }`}>({pd.price_type})</span>
                         </span>
                         <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
                       </div>
