@@ -341,6 +341,15 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
+### 2026-08-24 — BO Dashboard analytics polish and modal overlay fix
+
+- **Xendit test-mode setup**: payment flow is configured for sandbox/test-mode behavior using Xendit test API credentials, so payment processing remains a simulation rather than a live transaction flow.
+- **Dashboard analytics UI only**: tightened the BO dashboard presentation without changing any business logic, queries, or calculations.
+- **Delivery Volume Trend card**: improved the chart sizing and typography for cleaner readability, bigger month/year labels, more legible Y-axis text, and corrected label clipping at the right edge.
+- **Top Suppliers card**: card now fills available height more naturally beside the delivery volume chart, keeps its empty-state centered, and the "View All Rankings" action is anchored consistently at the bottom.
+- **Modal overlay fix**: `Delivery Analytics`, `Supplier Rankings`, and `Create Staff Account` modals now render via `createPortal` to `document.body`, ensuring the dimmed backdrop covers the entire viewport including the top header/navigation area.
+- **Readability pass**: analytics modal sizing and spacing were tuned to be more comfortable for older users without changing any analytics logic or calculations.
+
 ### 2026-08-24 — BO Dashboard analytics upgrade
 
 - **`OwnerOverview.jsx`** rebuilt into a full analytics dashboard. Existing greeting, spot-price card, 4 summary stat cards, staff-account modal, and toast are all preserved unchanged.

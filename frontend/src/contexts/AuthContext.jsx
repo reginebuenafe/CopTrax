@@ -11,7 +11,9 @@ const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scr
 export function AuthProvider({ children }) {
   const [session, setSession]               = useState(undefined); // undefined = loading
   const [profile, setProfile]               = useState(null);
-  const [profileLoading, setProfileLoading] = useState(false);
+  // Start as true: keeps isLoading=true until the first auth event resolves,
+  // preventing a race window where session is set but profileLoading is still false.
+  const [profileLoading, setProfileLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sensitiveContextCount, setSensitiveContextCount] = useState(0);
   const [showIdleWarning, setShowIdleWarning] = useState(false);
@@ -115,16 +117,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ── Auth state ────────────────────────────────────────────────────────────
+  // Supabase fires INITIAL_SESSION via onAuthStateChange on mount, so we rely
+  // solely on that listener — no separate getSession() call — to avoid a
+  // double-fetch race where two concurrent fetchProfile calls could leave
+  // profileLoading=false while profile is still null.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        wasAuthenticatedRef.current = true;
-        fetchProfile(session.user.id);
-        resetInactivityTimer();
-      }
-    });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         wasAuthenticatedRef.current = true;

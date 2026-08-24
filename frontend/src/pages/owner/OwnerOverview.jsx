@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
-  LuUserPlus, LuFlaskConical, LuTruck, LuStar,
-  LuFileText, LuWallet, LuActivity,
+  LuUserPlus, LuTruck, LuStar,
+  LuFileText, LuWallet, LuActivity, LuChevronDown, LuChartLine,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -24,75 +25,502 @@ function fmtRelative(iso) {
 
 
 // ── SVG Area/Line Chart ─────────────────────────────────────────────────────
-function AreaChart({ data, maxVal }) {
+function AreaChart({ data, maxVal, showYAxis = false, height = 130 }) {
   if (!data.length) return <p className="text-xs text-brown-light py-4 text-center">No data yet</p>;
 
-  const W = 500, H = 110, padL = 8, padR = 8, padT = 10, padB = 20;
+  const W = 900;
+  const padL = showYAxis ? 52 : 16;
+  const padR = 36;  // enough room so the last month label isn't clipped
+  const padT = 14;
+  const padB = 34;  // enough room below the baseline for month labels
+  const H = height;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const n = data.length;
   const xStep = n > 1 ? innerW / (n - 1) : innerW;
 
-  const yFor = val => {
-    const norm = maxVal > 0 ? val / maxVal : 0;
-    return padT + innerH * (1 - norm);
-  };
+  const yFor = val => padT + innerH * (1 - (maxVal > 0 ? val / maxVal : 0));
   const xFor = i => padL + (n > 1 ? i * xStep : innerW / 2);
 
   const pts = data.map((d, i) => [xFor(i), yFor(d.value)]);
   const linePts = pts.map(([x, y]) => `${x},${y}`).join(" ");
-  // area: go down to baseline on each side
   const areaD = [
     `M ${pts[0][0]},${padT + innerH}`,
     ...pts.map(([x, y]) => `L ${x},${y}`),
-    `L ${pts[pts.length - 1][0]},${padT + innerH}`,
-    "Z",
+    `L ${pts[pts.length - 1][0]},${padT + innerH}`, "Z",
   ].join(" ");
 
-  const gridLines = [0.25, 0.5, 0.75].map(r => padT + innerH * (1 - r));
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(r => ({
+    y: padT + innerH * (1 - r),
+    val: maxVal * r,
+  }));
+
+  const fmtY = v => v >= 1000 ? `${(v / 1000).toFixed(1)}t` : `${Math.round(v)}kg`;
 
   return (
     <div className="w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 130 }} preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }}>
         <defs>
-          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2d5a27" stopOpacity="0.25" />
+          <linearGradient id="areaGrad2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#2d5a27" stopOpacity="0.22" />
             <stop offset="100%" stopColor="#2d5a27" stopOpacity="0.02" />
           </linearGradient>
         </defs>
-
-        {/* grid lines */}
-        {gridLines.map((y, i) => (
-          <line key={i} x1={padL} y1={y} x2={W - padR} y2={y} stroke="#E7DCC9" strokeWidth="0.8" />
+        {gridLines.map(({ y, val }, i) => (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#E7DCC9" strokeWidth="1" />
+            {showYAxis && (
+              <text x={padL - 7} y={y + 5} textAnchor="end" fontSize="14" fill="#9A857A" fontWeight="500">
+                {fmtY(val)}
+              </text>
+            )}
+          </g>
         ))}
-        {/* baseline */}
-        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="#C9B99A" strokeWidth="1" />
-
-        {/* area fill */}
-        <path d={areaD} fill="url(#areaGrad)" />
-
-        {/* line */}
-        <polyline points={linePts} fill="none" stroke="#2d5a27" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-
-        {/* dots + labels */}
+        {/* Baseline */}
+        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="#C9B99A" strokeWidth="1.5" />
+        <path d={areaD} fill="url(#areaGrad2)" />
+        <polyline points={linePts} fill="none" stroke="#2d5a27" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
         {pts.map(([x, y], i) => (
           <g key={i}>
-            <circle cx={x} cy={y} r="3" fill="#2d5a27" />
-            {data[i].value > 0 && (
-              <circle cx={x} cy={y} r="5" fill="#2d5a27" fillOpacity="0.15" />
-            )}
-            {/* month label */}
-            <text
-              x={x} y={H - 2}
-              textAnchor="middle"
-              fontSize="9"
-              fill="#9A857A"
-            >{data[i].label}</text>
+            <circle cx={x} cy={y} r="5" fill="#2d5a27" />
+            {data[i].value > 0 && <circle cx={x} cy={y} r="9" fill="#2d5a27" fillOpacity="0.12" />}
+            {/* Month label below baseline */}
+            <text x={x} y={padT + innerH + 22} textAnchor="middle" fontSize="15" fill="#9A857A" fontWeight="500">
+              {data[i].label}
+            </text>
           </g>
         ))}
       </svg>
     </div>
   );
+}
+
+// ── Tooltip-enabled chart for analytics modal ────────────────────────────────
+function AnalyticsChart({ data, maxVal }) {
+  const [tooltip, setTooltip] = useState(null);
+  if (!data.length) return (
+    <div className="flex items-center justify-center h-80 text-xs text-brown-light">No delivery data for this period</div>
+  );
+
+  const W = 1200, H = 200;
+  const padL = 52, padR = 16, padT = 16, padB = 32;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const n = data.length;
+  const xStep = n > 1 ? innerW / (n - 1) : innerW;
+
+  const yFor = val => padT + innerH * (1 - (maxVal > 0 ? val / maxVal : 0));
+  const xFor = i => padL + (n > 1 ? i * xStep : innerW / 2);
+
+  const pts = data.map((d, i) => [xFor(i), yFor(d.value)]);
+  const linePts = pts.map(([x, y]) => `${x},${y}`).join(" ");
+  const areaD = [
+    `M ${pts[0][0]},${padT + innerH}`,
+    ...pts.map(([x, y]) => `L ${x},${y}`),
+    `L ${pts[pts.length - 1][0]},${padT + innerH}`, "Z",
+  ].join(" ");
+
+  const gridVals = [0, 0.25, 0.5, 0.75, 1].map(r => ({ y: padT + innerH * (1 - r), val: maxVal * r }));
+  const fmtY = v => v >= 1000 ? `${(v / 1000).toFixed(1)}t` : `${Math.round(v)}kg`;
+
+  // Decide how many labels to show so they don't overlap
+  const labelStep = n <= 12 ? 1 : n <= 30 ? Math.ceil(n / 12) : Math.ceil(n / 8);
+
+  return (
+    <div className="relative w-full select-none">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 320 }}
+        onMouseLeave={() => setTooltip(null)}>
+        <defs>
+          <linearGradient id="analyticsGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#2d5a27" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#2d5a27" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {gridVals.map(({ y, val }, i) => (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#E7DCC9" strokeWidth="0.6" strokeDasharray={i === 0 ? "0" : "3,3"} />
+            <text x={padL - 5} y={y + 3.5} textAnchor="end" fontSize="9" fill="#9A857A">{fmtY(val)}</text>
+          </g>
+        ))}
+        <line x1={padL} y1={padT} x2={padL} y2={padT + innerH} stroke="#C9B99A" strokeWidth="1" />
+        <path d={areaD} fill="url(#analyticsGrad)" />
+        <polyline points={linePts} fill="none" stroke="#2d5a27" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map(([x, y], i) => (
+          <g key={i}>
+            {i % labelStep === 0 && (
+              <text x={x} y={H - 6} textAnchor="middle" fontSize="8.5" fill="#9A857A">{data[i].label}</text>
+            )}
+            <circle cx={x} cy={y} r="4" fill="transparent"
+              onMouseEnter={() => setTooltip({ x, y, ...data[i] })} />
+            {tooltip?.label === data[i].label && (
+              <circle cx={x} cy={y} r="4" fill="#2d5a27" />
+            )}
+          </g>
+        ))}
+      </svg>
+      {tooltip && (
+        <div className="absolute pointer-events-none z-10 bg-[#1a3d17] text-white text-xs rounded-xl px-3 py-2 shadow-lg"
+          style={{
+            left: `${(tooltip.x / W) * 100}%`,
+            top: `${(tooltip.y / H) * 100}%`,
+            transform: "translate(-50%, -110%)",
+          }}>
+          <p className="font-bold">{tooltip.label}</p>
+          <p className="opacity-80">{(tooltip.value / 1000).toFixed(3)} t</p>
+          <p className="opacity-80">{Math.round(tooltip.value).toLocaleString()} kg</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Delivery Analytics Modal ─────────────────────────────────────────────────
+const DATE_PRESETS = [
+  { label: "7 Days", value: "7d" },
+  { label: "30 Days", value: "30d" },
+  { label: "3 Months", value: "3m" },
+  { label: "6 Months", value: "6m" },
+  { label: "Year to Date", value: "ytd" },
+  { label: "Custom", value: "custom" },
+];
+
+function getDateRange(preset, customFrom, customTo) {
+  const now = new Date();
+  const to = now.toISOString().slice(0, 10);
+  if (preset === "7d") {
+    const f = new Date(); f.setDate(f.getDate() - 6);
+    return { from: f.toISOString().slice(0, 10), to };
+  }
+  if (preset === "30d") {
+    const f = new Date(); f.setDate(f.getDate() - 29);
+    return { from: f.toISOString().slice(0, 10), to };
+  }
+  if (preset === "3m") {
+    const f = new Date(); f.setMonth(f.getMonth() - 3);
+    return { from: f.toISOString().slice(0, 10), to };
+  }
+  if (preset === "6m") {
+    const f = new Date(); f.setMonth(f.getMonth() - 6);
+    return { from: f.toISOString().slice(0, 10), to };
+  }
+  if (preset === "ytd") {
+    return { from: `${now.getFullYear()}-01-01`, to };
+  }
+  // custom
+  return { from: customFrom || `${now.getFullYear()}-01-01`, to: customTo || to };
+}
+
+function groupDeliveries(rows, grouping) {
+  if (!rows.length) return [];
+
+  const map = {};
+  rows.forEach(d => {
+    const date = new Date(d.delivery_date);
+    let key, label;
+    if (grouping === "daily") {
+      key = d.delivery_date;
+      label = date.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+    } else if (grouping === "weekly") {
+      // ISO week start (Monday)
+      const day = date.getDay();
+      const diff = (day === 0 ? -6 : 1 - day);
+      const mon = new Date(date); mon.setDate(date.getDate() + diff);
+      key = mon.toISOString().slice(0, 10);
+      label = mon.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+    } else {
+      key = d.delivery_date.slice(0, 7);
+      const dt = new Date(d.delivery_date + "-01");
+      label = dt.toLocaleDateString("en-PH", { month: "short", year: "2-digit" });
+    }
+    if (!map[key]) map[key] = { label, value: 0 };
+    map[key].value += d.netKg;
+  });
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v);
+}
+
+function DeliveryAnalyticsModal({ onClose }) {
+  const [preset, setPreset]     = useState("6m");
+  const [customFrom, setFrom]   = useState("");
+  const [customTo, setTo]       = useState("");
+  const [grouping, setGrouping] = useState("monthly");
+  const [supplierFilter, setSupplierFilter] = useState("all");
+  const [loading, setLoading]   = useState(true);
+  const [rawRows, setRawRows]   = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const { from, to } = getDateRange(preset, customFrom, customTo);
+    const { data } = await supabase
+      .from("deliveries")
+      .select(`
+        delivery_date, supplier_id,
+        supplier:supplier_id(first_name, last_name),
+        weighing_records(net_weight_kg)
+      `)
+      .eq("delivery_status", "Accepted")
+      .gte("delivery_date", from)
+      .lte("delivery_date", to)
+      .order("delivery_date", { ascending: true });
+
+    const rows = (data ?? []).map(d => ({
+      delivery_date: d.delivery_date,
+      supplier_id: d.supplier_id,
+      supplierName: d.supplier ? `${d.supplier.first_name} ${d.supplier.last_name}` : "Unknown",
+      netKg: parseFloat(d.weighing_records?.[0]?.net_weight_kg ?? 0),
+    }));
+
+    // Build supplier list for filter dropdown
+    const suppMap = {};
+    rows.forEach(r => { if (r.supplier_id) suppMap[r.supplier_id] = r.supplierName; });
+    setSuppliers(Object.entries(suppMap).map(([id, name]) => ({ id, name })));
+    setRawRows(rows);
+    setLoading(false);
+  }, [preset, customFrom, customTo]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Auto-select grouping based on range
+  useEffect(() => {
+    if (preset === "7d" || preset === "30d") setGrouping("daily");
+    else if (preset === "3m") setGrouping("weekly");
+    else setGrouping("monthly");
+  }, [preset]);
+
+  const filtered = supplierFilter === "all"
+    ? rawRows
+    : rawRows.filter(r => r.supplier_id === supplierFilter);
+
+  const chartData = groupDeliveries(filtered, grouping);
+  const maxVal = Math.max(...chartData.map(d => d.value), 1);
+  const totalKg = filtered.reduce((s, r) => s + r.netKg, 0);
+  const avgKg = chartData.length ? totalKg / chartData.length : 0;
+  const highestPeriod = chartData.reduce((best, d) => d.value > (best?.value ?? 0) ? d : best, null);
+
+  // Compare vs previous period
+  const { from: currFrom, to: currTo } = getDateRange(preset, customFrom, customTo);
+  const periodDays = Math.round((new Date(currTo) - new Date(currFrom)) / 86400000) + 1;
+  const prevFromDate = new Date(currFrom); prevFromDate.setDate(prevFromDate.getDate() - periodDays);
+  const prevToDate = new Date(currFrom); prevToDate.setDate(prevToDate.getDate() - 1);
+  const prevRows = rawRows.filter(r => {
+    const d = r.delivery_date;
+    return d >= prevFromDate.toISOString().slice(0, 10) && d <= prevToDate.toISOString().slice(0, 10);
+  });
+  const prevTotal = prevRows.reduce((s, r) => s + r.netKg, 0);
+  const changePct = prevTotal > 0 ? ((totalKg - prevTotal) / prevTotal) * 100 : null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-card w-full max-w-7xl min-h-[90vh] max-h-[95vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-7 pt-7 pb-5 border-b border-beige-dark/20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
+              <LuChartLine className="w-5 h-5 text-green-dark" />
+            </div>
+            <div>
+              <p className="text-base font-bold text-brown-dark">Delivery Analytics</p>
+              <p className="text-xs text-brown-light">Accepted deliveries — net weight</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-7 py-6 space-y-5">
+          {/* Filters row */}
+          <div className="flex flex-wrap gap-2 items-end">
+            {/* Date preset pills */}
+            <div className="flex flex-wrap gap-2">
+              {DATE_PRESETS.map(p => (
+                <button key={p.value} onClick={() => setPreset(p.value)}
+                  className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    preset === p.value
+                      ? "bg-green-dark text-white"
+                      : "bg-beige text-brown-mid hover:bg-beige-dark/60"
+                  }`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Grouping */}
+            <div className="relative">
+              <select value={grouping} onChange={e => setGrouping(e.target.value)}
+                className="text-sm font-semibold text-brown-dark bg-beige rounded-xl px-3.5 py-2 pr-8 appearance-none focus:outline-none cursor-pointer">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+              <LuChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
+            </div>
+
+            {/* Supplier filter */}
+            {suppliers.length > 1 && (
+              <div className="relative">
+                <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}
+                  className="text-sm font-semibold text-brown-dark bg-beige rounded-xl px-3.5 py-2 pr-8 appearance-none focus:outline-none cursor-pointer max-w-[200px]">
+                  <option value="all">All Suppliers</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <LuChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
+              </div>
+            )}
+          </div>
+
+          {/* Custom date range */}
+          {preset === "custom" && (
+            <div className="flex gap-3 items-center flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-brown-light font-medium">From</label>
+                <input type="date" value={customFrom} onChange={e => setFrom(e.target.value)}
+                  className="text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-brown-light font-medium">To</label>
+                <input type="date" value={customTo} onChange={e => setTo(e.target.value)}
+                  className="text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-6 h-6 border-2 border-green-dark border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* KPI cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-beige rounded-2xl px-4 py-4">
+                  <p className="text-xs text-brown-light uppercase tracking-wide mb-1.5">Total Volume</p>
+                  <p className="text-xl font-extrabold text-brown-dark leading-none">{(totalKg / 1000).toFixed(2)}<span className="text-sm font-normal text-brown-light ml-1">t</span></p>
+                  <p className="text-xs text-brown-light mt-1">{Math.round(totalKg).toLocaleString()} kg</p>
+                </div>
+                <div className="bg-beige rounded-2xl px-4 py-4">
+                  <p className="text-xs text-brown-light uppercase tracking-wide mb-1.5">Avg / {grouping === "daily" ? "Day" : grouping === "weekly" ? "Week" : "Month"}</p>
+                  <p className="text-xl font-extrabold text-brown-dark leading-none">{(avgKg / 1000).toFixed(2)}<span className="text-sm font-normal text-brown-light ml-1">t</span></p>
+                  <p className="text-xs text-brown-light mt-1">{Math.round(avgKg).toLocaleString()} kg</p>
+                </div>
+                <div className="bg-beige rounded-2xl px-4 py-4">
+                  <p className="text-xs text-brown-light uppercase tracking-wide mb-1.5">Highest Period</p>
+                  {highestPeriod ? (
+                    <>
+                      <p className="text-xl font-extrabold text-brown-dark leading-none">{(highestPeriod.value / 1000).toFixed(2)}<span className="text-sm font-normal text-brown-light ml-1">t</span></p>
+                      <p className="text-xs text-brown-light mt-1">{highestPeriod.label}</p>
+                    </>
+                  ) : <p className="text-sm text-brown-light">—</p>}
+                </div>
+                <div className="bg-beige rounded-2xl px-4 py-4">
+                  <p className="text-xs text-brown-light uppercase tracking-wide mb-1.5">vs Prev Period</p>
+                  {changePct !== null ? (
+                    <>
+                      <p className={`text-xl font-extrabold leading-none ${changePct >= 0 ? "text-green-dark" : "text-red-500"}`}>
+                        {changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-brown-light mt-1">{changePct >= 0 ? "increase" : "decrease"}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-extrabold text-brown-light leading-none">—</p>
+                      <p className="text-xs text-brown-light mt-1">no prior data</p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Chart */}
+              <div className="bg-beige/50 rounded-2xl p-5">
+                <AnalyticsChart data={chartData} maxVal={maxVal} />
+              </div>
+
+              {/* No data state */}
+              {chartData.length === 0 && (
+                <p className="text-sm text-brown-light text-center py-4">No accepted deliveries found for this period.</p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  , document.body);
+}
+
+// ── All Rankings Modal ───────────────────────────────────────────────────────
+function AllRankingsModal({ suppliers, onClose }) {
+  const stars = n => {
+    const full = Math.floor(n);
+    const half = n - full >= 0.5 ? 1 : 0;
+    return { full, half, empty: 5 - full - half };
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-card w-full max-w-md max-h-[80vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
+              <LuStar className="w-4 h-4 text-amber-500" />
+            </div>
+            <p className="text-sm font-bold text-brown-dark">Supplier Rankings</p>
+          </div>
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="px-6 py-4 space-y-2">
+          {suppliers.length === 0 ? (
+            <p className="text-xs text-brown-light py-8 text-center">No supplier ratings yet</p>
+          ) : suppliers.map((s, i) => {
+            const rating = Number(s.overall_supplier_rating ?? 0);
+            const isTop = i === 0;
+            const { full, half, empty } = stars(rating);
+            return (
+              <div key={s.supplier_id}
+                className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-colors ${
+                  isTop ? "bg-amber-50 border border-amber-200/60" : "bg-beige/60"
+                }`}>
+                {/* Rank badge */}
+                <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 font-extrabold text-xs ${
+                  i === 0 ? "bg-amber-400 text-white"
+                  : i === 1 ? "bg-gray-300 text-gray-700"
+                  : i === 2 ? "bg-amber-700/60 text-white"
+                  : "bg-beige-dark text-brown-light"
+                }`}>
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-bold ${isTop ? "text-amber-800" : "text-brown-dark"} truncate`}>
+                    {s.supplier?.first_name} {s.supplier?.last_name}
+                  </p>
+                  {/* Star icons */}
+                  <div className="flex items-center gap-0.5 mt-0.5">
+                    {Array.from({ length: full }).map((_, j) => (
+                      <LuStar key={`f${j}`} className="w-3 h-3 fill-amber-400 text-amber-400" />
+                    ))}
+                    {half === 1 && <LuStar className="w-3 h-3 text-amber-400 opacity-60" />}
+                    {Array.from({ length: empty }).map((_, j) => (
+                      <LuStar key={`e${j}`} className="w-3 h-3 text-beige-dark" />
+                    ))}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-base font-extrabold ${isTop ? "text-amber-700" : "text-brown-dark"}`}>
+                    {rating.toFixed(2)}
+                  </p>
+                  <p className="text-[10px] text-brown-light">/ 5.00</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  , document.body);
 }
 
 function ProgressBar({ pct, color = "bg-green-dark" }) {
@@ -137,10 +565,11 @@ export default function OwnerOverview() {
   const [currentMonthKg, setCurrentMonthKg] = useState(0);
   const [prevMonthKg, setPrevMonthKg]       = useState(null);
   const [contracts, setContracts]           = useState([]);   // active contracts with progress
-  const [quality, setQuality]               = useState(null); // {accepted, rejected, pending, avgMC, avgDiscount}
   const [paymentSummary, setPaymentSummary] = useState(null); // {readyAmount, readyCount, paidAmount, pendingBatches}
   const [topSuppliers, setTopSuppliers]     = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [showAnalytics, setShowAnalytics]   = useState(false);
+  const [showRankings, setShowRankings]     = useState(false);
 
   useEffect(() => {
     async function loadAll() {
@@ -225,37 +654,7 @@ export default function OwnerOverview() {
         }));
       }
 
-      // ── 3. Quality overview ──────────────────────────────────────────
-      const { data: inspections } = await supabase
-        .from("laboratory_inspections")
-        .select("moisture_content_pct, quality_results(result, remarks)");
-
-      if (inspections?.length) {
-        let accepted = 0, rejected = 0, mcSum = 0, discountSum = 0, discountCount = 0;
-        for (const li of inspections) {
-          const result = li.quality_results?.[0]?.result;
-          const mc     = parseFloat(li.moisture_content_pct ?? 0);
-          mcSum += mc;
-          if (result === "Accepted") {
-            accepted++;
-            const m = (li.quality_results?.[0]?.remarks ?? "").match(/Discount:\s*([\d.]+)%/);
-            if (m) { discountSum += parseFloat(m[1]); discountCount++; }
-          } else if (result === "Rejected") rejected++;
-        }
-        const { count: pendingQty } = await supabase
-          .from("deliveries")
-          .select("delivery_id", { count: "exact", head: true })
-          .eq("delivery_status", "Weighed");
-        setQuality({
-          accepted,
-          rejected,
-          pending: pendingQty ?? 0,
-          avgMC:       inspections.length ? (mcSum / inspections.length).toFixed(1) : null,
-          avgDiscount: discountCount ? (discountSum / discountCount).toFixed(1) : null,
-        });
-      }
-
-      // ── 4. Payment summary ───────────────────────────────────────────
+      // ── 3. Payment summary ───────────────────────────────────────────
       const [paymentsRes, readyRes] = await Promise.all([
         supabase.from("payments").select("total_amount, payment_status"),
         supabase.from("deliveries")
@@ -281,17 +680,16 @@ export default function OwnerOverview() {
         .order("overall_supplier_rating", { ascending: false });
 
       if (snapshots?.length) {
-        // Keep latest snapshot per supplier
+        // Keep latest snapshot per supplier (deduplicated)
         const seen = new Set();
-        const top = [];
+        const deduped = [];
         for (const s of snapshots) {
           if (!seen.has(s.supplier_id)) {
             seen.add(s.supplier_id);
-            top.push(s);
-            if (top.length === 5) break;
+            deduped.push(s);
           }
         }
-        setTopSuppliers(top);
+        setTopSuppliers(deduped); // store all for rankings modal; card shows top 4
       }
 
       // ── 6. Recent activity (BO notifications) ───────────────────────
@@ -357,7 +755,7 @@ export default function OwnerOverview() {
   const fallbackNotif = { icon: LuActivity, color: "bg-beige text-brown-mid" };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pt-6">
       {/* ── Header (greeting only) ── */}
       <section>
         <div className="min-w-0">
@@ -452,68 +850,105 @@ export default function OwnerOverview() {
       )}
 
       {/* ── Row 3: Delivery Volume Trend (2/3) + Top Suppliers (1/3) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
         {/* Delivery Volume Trend */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
+        <div className="lg:col-span-2 flex flex-col">
+          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 flex-1">
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
                   <LuTruck className="w-4 h-4 text-green-dark" />
                 </div>
-                <p className="text-sm font-bold text-brown-dark">Delivery Volume Trend</p>
+                <div>
+                  <p className="text-sm font-bold text-brown-dark">Delivery Volume Trend</p>
+                  <p className="text-[10px] text-brown-light">Last 6 months · accepted net weight</p>
+                </div>
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-[10px] text-brown-light uppercase tracking-wide">This Month</p>
-                <p className="text-lg font-extrabold text-brown-dark leading-none">
-                  {(currentMonthKg / 1000).toFixed(2)}
-                  <span className="text-xs font-normal text-brown-light ml-0.5">t</span>
-                </p>
-                {monthDiff !== null && (
-                  <span className={`text-[10px] font-semibold ${monthDiff >= 0 ? "text-green-dark" : "text-red-500"}`}>
-                    {monthDiff >= 0 ? "▲" : "▼"} {(Math.abs(monthDiff) / 1000).toFixed(2)}t vs prev
-                  </span>
-                )}
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="text-right">
+                  <p className="text-[10px] text-brown-light uppercase tracking-wide">This Month</p>
+                  <p className="text-lg font-extrabold text-brown-dark leading-none">
+                    {(currentMonthKg / 1000).toFixed(2)}
+                    <span className="text-xs font-normal text-brown-light ml-0.5">t</span>
+                  </p>
+                  {monthDiff !== null && (
+                    <span className={`text-[10px] font-semibold ${monthDiff >= 0 ? "text-green-dark" : "text-red-500"}`}>
+                      {monthDiff >= 0 ? "▲" : "▼"} {(Math.abs(monthDiff) / 1000).toFixed(2)}t vs prev
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setShowAnalytics(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-pale text-green-dark text-xs font-semibold hover:bg-green-mid/20 transition-all">
+                  <LuChartLine className="w-3.5 h-3.5" /> View Analytics
+                </button>
               </div>
             </div>
-            <AreaChart data={deliveryVolume} maxVal={maxVolume} />
+            <AreaChart data={deliveryVolume} maxVal={maxVolume} showYAxis height={240} />
           </div>
         </div>
 
         {/* Top Suppliers */}
-        <div className="lg:col-span-1">
-          <Section title="Top Suppliers" icon={LuStar} iconColor="text-amber-500" iconBg="bg-amber-50">
-            {topSuppliers.length === 0 ? (
-              <p className="text-xs text-brown-light py-4 text-center">No ratings yet</p>
-            ) : (
-              <div className="space-y-3">
-                {topSuppliers.map((s, i) => {
-                  const rating = Number(s.overall_supplier_rating ?? 0);
-                  const pct    = (rating / 5) * 100;
-                  return (
-                    <div key={s.supplier_id} className="flex items-center gap-2.5">
-                      <span className="text-xs font-bold text-brown-light w-4 shrink-0 text-center">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-brown-dark truncate">
-                          {s.supplier?.first_name} {s.supplier?.last_name}
-                        </p>
-                        <ProgressBar pct={pct} color="bg-amber-400" />
-                      </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <LuStar className="w-3 h-3 text-amber-400 fill-amber-400" />
-                        <span className="text-xs font-bold text-brown-dark">{rating.toFixed(1)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+        <div className="lg:col-span-1 flex flex-col">
+          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 flex-1 flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+                <LuStar className="w-4 h-4 text-amber-500" />
               </div>
-            )}
-          </Section>
+              <p className="text-sm font-bold text-brown-dark">Top Suppliers</p>
+            </div>
+            {/* Content — flex-1 so it fills space */}
+            <div className="flex-1">
+              {topSuppliers.length === 0 ? (
+                <div className="flex items-center justify-center h-full min-h-[80px]">
+                  <p className="text-xs text-brown-light text-center">No ratings yet</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {topSuppliers.slice(0, 4).map((s, i) => {
+                    const rating = Number(s.overall_supplier_rating ?? 0);
+                    const pct    = (rating / 5) * 100;
+                    const isFirst = i === 0;
+                    return (
+                      <div key={s.supplier_id}
+                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 ${isFirst ? "bg-amber-50 border border-amber-200/50" : ""}`}>
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-[11px] font-extrabold ${
+                          i === 0 ? "bg-amber-400 text-white"
+                          : i === 1 ? "bg-gray-200 text-gray-600"
+                          : i === 2 ? "bg-amber-700/50 text-white"
+                          : "text-brown-light"
+                        }`}>
+                          {i + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-bold truncate ${isFirst ? "text-amber-800" : "text-brown-dark"}`}>
+                            {s.supplier?.first_name} {s.supplier?.last_name}
+                          </p>
+                          <ProgressBar pct={pct} color={isFirst ? "bg-amber-400" : "bg-amber-300"} />
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <LuStar className="w-3 h-3 text-amber-400 fill-amber-400" />
+                          <span className={`text-xs font-bold ${isFirst ? "text-amber-700" : "text-brown-dark"}`}>{rating.toFixed(1)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* View All Rankings — anchored to bottom */}
+            <div className="mt-4 pt-3 border-t border-beige-dark/20">
+              <button onClick={() => setShowRankings(true)}
+                className="w-full py-2 rounded-xl text-xs font-semibold text-brown-mid hover:text-green-dark hover:bg-green-pale/60 transition-all">
+                View All Rankings
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ── Row 4: Contract Progress (1/2) + Quality Overview (1/2) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {/* ── Row 4: Contract Progress ── */}
+      <div>
         <Section title="Active Contract Progress" icon={LuFileText} iconColor="text-blue-600" iconBg="bg-blue-50">
           {contracts.length === 0 ? (
             <p className="text-xs text-brown-light py-4 text-center">No active contracts</p>
@@ -536,44 +971,6 @@ export default function OwnerOverview() {
                   </p>
                 </div>
               ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="Quality Overview" icon={LuFlaskConical} iconColor="text-purple-600" iconBg="bg-purple-50">
-          {quality ? (
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="bg-green-pale rounded-xl px-3 py-3 text-center">
-                <p className="text-2xl font-extrabold text-green-dark">{quality.accepted}</p>
-                <p className="text-[11px] text-brown-light mt-0.5">Accepted</p>
-              </div>
-              <div className="bg-red-50 rounded-xl px-3 py-3 text-center">
-                <p className="text-2xl font-extrabold text-red-600">{quality.rejected}</p>
-                <p className="text-[11px] text-brown-light mt-0.5">Rejected</p>
-              </div>
-              <div className="bg-purple-50 rounded-xl px-3 py-3 text-center">
-                <p className="text-2xl font-extrabold text-purple-600">{quality.pending}</p>
-                <p className="text-[11px] text-brown-light mt-0.5">Awaiting</p>
-              </div>
-              <div className="bg-beige rounded-xl px-3 py-3 text-center">
-                <p className="text-2xl font-extrabold text-brown-dark">
-                  {quality.avgMC ?? "—"}
-                  <span className="text-sm font-normal text-brown-light">cc</span>
-                </p>
-                <p className="text-[11px] text-brown-light mt-0.5">Avg MC</p>
-              </div>
-              {quality.avgDiscount !== null && (
-                <div className="col-span-2 bg-amber-50 rounded-xl px-3 py-2.5 text-center">
-                  <p className="text-base font-extrabold text-amber-700">
-                    {quality.avgDiscount}%
-                    <span className="text-xs font-normal text-brown-light ml-1">avg PCA discount</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-5 h-5 border-2 border-green-dark border-t-transparent rounded-full animate-spin" />
             </div>
           )}
         </Section>
@@ -635,6 +1032,12 @@ export default function OwnerOverview() {
           )}
         </Section>
       </div>
+
+      {/* Delivery Analytics Modal */}
+      {showAnalytics && <DeliveryAnalyticsModal onClose={() => setShowAnalytics(false)} />}
+
+      {/* All Rankings Modal */}
+      {showRankings && <AllRankingsModal suppliers={topSuppliers} onClose={() => setShowRankings(false)} />}
 
       {/* Create Staff Modal */}
       {createModal && (

@@ -240,6 +240,8 @@ export default function PaymentsPage() {
 
     if (res.error || res.data?.error) {
       showToast(res.data?.error ?? "Failed to release payment.", "error");
+    } else if (res.data?.processing) {
+      showToast("Payout submitted — payment is now Processing. It will update to Released once Xendit confirms.");
     } else {
       showToast(`Payment released · Receipt ${res.data.receipt_number}`);
     }
@@ -591,19 +593,25 @@ function BatchesTab({ batches, onRelease }) {
   return (
     <div className="space-y-3">
       {batches.map(b => {
-        const receiptNum = b.e_receipts?.[0]?.receipt_number;
-        const isPending = b.payment_status === "Pending";
-        const isReleased = b.payment_status === "Released";
+        const receiptNum    = b.e_receipts?.[0]?.receipt_number;
+        const isPending     = b.payment_status === "Pending";
+        const isProcessing  = b.payment_status === "Processing";
+        const isReleased    = b.payment_status === "Released";
+        const isFailed      = b.payment_status === "Failed";
 
         return (
           <div key={b.payment_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
             <div className="flex items-start gap-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                isReleased ? "bg-green-pale" : isPending ? "bg-amber-50" : "bg-red-50"
+                isReleased   ? "bg-green-pale"
+                : isPending  ? "bg-amber-50"
+                : isProcessing ? "bg-blue-50"
+                : "bg-red-50"
               }`}>
-                {isReleased ? <LuCheck className="w-5 h-5 text-green-dark" />
-                  : isPending ? <LuClock className="w-5 h-5 text-amber-500" />
-                  : <LuX className="w-5 h-5 text-red-500" />}
+                {isReleased    ? <LuCheck  className="w-5 h-5 text-green-dark" />
+                 : isPending   ? <LuClock  className="w-5 h-5 text-amber-500" />
+                 : isProcessing ? <LuLoader className="w-5 h-5 text-blue-500 animate-spin" />
+                 : <LuX className="w-5 h-5 text-red-500" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
@@ -614,9 +622,10 @@ function BatchesTab({ batches, onRelease }) {
                   <div className="text-right shrink-0">
                     <p className="font-bold text-brown-dark text-lg">{peso(b.total_amount)}</p>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      isReleased ? "bg-green-pale text-green-dark"
-                        : isPending ? "bg-amber-50 text-amber-700"
-                        : "bg-red-50 text-red-600"
+                      isReleased   ? "bg-green-pale text-green-dark"
+                      : isPending  ? "bg-amber-50 text-amber-700"
+                      : isProcessing ? "bg-blue-50 text-blue-600"
+                      : "bg-red-50 text-red-600"
                     }`}>
                       {b.payment_status}
                     </span>
@@ -653,11 +662,27 @@ function BatchesTab({ batches, onRelease }) {
               </div>
             </div>
 
+            {/* Release button — only for Pending; disabled hint shown for Processing/Failed */}
             {isPending && (
               <div className="mt-4 pt-4 border-t border-beige-dark/20">
                 <button onClick={() => onRelease({ payment: b })}
                   className="w-full py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all flex items-center justify-center gap-2">
                   <LuBanknote className="w-4 h-4" /> Release Payment
+                </button>
+              </div>
+            )}
+            {isProcessing && (
+              <div className="mt-4 pt-4 border-t border-beige-dark/20">
+                <div className="w-full py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 font-semibold text-sm flex items-center justify-center gap-2">
+                  <LuLoader className="w-4 h-4 animate-spin" /> Payout submitted — awaiting Xendit confirmation…
+                </div>
+              </div>
+            )}
+            {isFailed && (
+              <div className="mt-4 pt-4 border-t border-beige-dark/20">
+                <button onClick={() => onRelease({ payment: b })}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white font-bold text-sm hover:opacity-90 transition-all flex items-center justify-center gap-2">
+                  <LuBanknote className="w-4 h-4" /> Retry Release Payment
                 </button>
               </div>
             )}

@@ -1,6 +1,7 @@
 // Shared modal for the Business Owner to create Weigher or Laboratory Staff accounts.
 // Used from OwnerOverview (dashboard quick-action) and UserApprovalsPage (user management).
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LuUserPlus, LuX, LuCheck, LuLoader, LuCircleAlert,
   LuScale, LuFlaskConical,
@@ -67,8 +68,8 @@ export default function CreateStaffModal({ onClose, onCreated, defaultRole = "We
     "w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark " +
     "placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all";
 
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center px-4 py-8">
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center px-4 py-8">
       <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-beige-dark/20">
@@ -175,5 +176,5 @@ export default function CreateStaffModal({ onClose, onCreated, defaultRole = "We
         </form>
       </div>
     </div>
-  );
+  , document.body);
 }

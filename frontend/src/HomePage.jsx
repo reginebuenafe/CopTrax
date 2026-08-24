@@ -40,12 +40,6 @@ export default function HomePage() {
               >
                 <LuPhone className="w-5 h-5" /> Contact Us
               </Link>
-              <Link
-                to="/login"
-                className="inline-flex items-center justify-center gap-2 glass text-white font-bold px-8 py-4 rounded-2xl hover:bg-white/20 transition-all duration-300 text-base hover:-translate-y-1"
-              >
-                <LuLogIn className="w-5 h-5" /> Login
-              </Link>
             </div>
           </div>
         </div>
