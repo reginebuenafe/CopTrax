@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
+import { useAuth } from "../../contexts/AuthContext";
 
 const ROLE_REDIRECT = {
   "Business Owner": "/dashboard/owner",
@@ -14,6 +15,11 @@ const ROLE_REDIRECT = {
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { isLoading, role, accountStatus } = useAuth();
+
+  // Set to true after a successful signInWithPassword so the useEffect below
+  // knows to wait for AuthContext to finish loading before redirecting.
+  const signingInRef = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +37,41 @@ export default function LoginPage() {
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
+
+  // After signInWithPassword succeeds, AuthContext will fetch the profile via
+  // onAuthStateChange. Wait for isLoading to become false, then redirect using
+  // the now-resolved role and accountStatus from AuthContext.
+  useEffect(() => {
+    if (!signingInRef.current) return;
+    if (isLoading) return; // still fetching profile — keep waiting
+
+    signingInRef.current = false;
+    setLoading(false);
+
+    if (!role && !accountStatus) {
+      // Profile not found even after loading finished
+      setError("Account profile not found. Please contact support.");
+      supabase.auth.signOut();
+      return;
+    }
+
+    if (accountStatus === "Pending") { navigate("/pending-approval"); return; }
+    if (accountStatus === "Rejected") {
+      supabase.auth.signOut();
+      setError("Your account registration was declined. Please contact NERC Copra Trading.");
+      return;
+    }
+    if (accountStatus === "Deleted") {
+      supabase.auth.signOut();
+      setError("Your account has been deactivated. Please contact NERC Copra Trading.");
+      return;
+    }
+
+    if (role === "Supplier") {
+      localStorage.setItem("coptrax_chat_widget_open", "false");
+    }
+    navigate(ROLE_REDIRECT[role] ?? "/");
+  }, [isLoading, role, accountStatus, navigate]);
 
   async function handleForgotPassword(e) {
     e.preventDefault();
@@ -53,7 +94,7 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
     if (authError) {
       setError("Invalid email or password.");
@@ -61,37 +102,10 @@ export default function LoginPage() {
       return;
     }
 
-    // Fetch profile to get role + account_status
-    const { data: profile } = await supabase
-      .from("users")
-      .select("account_status, roles(role_name)")
-      .eq("user_id", data.user.id)
-      .single();
-
-    setLoading(false);
-
-    if (!profile) {
-      setError("Account profile not found. Please contact support.");
-      await supabase.auth.signOut();
-      return;
-    }
-
-    if (profile.account_status === "Pending") {
-      navigate("/pending-approval");
-      return;
-    }
-
-    if (profile.account_status === "Rejected") {
-      await supabase.auth.signOut();
-      setError("Your account registration was declined. Please contact NERC Copra Trading.");
-      return;
-    }
-
-    const roleName = profile.roles?.role_name;
-    if (roleName === "Supplier") {
-      localStorage.setItem("coptrax_chat_widget_open", "false");
-    }
-    navigate(ROLE_REDIRECT[roleName] ?? "/");
+    // Signal the useEffect to watch AuthContext until profile loading finishes,
+    // then redirect. Do NOT read profile here — AuthContext.onAuthStateChange
+    // already fetches it and that query is the authoritative one.
+    signingInRef.current = true;
   }
 
   return (
