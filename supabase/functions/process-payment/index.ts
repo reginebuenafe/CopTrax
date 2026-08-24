@@ -154,10 +154,20 @@ Deno.serve(async (req) => {
     // The Payouts v2 API returns `payout_id` (not `id`)
     const xenditPayoutId = (xenditData.payout_id as string) ?? referenceId;
     console.log(`[process-payment] Xendit payout created: payout_id=${xenditPayoutId} reference_id=${referenceId} status=${xenditData.status}`);
-    await supabase
+    const { error: payoutRefErr } = await supabase
       .from("payments")
       .update({ xendit_payout_id: xenditPayoutId })
       .eq("payment_id", payment_id);
+
+    if (payoutRefErr) {
+      console.error(`[process-payment] Failed to store xendit_payout_id for payment_id=${payment_id}: ${payoutRefErr.message}`);
+      // Do not fail the payout here: webhook can still resolve by reference_id → payment_id.
+      return json({
+        processing: true,
+        xendit_payout_id: xenditPayoutId,
+        warning: "Payout created but payout reference was not saved locally. Webhook fallback matching will be used.",
+      });
+    }
 
     return json({ processing: true, xendit_payout_id: xenditPayoutId });
   } catch (err) {
