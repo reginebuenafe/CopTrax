@@ -50,7 +50,7 @@ export default function BODeliveriesPage() {
           contract:contract_id(contract_number),
           walkin_supplier:walkin_supplier_id(first_name, last_name),
           weigher:weigher_id(first_name, last_name),
-          weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
+          weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg, copra_condition),
           laboratory_inspections(moisture_content_pct, inspected_at,
             lab_staff:lab_staff_id(first_name, last_name)),
           quality_results(result, remarks),
@@ -179,23 +179,35 @@ export default function BODeliveriesPage() {
                   <div className="border-t border-beige-dark/20 px-5 py-4">
                     {/* Weighing + Quality grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
-                      {wr && <>
+                      {wr && d.delivery_source === "Walkin" ? <>
+                        {/* Walk-in: show only Gross Weight, Quality, Net Weight, Weigher */}
+                        <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
+                        <InfoItem label="Quality" value={wr.copra_condition ?? "—"} />
+                        <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
+                        <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
+                      </> : !wr && d.delivery_source === "Walkin" ? (
+                        <div className="col-span-4 text-center py-2 text-brown-light text-xs italic">
+                          Weighing record unavailable — this delivery was recorded before the condition tracking update. Please delete and re-record it.
+                        </div>
+                      ) : wr ? <>
                         <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
                         <InfoItem label="Tare Weight"  value={`${fmt3(wr.tare_weight_kg)} kg`} />
                         <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
                         <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
-                      </>}
-                      {li ? <>
-                        <InfoItem label="Moisture %" value={`${li.moisture_content_pct}%`} />
-                        <InfoItem label="PCA Discount" value={`${discountPct}%`} />
-                        <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(3)} kg` : "—"} />
-                        <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
-                      </> : (
-                        <InfoItem label="Quality Result" value="Pending" />
+                      </> : null}
+                      {d.delivery_source !== "Walkin" && (
+                        li ? <>
+                          <InfoItem label="Moisture %" value={`${li.moisture_content_pct}%`} />
+                          <InfoItem label="PCA Discount" value={`${discountPct}%`} />
+                          <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(3)} kg` : "—"} />
+                          <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
+                        </> : (
+                          <InfoItem label="Quality Result" value="Pending" />
+                        )
                       )}
                     </div>
-                    {/* Lab staff + inspected date — only when inspection exists */}
-                    {li && (
+                    {/* Lab staff + inspected date — contractual only */}
+                    {d.delivery_source !== "Walkin" && li && (
                       <div className="flex flex-wrap gap-4 text-xs text-brown-light mb-3">
                         <span>
                           Lab Staff:{" "}

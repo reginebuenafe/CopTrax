@@ -17,6 +17,7 @@ export default function LabHistoryPage() {
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
             supplier:supplier_id(first_name, last_name),
+            contract:contract_id(contract_number),
             walkin_supplier:walkin_supplier_id(first_name, last_name),
             weighing_records(net_weight_kg)
           ),
