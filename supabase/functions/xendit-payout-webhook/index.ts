@@ -4,7 +4,7 @@
 // updates its status accordingly.
 // Deploys with: supabase functions deploy xendit-payout-webhook --no-verify-jwt
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
 const XENDIT_WEBHOOK_TOKEN      = Deno.env.get("XENDIT_WEBHOOK_TOKEN") ?? "";
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
