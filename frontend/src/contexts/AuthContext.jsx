@@ -21,6 +21,7 @@ export function AuthProvider({ children }) {
 
   const wasAuthenticatedRef  = useRef(false);
   const explicitSignOutRef   = useRef(false);
+  const loadedUserIdRef      = useRef(null);
   const warningTimerRef      = useRef(null);
   const inactivityTimerRef   = useRef(null);
   const countdownTimerRef    = useRef(null);
@@ -127,9 +128,21 @@ export function AuthProvider({ children }) {
         wasAuthenticatedRef.current = true;
         setSession(session);
         setSessionExpired(false);
-        fetchProfile(session.user.id);
         resetInactivityTimer();
+
+        // Supabase re-fires auth events (TOKEN_REFRESHED, sometimes even
+        // SIGNED_IN again) whenever a tab/window regains focus — this is
+        // NOT a new login. Refetching the profile every time flips
+        // profileLoading (and therefore isLoading) back to true, which
+        // makes ProtectedRoute unmount the current page and lose any
+        // in-progress form input. Only refetch when the session actually
+        // belongs to a different user than the one already loaded.
+        if (loadedUserIdRef.current !== session.user.id) {
+          loadedUserIdRef.current = session.user.id;
+          fetchProfile(session.user.id);
+        }
       } else {
+        loadedUserIdRef.current = null;
         if (event === "SIGNED_OUT") {
           if (wasAuthenticatedRef.current && !explicitSignOutRef.current) {
             setSessionExpired(true); // expired or inactivity timeout

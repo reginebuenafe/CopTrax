@@ -33,6 +33,7 @@ export default function InspectionQueuePage() {
         weighing_records(net_weight_kg)
       `)
       .eq("delivery_status", "Weighed")
+      .eq("delivery_source", "Contract-based")
       .order("created_at", { ascending: true });
 
     setDeliveries(data ?? []);
