@@ -90,7 +90,7 @@ export default function WalkinDeliveryForm() {
         walkin_supplier_id: walkinSupplier.walkin_supplier_id,
         delivery_date: form.deliveryDate,
         weigher_id: user.id,
-        delivery_status: "Weighed",
+        delivery_status: "Accepted",
       })
       .select("delivery_id, batch_number")
       .single();
@@ -148,7 +148,7 @@ export default function WalkinDeliveryForm() {
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span> —{" "}
             <span className="font-semibold text-green-dark">{success.finalWeight.toFixed(3)} kg</span> final weight.
-            Delivery is now awaiting lab inspection.
+            Delivery accepted and added to inventory — no lab inspection required for Walk-in.
           </p>
           <div className="bg-beige rounded-xl px-4 py-3 text-left mb-6 text-sm space-y-1">
             <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Summary</p>
