@@ -412,3 +412,10 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+
+# ── Scheduled Edge Functions ─────────────────────────────────────────────────
+[functions.auto-release-payments]
+# Every Friday at 09:00 UTC = 5:00 PM Philippine Time (UTC+8)
+# Finds all Pending payment batches due today and submits them to Xendit.
+schedule = "0 9 * * 5"

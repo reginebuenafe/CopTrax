@@ -16,7 +16,8 @@ export default function LabHistoryPage() {
           inspection_id, moisture_content_pct, inspected_at,
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
-            contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+            supplier:supplier_id(first_name, last_name),
+            contract:contract_id(contract_number),
             walkin_supplier:walkin_supplier_id(first_name, last_name),
             weighing_records(net_weight_kg)
           ),
@@ -35,7 +36,7 @@ export default function LabHistoryPage() {
     if (!delivery) return "—";
     return delivery.delivery_source === "Walkin"
       ? `${delivery.walkin_supplier?.first_name ?? ""} ${delivery.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${delivery.contract?.supplier?.first_name ?? ""} ${delivery.contract?.supplier?.last_name ?? ""}`.trim();
+      : `${delivery.supplier?.first_name ?? ""} ${delivery.supplier?.last_name ?? ""}`.trim();
   }
 
   return (
@@ -89,7 +90,9 @@ export default function LabHistoryPage() {
 
                     return (
                       <tr key={r.inspection_id} className="hover:bg-beige/30 transition-colors">
-                        <td className="px-5 py-3.5 font-medium text-brown-dark">{getSupplierName(d)}</td>
+                        <td className="px-5 py-3.5 font-medium text-brown-dark">
+                          {getSupplierName(d) || <span className="text-brown-light italic text-xs">Unknown supplier</span>}
+                        </td>
                         <td className="px-5 py-3.5">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                             d?.delivery_source === "Walkin"

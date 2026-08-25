@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   LuWallet, LuCheck, LuClock, LuCircleAlert, LuChevronDown, LuChevronUp,
-  LuReceipt, LuX, LuLoader, LuPackage, LuBanknote,
+  LuReceipt, LuX, LuLoader, LuPackage, LuBanknote, LuTruck,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSensitiveSessionTimeout } from "../../hooks/useSensitiveSessionTimeout";
 
-const TABS = ["Ready to Pay", "Payment Batches"];
+const TABS = ["Ready to Pay", "Payment Batches", "Walk-In Payments"];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function peso(n) {
@@ -18,16 +18,25 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
+// Escape HTML special characters before injecting DB values into document.write templates
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function PaymentsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [tab, setTab] = useState(0);
   const [readyDeliveries, setReadyDeliveries] = useState([]); // ungrouped Accepted contractual deliveries without payment
   const [batches, setBatches] = useState([]);
+  const [walkinDeliveries, setWalkinDeliveries] = useState([]);
   const [spotPrice, setSpotPrice] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [expandedSupplier, setExpandedSupplier] = useState(null);
   const [batchModal, setBatchModal] = useState(null);   // { supplierId, name, deliveries }
   const [releaseModal, setReleaseModal] = useState(null); // { payment }
   useSensitiveSessionTimeout(Boolean(releaseModal));
@@ -43,7 +52,7 @@ export default function PaymentsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [deliveriesRes, batchesRes, spotRes] = await Promise.all([
+    const [deliveriesRes, batchesRes, spotRes, walkinRes] = await Promise.all([
       supabase.from("deliveries").select(`
         delivery_id, delivery_date, delivery_source, created_at,
         supplier:supplier_id(user_id, first_name, last_name),
@@ -70,6 +79,18 @@ export default function PaymentsPage() {
       `).order("created_at", { ascending: false }),
 
       supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+
+      supabase.from("deliveries").select(`
+        delivery_id, delivery_date, created_at, walkin_paid_at,
+        walkin_spot_price_kg, walkin_amount_paid,
+        walkin_supplier:walkin_supplier_id(first_name, last_name),
+        weigher:weigher_id(first_name, last_name),
+        paid_by:walkin_paid_by(first_name, last_name),
+        weighing_records(gross_weight_kg, net_weight_kg, copra_condition)
+      `)
+        .eq("delivery_source", "Walkin")
+        .eq("delivery_status", "Accepted")
+        .order("created_at", { ascending: false }),
     ]);
 
     const spot = spotRes.data?.price_per_kg ?? 0;
@@ -84,6 +105,7 @@ export default function PaymentsPage() {
 
     setReadyDeliveries(enriched);
     setBatches(batchesRes.data ?? []);
+    setWalkinDeliveries(walkinRes.data ?? []);
     setLoading(false);
   }, []);
 
@@ -168,30 +190,16 @@ export default function PaymentsPage() {
     return acc;
   }, {});
 
-  // ── create payment batch ─────────────────────────────────────────────────
+  // ── create payment batch (atomic via PostgreSQL RPC) ─────────────────────
   async function createBatch() {
     const { supplierId, deliveries, paymentWeek } = batchModal;
     setProcessing(true);
 
     const totalAmount = deliveries.reduce((s, d) => s + (d._computed?.lineAmount ?? 0), 0);
 
-    // 1. Insert payment header
-    const { data: payment, error: pErr } = await supabase.from("payments").insert({
-      supplier_id:       supplierId,
-      business_owner_id: user.id,
-      payment_week:      paymentWeek,
-      total_amount:      Math.round(totalAmount * 100) / 100,
-      payment_status:    "Pending",
-      payment_method:    "Bank Transfer",
-    }).select("payment_id").single();
-
-    if (pErr) { showToast("Failed to create payment batch.", "error"); setProcessing(false); return; }
-
-    // 2. Insert payment details (one row per allocation line)
     const details = deliveries.flatMap(d => {
       const c = d._computed;
       return c.allocLines.map(l => ({
-        payment_id:            payment.payment_id,
         delivery_id:           d.delivery_id,
         gross_weight_kg:       l.grossKg,
         tare_weight_kg:        l.tareKg,
@@ -206,23 +214,20 @@ export default function PaymentsPage() {
       }));
     });
 
-    const { error: dErr } = await supabase.from("payment_details").insert(details);
-    if (dErr) { showToast("Batch created but detail lines failed.", "error"); setProcessing(false); return; }
-
-    // 3. Stamp payment_id on each delivery
-    for (const d of deliveries) {
-      await supabase.from("deliveries").update({ payment_id: payment.payment_id })
-        .eq("delivery_id", d.delivery_id);
-    }
-
-    // 4. Notify supplier
-    await supabase.from("notifications").insert({
-      user_id:              supplierId,
-      message:              `A payment of ${peso(totalAmount)} for ${deliveries.length} delivery(ies) is ready for release on ${fmtDate(paymentWeek)}.`,
-      notification_type:    "Weekly Payment Ready",
-      related_entity_type:  "payments",
-      related_entity_id:    payment.payment_id,
+    const { error } = await supabase.rpc("create_payment_batch", {
+      p_supplier_id:       supplierId,
+      p_business_owner_id: user.id,
+      p_payment_week:      paymentWeek,
+      p_total_amount:      Math.round(totalAmount * 100) / 100,
+      p_notification_msg:  `A payment of ${peso(totalAmount)} for ${deliveries.length} delivery(ies) is ready for release on ${fmtDate(paymentWeek)}.`,
+      p_details:           details,
     });
+
+    if (error) {
+      showToast("Failed to create payment batch. No changes were made.", "error");
+      setProcessing(false);
+      return;
+    }
 
     setProcessing(false);
     setBatchModal(null);
@@ -316,7 +321,13 @@ export default function PaymentsPage() {
               <span className="ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
                 {Object.keys(supplierGroups).length}
               </span>
-            )}          </button>
+            )}
+            {i === 2 && walkinDeliveries.filter(d => !d.walkin_paid_at).length > 0 && (
+              <span className="ml-2 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full">
+                {walkinDeliveries.filter(d => !d.walkin_paid_at).length}
+              </span>
+            )}
+          </button>
         ))}
       </div>
 
@@ -327,14 +338,21 @@ export default function PaymentsPage() {
       ) : tab === 0 ? (
         <ReadyToPayTab
           groups={supplierGroups}
-          expandedSupplier={expandedSupplier}
-          setExpandedSupplier={setExpandedSupplier}
           onCreateBatch={setBatchModal}
         />
-      ) : (
+      ) : tab === 1 ? (
         <BatchesTab
           batches={batches}
           onRelease={setReleaseModal}
+        />
+      ) : (
+        <WalkinPaymentsTab
+          deliveries={walkinDeliveries}
+          spotPrice={spotPrice}
+          user={user}
+          profile={profile}
+          onRefresh={fetchData}
+          onToast={showToast}
         />
       )}
 
@@ -459,8 +477,13 @@ export default function PaymentsPage() {
 }
 
 // ── Ready to Pay Tab ────────────────────────────────────────────────────────
-function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreateBatch }) {
+function ReadyToPayTab({ groups, onCreateBatch }) {
   const groupKeys = Object.keys(groups);
+  const [selectedKey, setSelectedKey] = useState(groupKeys[0] ?? null);
+
+  // Keep selection valid when data refreshes
+  const activeKey = groupKeys.includes(selectedKey) ? selectedKey : (groupKeys[0] ?? null);
+  const selected  = activeKey ? groups[activeKey] : null;
 
   if (groupKeys.length === 0) {
     return (
@@ -475,109 +498,172 @@ function ReadyToPayTab({ groups, expandedSupplier, setExpandedSupplier, onCreate
   }
 
   return (
-    <div className="space-y-3">
-      {groupKeys.map(key => {
-        const { supplier, paymentWeek, deliveries } = groups[key];
-        const totalAmount = deliveries.reduce((s, d) => s + (d._computed?.lineAmount ?? 0), 0);
-        const hasMixed = deliveries.some(d => d._computed?.priceType !== "Negotiated");
-        const isOpen = expandedSupplier === key;
+    <div className="flex gap-4 items-start">
+      {/* ── Left: supplier list ── */}
+      <div className="w-full md:w-[44%] shrink-0 space-y-2">
+        {groupKeys.map(key => {
+          const { supplier, paymentWeek, deliveries } = groups[key];
+          const totalAmount  = deliveries.reduce((s, d) => s + (d._computed?.lineAmount ?? 0), 0);
+          const totalNetKg   = deliveries.reduce((s, d) => s + (d._computed?.netKg ?? 0), 0);
+          const hasMixed     = deliveries.some(d => d._computed?.priceType !== "Negotiated");
+          const isSelected   = key === activeKey;
 
-        return (
-          <div key={key} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
-            {/* Supplier row header */}
+          return (
             <button
-              onClick={() => setExpandedSupplier(isOpen ? null : key)}
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/30 transition-colors text-left"
+              key={key}
+              onClick={() => setSelectedKey(key)}
+              className={`w-full text-left rounded-2xl border transition-all px-4 py-3 flex items-center gap-3
+                ${isSelected
+                  ? "bg-green-pale border-green-mid/40 shadow-sm"
+                  : "bg-white border-beige-dark/20 hover:bg-beige/30 shadow-card"}`}
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white font-bold text-sm shrink-0">
+              {/* Avatar */}
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0
+                ${isSelected ? "bg-gradient-to-br from-green-dark to-green-mid" : "bg-gradient-to-br from-brown-mid to-brown-dark"}`}>
                 {supplier.first_name?.[0]}{supplier.last_name?.[0]}
               </div>
+
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-brown-dark">{supplier.first_name} {supplier.last_name}</p>
-                <p className="text-brown-light text-xs">
-                  {deliveries.length} delivery(ies) · Disbursement Friday: {fmtDate(paymentWeek)}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="font-bold text-brown-dark text-sm">{supplier.first_name} {supplier.last_name}</p>
+                  {hasMixed && (
+                    <span className="text-xs bg-amber-50 text-amber-600 font-semibold px-1.5 py-0.5 rounded-full border border-amber-200">Spot</span>
+                  )}
+                </div>
+                <p className="text-brown-light text-xs mt-0.5">
+                  {deliveries.length} delivery(ies) · {totalNetKg.toFixed(2)} kg · {fmtDate(paymentWeek)}
                 </p>
               </div>
-              {hasMixed && (
-                <span className="text-xs bg-amber-50 text-amber-600 font-semibold px-2 py-0.5 rounded-full border border-amber-200 shrink-0">
-                  Includes Spot
-                </span>
-              )}
-              <div className="text-right shrink-0">
-                <p className="font-bold text-brown-dark">{peso(totalAmount)}</p>
-                <p className="text-brown-light text-xs">total payable</p>
-              </div>
-              {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
-            </button>
 
-            {/* Expanded delivery table */}
-            {isOpen && (
-              <div className="border-t border-beige-dark/20">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
-                      <tr>
-                        {["Contract / Allocation", "Date", "Alloc kg", "MC (cc)", "Discount (%)", "Deducted kg", "Final kg", "₱/kg", "Amount", "Type"].map(h => (
-                          <th key={h} className="px-4 py-2.5 text-left font-semibold whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-beige-dark/20">
-                      {deliveries.flatMap(d => {
-                        const c = d._computed;
-                        return c.allocLines.map((l, i) => (
-                          <tr key={`${d.delivery_id}-${i}`}>
-                            <td className="px-4 py-3 font-medium text-brown-dark text-xs">
-                              {l.contractNumber ?? "Spot Price"}
-                            </td>
-                            <td className="px-4 py-3 text-brown-mid text-xs whitespace-nowrap">{fmtDate(d.delivery_date)}</td>
-                            <td className="px-4 py-3 text-brown-mid">{fmt3(l.allocNetKg)}</td>
-                            <td className="px-4 py-3 text-brown-mid">{l.mc}</td>
-                            <td className="px-4 py-3 text-brown-mid">{l.discountPct}%</td>
-                            <td className="px-4 py-3 text-red-500">{fmt3(l.deductedKg)}</td>
-                            <td className="px-4 py-3 font-semibold text-brown-dark">{fmt3(l.allocFinalKg)}</td>
-                            <td className="px-4 py-3 text-brown-mid">{peso(l.pricePerKg)}</td>
-                            <td className="px-4 py-3 font-bold text-brown-dark">{peso(l.lineAmount)}</td>
-                            <td className="px-4 py-3">
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                l.priceType === "Spot"
-                                  ? "bg-amber-50 text-amber-700"
-                                  : "bg-green-pale text-green-dark"
-                              }`}>
-                                {l.priceType}
-                              </span>
-                            </td>
-                          </tr>
-                        ));
-                      })}
-                    </tbody>
-                  </table>
+              <div className="text-right shrink-0">
+                <p className="font-bold text-brown-dark text-sm">{peso(totalAmount)}</p>
+                <span className="text-xs font-semibold text-amber-600">Pending</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Right: payment preview ── */}
+      {selected && (
+        <PaymentPreviewPanel
+          group={selected}
+          onCreateBatch={onCreateBatch}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentPreviewPanel({ group, onCreateBatch }) {
+  const { supplier, paymentWeek, deliveries } = group;
+
+  // Aggregate across all allocation lines
+  const allLines = deliveries.flatMap(d => (d._computed?.allocLines ?? []));
+  const totalNetKg     = allLines.reduce((s, l) => s + l.allocNetKg, 0);
+  const grossAmount    = allLines.reduce((s, l) => s + l.allocNetKg * l.pricePerKg, 0);
+  const totalDeductAmt = allLines.reduce((s, l) => s + l.deductedKg * l.pricePerKg, 0);
+  const netPayable     = allLines.reduce((s, l) => s + l.lineAmount, 0);
+  const priceTypeLabel = allLines.every(l => l.priceType === "Negotiated") ? "Negotiated"
+    : allLines.every(l => l.priceType === "Spot") ? "Spot" : "Mixed";
+
+  return (
+    <div className="flex-1 bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-beige-dark/20 bg-beige/30">
+        <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Payment Preview</p>
+        <p className="text-lg font-bold text-brown-dark mt-0.5">{supplier.first_name} {supplier.last_name}</p>
+      </div>
+
+      {/* Summary rows */}
+      <div className="divide-y divide-beige-dark/20 px-5">
+        <PreviewRow label="Supplier" value={`${supplier.first_name} ${supplier.last_name}`} />
+        <PreviewRow label="Total Deliveries" value={`${deliveries.length} delivery(ies)`} />
+        <PreviewRow label="Total Net Weight" value={`${totalNetKg.toFixed(2)} kg`} />
+        <PreviewRow label="Disbursement Date" value={fmtDate(paymentWeek)} />
+        <PreviewRow label="Price Type" value={
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+            priceTypeLabel === "Negotiated" ? "bg-green-pale text-green-dark"
+            : priceTypeLabel === "Spot" ? "bg-amber-50 text-amber-700"
+            : "bg-blue-50 text-blue-600"
+          }`}>{priceTypeLabel}</span>
+        } />
+        <PreviewRow label="Gross Amount" value={peso(grossAmount)} />
+        <PreviewRow label="Less Deductions" value={<span className="text-red-500 font-semibold">−{peso(totalDeductAmt)}</span>} />
+        <div className="flex justify-between items-center py-3.5">
+          <p className="font-bold text-brown-dark text-sm">Net Payable</p>
+          <p className="text-xl font-bold text-green-dark">{peso(netPayable)}</p>
+        </div>
+      </div>
+
+      {/* Allocation breakdown (scrollable) */}
+      <div className="px-5 pb-2">
+        <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-2">Allocation Breakdown</p>
+        <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 max-h-40 overflow-y-auto text-xs">
+          {deliveries.flatMap((d, di) =>
+            (d._computed?.allocLines ?? []).map((l, li) => (
+              <div key={`${di}-${li}`} className="px-3 py-2 flex justify-between gap-2">
+                <div>
+                  <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
+                  <span className="text-brown-light ml-1.5">{fmtDate(d.delivery_date)}</span>
                 </div>
-                <div className="flex items-center justify-between px-5 py-4 bg-beige/50 border-t border-beige-dark/20">
-                  <p className="font-semibold text-brown-dark">{peso(totalAmount)} total · Disburse {fmtDate(paymentWeek)}</p>
-                  <button
-                    onClick={() => onCreateBatch({
-                      supplierId: supplier.user_id,
-                      name: `${supplier.first_name} ${supplier.last_name}`,
-                      deliveries,
-                      paymentWeek,
-                    })}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
-                  >
-                    <LuPackage className="w-4 h-4" /> Create Batch
-                  </button>
+                <div className="text-right shrink-0">
+                  <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
+                  <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
+                    l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
+                  }`}>{l.priceType}</span>
                 </div>
               </div>
-            )}
-          </div>
-        );
-      })}
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Create Batch button */}
+      <div className="px-5 py-4">
+        <button
+          onClick={() => onCreateBatch({
+            supplierId: supplier.user_id,
+            name: `${supplier.first_name} ${supplier.last_name}`,
+            deliveries,
+            paymentWeek,
+          })}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+        >
+          <LuPackage className="w-4 h-4" /> Create Batch
+        </button>
+        <p className="text-center text-xs text-brown-light mt-2">
+          Payment will be auto-released on <span className="font-semibold text-brown-mid">{fmtDate(paymentWeek)}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PreviewRow({ label, value }) {
+  return (
+    <div className="flex justify-between items-center py-3 text-sm">
+      <span className="text-brown-light">{label}</span>
+      <span className="font-semibold text-brown-dark text-right">{value}</span>
     </div>
   );
 }
 
 // ── Batches Tab ───────────────────────────────────────────────────────────
 function BatchesTab({ batches, onRelease }) {
+  const [filter, setFilter]           = useState("All");
+  const [receiptBatch, setReceiptBatch] = useState(null);
+
+  const BATCH_FILTERS = [
+    { label: "All",        match: () => true },
+    { label: "Pending",    match: b => b.payment_status === "Pending" },
+    { label: "Processing", match: b => b.payment_status === "Processing" },
+    { label: "Done",       match: b => b.payment_status === "Released" },
+    { label: "Failed",     match: b => b.payment_status === "Failed" },
+  ];
+
+  const shown = batches.filter(BATCH_FILTERS.find(f => f.label === filter)?.match ?? (() => true));
+
   if (batches.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
@@ -591,104 +677,613 @@ function BatchesTab({ batches, onRelease }) {
   }
 
   return (
+    <>
     <div className="space-y-3">
-      {batches.map(b => {
-        const receiptNum    = b.e_receipts?.[0]?.receipt_number;
-        const isPending     = b.payment_status === "Pending";
-        const isProcessing  = b.payment_status === "Processing";
-        const isReleased    = b.payment_status === "Released";
-        const isFailed      = b.payment_status === "Failed";
+      {/* Filter tabs */}
+      <div className="flex gap-1 bg-beige rounded-xl p-1 w-fit flex-wrap">
+        {BATCH_FILTERS.map(f => {
+          const count = batches.filter(f.match).length;
+          return (
+            <button key={f.label} onClick={() => setFilter(f.label)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
+                ${filter === f.label ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+              {f.label}
+              {count > 0 && f.label !== "All" && (
+                <span className={`ml-1.5 font-bold px-1.5 py-0.5 rounded-full text-xs
+                  ${f.label === "Done"       ? "bg-green-pale text-green-dark"
+                  : f.label === "Pending"    ? "bg-amber-50 text-amber-700"
+                  : f.label === "Processing" ? "bg-blue-50 text-blue-600"
+                  : "bg-red-50 text-red-600"}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        return (
-          <div key={b.payment_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
-            <div className="flex items-start gap-4">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                isReleased   ? "bg-green-pale"
-                : isPending  ? "bg-amber-50"
-                : isProcessing ? "bg-blue-50"
-                : "bg-red-50"
-              }`}>
-                {isReleased    ? <LuCheck  className="w-5 h-5 text-green-dark" />
-                 : isPending   ? <LuClock  className="w-5 h-5 text-amber-500" />
-                 : isProcessing ? <LuLoader className="w-5 h-5 text-blue-500 animate-spin" />
-                 : <LuX className="w-5 h-5 text-red-500" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-brown-dark">{b.supplier?.first_name} {b.supplier?.last_name}</p>
-                    <p className="text-brown-light text-xs mt-0.5">Week of {fmtDate(b.payment_week)} · {b.payment_details?.length ?? 0} allocation line(s)</p>
+      {shown.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex items-center justify-center py-12">
+          <p className="text-brown-light text-sm">No {filter.toLowerCase()} batches.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {shown.map(b => {
+            const receiptNum   = b.e_receipts?.[0]?.receipt_number;
+            const isPending    = b.payment_status === "Pending";
+            const isProcessing = b.payment_status === "Processing";
+            const isReleased   = b.payment_status === "Released";
+            const isFailed     = b.payment_status === "Failed";
+
+            const statusColor = isReleased ? "bg-green-pale text-green-dark"
+              : isPending    ? "bg-amber-50 text-amber-700"
+              : isProcessing ? "bg-blue-50 text-blue-600"
+              : "bg-red-50 text-red-600";
+            const StatusIcon  = isReleased ? LuCheck : isPending ? LuClock : isProcessing ? LuLoader : LuX;
+
+            return (
+              <div key={b.payment_id} className={`bg-white rounded-2xl shadow-card border ${isReleased ? "border-green-mid/20" : "border-beige-dark/20"}`}>
+                {/* Main row */}
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${statusColor.split(" ")[0]}`}>
+                    <StatusIcon className={`w-4 h-4 ${statusColor.split(" ")[1]} ${isProcessing ? "animate-spin" : ""}`} />
                   </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-brown-dark text-sm">{b.supplier?.first_name} {b.supplier?.last_name}</span>
+                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${statusColor}`}>{b.payment_status}</span>
+                    </div>
+                    <p className="text-brown-light text-xs mt-0.5">
+                      Week of {fmtDate(b.payment_week)} · {b.payment_details?.length ?? 0} line(s)
+                      {receiptNum && <> · <span className="font-mono">{receiptNum}</span></>}
+                    </p>
+                    {b.reference_number && (
+                      <p className="text-brown-light text-xs font-mono truncate max-w-xs">Ref: {b.reference_number}</p>
+                    )}
+                  </div>
+
                   <div className="text-right shrink-0">
-                    <p className="font-bold text-brown-dark text-lg">{peso(b.total_amount)}</p>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      isReleased   ? "bg-green-pale text-green-dark"
-                      : isPending  ? "bg-amber-50 text-amber-700"
-                      : isProcessing ? "bg-blue-50 text-blue-600"
-                      : "bg-red-50 text-red-600"
-                    }`}>
-                      {b.payment_status}
-                    </span>
+                    <p className="font-bold text-brown-dark text-base">{peso(b.total_amount)}</p>
+                    {isPending && (
+                      <button
+                        onClick={() => onRelease({ payment: b })}
+                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all"
+                      >
+                        <LuBanknote className="w-3 h-3" /> Release
+                      </button>
+                    )}
+                    {isFailed && (
+                      <button
+                        onClick={() => onRelease({ payment: b })}
+                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500 text-white font-bold text-xs hover:opacity-90 transition-all"
+                      >
+                        <LuBanknote className="w-3 h-3" /> Retry
+                      </button>
+                    )}
+                    {isProcessing && (
+                      <p className="text-xs text-blue-500 font-semibold mt-1 whitespace-nowrap">Awaiting Xendit…</p>
+                    )}
+                    {isReleased && (
+                      <button
+                        onClick={() => setReceiptBatch(b)}
+                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg border border-green-mid/40 text-green-dark font-semibold text-xs hover:bg-green-pale transition-all"
+                      >
+                        <LuReceipt className="w-3 h-3" /> E-Receipt
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {receiptNum && (
-                  <p className="text-xs text-brown-light mt-2">Receipt: <span className="font-mono text-brown-mid">{receiptNum}</span></p>
-                )}
-                {b.reference_number && (
-                  <p className="text-xs text-brown-light">Ref: <span className="font-mono text-brown-mid">{b.reference_number}</span></p>
-                )}
-
-                {/* Delivery breakdown (collapsed) */}
-                <details className="mt-3 group">
-                  <summary className="text-xs text-brown-light cursor-pointer hover:text-brown-mid select-none flex items-center gap-1">
-                    <LuChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" /> View delivery breakdown
+                {/* Collapsible breakdown */}
+                <details className="group border-t border-beige-dark/10">
+                  <summary className="px-4 py-2 text-xs text-brown-light cursor-pointer hover:text-brown-mid select-none flex items-center gap-1">
+                    <LuChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform shrink-0" />
+                    View delivery breakdown
                   </summary>
-                  <div className="mt-2 bg-beige rounded-xl divide-y divide-beige-dark/30 text-xs">
-                    {(b.payment_details ?? []).map(pd => (
-                      <div key={pd.payment_detail_id} className="px-3 py-2 flex justify-between gap-3">
-                        <span className="text-brown-mid">
-                          {fmt3(pd.net_weight_kg)} kg → {fmt3(pd.final_weight_kg)} kg final
-                          · {pd.moisture_content_pct}% MC · {peso(pd.price_per_kg_used)}/kg
-                          <span className={`ml-1 font-semibold ${
-                            pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"
-                          }`}>({pd.price_type})</span>
-                        </span>
-                        <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
-                      </div>
-                    ))}
+                  <div className="pb-2 px-4">
+                    <div className="bg-beige rounded-xl divide-y divide-beige-dark/20 text-xs">
+                      {(b.payment_details ?? []).map(pd => (
+                        <div key={pd.payment_detail_id} className="px-3 py-2 flex justify-between gap-2">
+                          <span className="text-brown-mid">
+                            {Number(pd.net_weight_kg).toFixed(2)} kg → {Number(pd.final_weight_kg).toFixed(2)} kg
+                            · {pd.moisture_content_pct}% MC · {peso(pd.price_per_kg_used)}/kg
+                            <span className={`ml-1 font-semibold ${pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>({pd.price_type})</span>
+                          </span>
+                          <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </details>
               </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+
+      {receiptBatch && (
+        <BatchReceiptModal
+          batch={receiptBatch}
+          onClose={() => setReceiptBatch(null)}
+        />
+      )}
+    </>
+  );
+} // ── Batch E-Receipt Modal ─────────────────────────────────────────────────────
+function BatchReceiptModal({ batch: b, onClose }) {
+  const receiptNum   = b.e_receipts?.[0]?.receipt_number;
+  const supplierName = `${b.supplier?.first_name ?? ""} ${b.supplier?.last_name ?? ""}`.trim();
+  const details      = b.payment_details ?? [];
+  const totalNetKg   = details.reduce((s, d) => s + Number(d.net_weight_kg), 0);
+  const totalFinalKg = details.reduce((s, d) => s + Number(d.final_weight_kg), 0);
+
+  const paidDate = b.payment_date
+    ? new Date(b.payment_date).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    : fmtDate(b.payment_week);
+
+  function handlePrint() {
+    const detailRows = details.map((pd, i) => `
+      <div class="row sm">
+        <span>${i + 1}. ${Number(pd.net_weight_kg).toFixed(2)} kg → ${Number(pd.final_weight_kg).toFixed(2)} kg · ${esc(pd.moisture_content_pct)}% MC · ${esc(peso(pd.price_per_kg_used))}/kg (${esc(pd.price_type)})</span>
+        <span class="b">${esc(peso(pd.line_amount))}</span>
+      </div>`).join("");
+
+    const win = window.open("", "_blank", "width=420,height=780,noopener");
+    if (!win) { alert("Popups are blocked. Please allow popups for this site to print receipts."); return; }
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>E-Receipt ${esc(receiptNum ?? "")}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:monospace;font-size:12px;width:80mm;padding:6mm 4mm;color:#000}
+        .c{text-align:center}.b{font-weight:bold}.lg{font-size:14px}.xl{font-size:16px}.sm{font-size:11px}
+        hr{border:none;border-top:1px dashed #555;margin:5px 0}
+        .row{display:flex;justify-content:space-between;margin:2px 0;gap:8px}
+        .stamp{text-align:center;font-weight:bold;font-size:15px;margin:6px 0}
+        .it{font-style:italic}
+      </style>
+    </head><body>
+      <p class="c b xl">NERC COPRA TRADING</p>
+      <p class="c sm">Electronic Payment Receipt</p>
+      <hr/>
+      ${receiptNum ? `<div class="row"><span>Receipt #:</span><span class="b">${esc(receiptNum)}</span></div>` : ""}
+      <div class="row"><span>Supplier:</span><span class="b">${esc(supplierName)}</span></div>
+      <div class="row"><span>Payment Week:</span><span>${esc(fmtDate(b.payment_week))}</span></div>
+      <div class="row"><span>Method:</span><span>${esc(b.payment_method ?? "Bank Transfer")}</span></div>
+      ${b.reference_number ? `<div class="row sm"><span>Ref:</span><span style="word-break:break-all;font-size:10px">${esc(b.reference_number)}</span></div>` : ""}
+      <hr/>
+      <p class="c b">ALLOCATION BREAKDOWN</p>
+      <hr/>
+      ${detailRows}
+      <hr/>
+      <div class="row"><span>Total Net Weight:</span><span>${totalNetKg.toFixed(2)} kg</span></div>
+      <div class="row"><span>Total Final Weight:</span><span>${totalFinalKg.toFixed(2)} kg</span></div>
+      <hr/>
+      <div class="row b lg"><span>TOTAL PAID:</span><span>${esc(peso(b.total_amount))}</span></div>
+      <hr/>
+      <p class="stamp">✓ PAYMENT RELEASED</p>
+      <p class="c sm">${esc(paidDate)}</p>
+      <hr/>
+      <p class="c sm it">This is an official electronic payment receipt.</p>
+      <p class="c sm">NERC Copra Trading — CopTrax System</p>
+      <script>window.onload=()=>{window.print();window.close()}<\/script>
+    </body></html>`);
+    win.document.close();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-card w-full max-w-sm flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-green-pale rounded-xl flex items-center justify-center">
+              <LuReceipt className="w-5 h-5 text-green-dark" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-brown-dark">E-Receipt</h2>
+              <p className="text-brown-light text-xs">{receiptNum ?? supplierName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable receipt preview */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "320px" }}>
+            <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
+            <p className="text-center text-brown-light">Electronic Payment Receipt</p>
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+
+            {receiptNum && (
+              <div className="flex justify-between"><span className="text-brown-light">Receipt #</span><span className="font-bold text-brown-dark">{receiptNum}</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-brown-light">Supplier</span><span className="font-semibold text-brown-dark text-right">{supplierName}</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Payment Week</span><span className="text-brown-dark">{fmtDate(b.payment_week)}</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Method</span><span className="text-brown-dark">{b.payment_method ?? "Bank Transfer"}</span></div>
+            {b.reference_number && (
+              <div className="flex justify-between gap-2"><span className="text-brown-light shrink-0">Ref</span><span className="text-brown-mid text-right break-all" style={{ fontSize: "10px" }}>{b.reference_number}</span></div>
+            )}
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center font-bold text-brown-dark">ALLOCATION BREAKDOWN</p>
+            <div className="space-y-1 max-h-36 overflow-y-auto">
+              {details.map((pd, i) => (
+                <div key={pd.payment_detail_id} className="flex justify-between gap-1">
+                  <span className="text-brown-light" style={{ fontSize: "10px" }}>
+                    {i + 1}. {Number(pd.net_weight_kg).toFixed(2)} kg → {Number(pd.final_weight_kg).toFixed(2)} kg · {pd.moisture_content_pct}% MC
+                    <span className={`ml-1 font-semibold ${pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>({pd.price_type})</span>
+                  </span>
+                  <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
+                </div>
+              ))}
             </div>
 
-            {/* Release button — only for Pending; disabled hint shown for Processing/Failed */}
-            {isPending && (
-              <div className="mt-4 pt-4 border-t border-beige-dark/20">
-                <button onClick={() => onRelease({ payment: b })}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all flex items-center justify-center gap-2">
-                  <LuBanknote className="w-4 h-4" /> Release Payment
-                </button>
-              </div>
-            )}
-            {isProcessing && (
-              <div className="mt-4 pt-4 border-t border-beige-dark/20">
-                <div className="w-full py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 font-semibold text-sm flex items-center justify-center gap-2">
-                  <LuLoader className="w-4 h-4 animate-spin" /> Payout submitted — awaiting Xendit confirmation…
-                </div>
-              </div>
-            )}
-            {isFailed && (
-              <div className="mt-4 pt-4 border-t border-beige-dark/20">
-                <button onClick={() => onRelease({ payment: b })}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-red-600 text-white font-bold text-sm hover:opacity-90 transition-all flex items-center justify-center gap-2">
-                  <LuBanknote className="w-4 h-4" /> Retry Release Payment
-                </button>
-              </div>
-            )}
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <div className="flex justify-between"><span className="text-brown-light">Total Net Weight</span><span className="text-brown-dark">{totalNetKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Total Final Weight</span><span className="text-brown-dark">{totalFinalKg.toFixed(2)} kg</span></div>
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-brown-dark">TOTAL PAID</span>
+              <span className="font-bold text-green-dark text-base">{peso(b.total_amount)}</span>
+            </div>
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center font-bold text-green-dark text-sm">✓ PAYMENT RELEASED</p>
+            <p className="text-center text-brown-light">{paidDate}</p>
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center text-brown-light italic">Official electronic payment receipt</p>
+            <p className="text-center text-brown-light">NERC Copra Trading — CopTrax</p>
           </div>
-        );
-      })}
+        </div>
+
+        {/* Print button */}
+        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
+          <button
+            onClick={handlePrint}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+          >
+            <LuReceipt className="w-4 h-4" /> Print E-Receipt
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WalkinPaymentsTab({ deliveries, spotPrice, user, profile, onRefresh, onToast }) {
+  const [marking, setMarking]           = useState(null);
+  const [receiptData, setReceiptData]   = useState(null);
+  const [walkinFilter, setWalkinFilter] = useState("Pending");
+
+  async function markAsPaid(d) {
+    setMarking(d.delivery_id);
+    const paidAt = new Date().toISOString();
+    const { data: updated, error } = await supabase
+      .from("deliveries")
+      .update({ walkin_paid_at: paidAt, walkin_paid_by: user.id })
+      .eq("delivery_id", d.delivery_id)
+      .is("walkin_paid_at", null)   // guard: only update if not already paid
+      .select("delivery_id");
+    setMarking(null);
+    if (error) {
+      onToast("Failed to mark as paid.", "error");
+    } else if (!updated || updated.length === 0) {
+      onToast("This delivery has already been marked as paid.", "error");
+      onRefresh();
+    } else {
+      setReceiptData({
+        ...d,
+        walkin_paid_at: paidAt,
+        paid_by: {
+          first_name: profile?.first_name ?? "",
+          last_name:  profile?.last_name  ?? "",
+        },
+      });
+      onRefresh();
+    }
+  }
+
+  const pending   = deliveries.filter(d => !d.walkin_paid_at);
+  const completed = deliveries
+    .filter(d => d.walkin_paid_at)
+    .sort((a, b) => new Date(b.walkin_paid_at) - new Date(a.walkin_paid_at));
+  const shown     = walkinFilter === "Pending" ? pending : completed;
+
+  if (deliveries.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+          <LuTruck className="w-7 h-7 text-brown-light" />
+        </div>
+        <p className="text-brown-dark font-semibold">No walk-in payments</p>
+        <p className="text-brown-light text-sm mt-1">Walk-in deliveries recorded by weighers will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="space-y-3">
+        <div className="flex items-start gap-2.5 bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-sm text-orange-800 mb-2">
+          <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+          <p>Walk-in payments are settled in <strong>cash</strong>. Click <strong>Mark as Paid</strong> after handing over the cash to view and print the receipt.</p>
+        </div>
+
+        {/* Sub-filter tabs */}
+        <div className="flex gap-1 bg-beige rounded-xl p-1 w-fit">
+          {["Pending", "Completed"].map(f => (
+            <button key={f} onClick={() => setWalkinFilter(f)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
+                ${walkinFilter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+              {f}
+              {f === "Pending" && pending.length > 0 && (
+                <span className="ml-1.5 bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">{pending.length}</span>
+              )}
+              {f === "Completed" && completed.length > 0 && (
+                <span className="ml-1.5 bg-green-pale text-green-dark font-bold px-1.5 py-0.5 rounded-full">{completed.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {shown.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-16 text-center px-4">
+            <p className="text-brown-dark font-semibold">No {walkinFilter.toLowerCase()} walk-in payments</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {shown.map(d => (
+              <WalkinCard
+                key={d.delivery_id}
+                d={d}
+                spotPrice={spotPrice}
+                marking={marking}
+                onMark={markAsPaid}
+                onPrintReceipt={setReceiptData}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {receiptData && (
+        <WalkinReceiptModal
+          d={receiptData}
+          spotPrice={spotPrice}
+          onClose={() => setReceiptData(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
+  const wr         = d.weighing_records?.[0];
+  const sellerName = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
+  const condition  = wr?.copra_condition ?? "Dry";
+  const grossKg    = parseFloat(wr?.gross_weight_kg ?? 0);
+  const netKg      = parseFloat(wr?.net_weight_kg ?? 0);
+  const deductedKg = condition === "Wet" ? grossKg * 0.10 : 0;
+  // Use stored price snapshot if available (locked in at delivery creation); fall back to live spot price
+  const spot       = d.walkin_spot_price_kg != null ? parseFloat(d.walkin_spot_price_kg) : parseFloat(spotPrice ?? 0);
+  const amountDue  = d.walkin_amount_paid   != null ? parseFloat(d.walkin_amount_paid)   : netKg * spot;
+  const isPaid     = Boolean(d.walkin_paid_at);
+
+  return (
+    <div className={`bg-white rounded-2xl shadow-card border ${isPaid ? "border-green-mid/30" : "border-beige-dark/20"}`}>
+      <div className="px-4 py-3 flex items-center gap-3">
+        {/* Icon */}
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isPaid ? "bg-green-pale" : "bg-orange-50"}`}>
+          {isPaid
+            ? <LuCheck className="w-4 h-4 text-green-dark" />
+            : <LuTruck className="w-4 h-4 text-orange-500" />}
+        </div>
+
+        {/* Name + date + details */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-brown-dark text-sm">{sellerName}</span>
+            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
+              isPaid ? "bg-green-pale text-green-dark" : "bg-amber-50 text-amber-700"
+            }`}>{isPaid ? "Paid" : "Pending"}</span>
+          </div>
+          {/* Compact detail strip */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-brown-light">
+            <span>{fmtDate(d.delivery_date)}</span>
+            <span className="text-beige-dark">·</span>
+            <span>Gross <span className="text-brown-mid font-medium">{grossKg.toFixed(2)} kg</span></span>
+            <span className="text-beige-dark">·</span>
+            <span className={`font-medium ${condition === "Wet" ? "text-blue-600" : "text-green-dark"}`}>{condition}</span>
+            {condition === "Wet" && <>
+              <span className="text-beige-dark">·</span>
+              <span>Ded <span className="text-red-500 font-medium">−{deductedKg.toFixed(2)} kg</span></span>
+            </>}
+            <span className="text-beige-dark">·</span>
+            <span>Net <span className="text-brown-mid font-medium">{netKg.toFixed(2)} kg</span></span>
+            <span className="text-beige-dark">·</span>
+            <span>{peso(spot)}/kg</span>
+          </div>
+          {isPaid && d.walkin_paid_at && (
+            <p className="text-xs text-brown-light mt-0.5">
+              Paid {new Date(d.walkin_paid_at).toLocaleString("en-PH", {
+                month: "short", day: "numeric", year: "numeric",
+                hour: "2-digit", minute: "2-digit",
+              })}
+              {d.paid_by?.first_name && <> · {d.paid_by.first_name} {d.paid_by.last_name}</>}
+            </p>
+          )}
+        </div>
+
+        {/* Amount + action */}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <p className="font-bold text-brown-dark text-base leading-none">{peso(amountDue)}</p>
+          {!isPaid ? (
+            <button
+              onClick={() => onMark(d)}
+              disabled={marking === d.delivery_id}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all disabled:opacity-60 whitespace-nowrap"
+            >
+              {marking === d.delivery_id
+                ? <LuLoader className="w-3 h-3 animate-spin" />
+                : <LuCheck className="w-3 h-3" />}
+              Mark as Paid
+            </button>
+          ) : (
+            <button
+              onClick={() => onPrintReceipt(d)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-mid/40 text-green-dark font-semibold text-xs hover:bg-green-pale transition-all whitespace-nowrap"
+            >
+              <LuReceipt className="w-3 h-3" /> Print Receipt
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Walk-In Receipt Modal ─────────────────────────────────────────────────────
+function WalkinReceiptModal({ d, spotPrice, onClose }) {
+  const wr          = d.weighing_records?.[0];
+  const sellerName  = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
+  const weigherName = `${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—";
+  const condition   = wr?.copra_condition ?? "Dry";
+  const grossKg     = parseFloat(wr?.gross_weight_kg ?? 0);
+  const netKg       = parseFloat(wr?.net_weight_kg ?? 0);
+  const deductedKg  = condition === "Wet" ? grossKg * 0.10 : 0;
+  const spot        = d.walkin_spot_price_kg != null ? parseFloat(d.walkin_spot_price_kg) : parseFloat(spotPrice ?? 0);
+  const amountDue   = d.walkin_amount_paid   != null ? parseFloat(d.walkin_amount_paid)   : netKg * spot;
+  const paidAt      = d.walkin_paid_at
+    ? new Date(d.walkin_paid_at).toLocaleString("en-PH", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      })
+    : null;
+  const paidByName = d.paid_by?.first_name
+    ? `${d.paid_by.first_name} ${d.paid_by.last_name ?? ""}`.trim()
+    : null;
+
+  function handlePrint() {
+    const win = window.open("", "_blank", "width=400,height=750,noopener");
+    if (!win) { alert("Popups are blocked. Please allow popups for this site to print receipts."); return; }
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>Walk-In Receipt</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:monospace;font-size:13px;width:76mm;padding:6mm 4mm;color:#000}
+        .c{text-align:center}.b{font-weight:bold}.lg{font-size:15px}.sm{font-size:11px}
+        hr{border:none;border-top:1px dashed #555;margin:5px 0}
+        .row{display:flex;justify-content:space-between;margin:3px 0}
+        .stamp{text-align:center;font-weight:bold;font-size:16px;margin:6px 0}
+        .it{font-style:italic}
+      </style>
+    </head><body>
+      <p class="c b lg">NERC COPRA TRADING</p>
+      <p class="c sm">Walk-In Cash Payment Receipt</p>
+      <hr/>
+      <div class="row"><span>Seller:</span><span class="b">${esc(sellerName)}</span></div>
+      <div class="row"><span>Date:</span><span>${esc(fmtDate(d.delivery_date))}</span></div>
+      <div class="row"><span>Recorded by:</span><span>${esc(weigherName)}</span></div>
+      <hr/>
+      <p class="c b">WEIGHT DETAILS</p>
+      <div class="row"><span>Gross Weight:</span><span>${grossKg.toFixed(2)} kg</span></div>
+      ${condition === "Wet" ? `<div class="row"><span>Deduction:</span><span>-${deductedKg.toFixed(2)} kg</span></div>` : ""}
+      <div class="row"><span>Net Weight:</span><span class="b">${netKg.toFixed(2)} kg</span></div>
+      <div class="row"><span>Condition:</span><span>${esc(condition)}</span></div>
+      <hr/>
+      <p class="c b">PAYMENT</p>
+      <div class="row"><span>Spot Price:</span><span>${esc(peso(spot))}/kg</span></div>
+      <div class="row b lg"><span>AMOUNT PAID:</span><span>${esc(peso(amountDue))}</span></div>
+      <hr/>
+      ${paidAt ? `
+        <p class="stamp">✓ PAID IN CASH</p>
+        <p class="c sm">Paid: ${esc(paidAt)}</p>
+        ${paidByName ? `<p class="c sm">Authorized by: ${esc(paidByName)}</p>` : ""}
+        <hr/>
+      ` : ""}
+      <p class="c sm it">This is an official cash payment receipt.</p>
+      <p class="c sm">NERC Copra Trading — CopTrax System</p>
+      <script>window.onload=()=>{window.print();window.close()}<\/script>
+    </body></html>`);
+    win.document.close();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-card w-full max-w-sm flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-green-pale rounded-xl flex items-center justify-center">
+              <LuReceipt className="w-5 h-5 text-green-dark" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-brown-dark">Cash Payment Receipt</h2>
+              <p className="text-brown-light text-xs">{sellerName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable receipt preview */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "300px" }}>
+            <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
+            <p className="text-center text-brown-light text-xs">Walk-In Cash Payment Receipt</p>
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+
+            <div className="flex justify-between"><span className="text-brown-light">Seller</span><span className="font-semibold text-brown-dark text-right">{sellerName}</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Date</span><span className="text-brown-dark">{fmtDate(d.delivery_date)}</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Recorded by</span><span className="text-brown-dark">{weigherName}</span></div>
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center font-bold text-brown-dark">WEIGHT DETAILS</p>
+            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
+            {condition === "Wet" && (
+              <div className="flex justify-between"><span className="text-brown-light">Deduction</span><span className="text-red-500">−{deductedKg.toFixed(2)} kg</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="font-semibold text-brown-dark">{netKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Condition</span><span className={condition === "Wet" ? "text-blue-600 font-semibold" : "text-green-dark font-semibold"}>{condition}</span></div>
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center font-bold text-brown-dark">PAYMENT</p>
+            <div className="flex justify-between"><span className="text-brown-light">Spot Price</span><span className="text-brown-dark">{peso(spot)}/kg</span></div>
+            <div className="flex justify-between items-center mt-1 pt-1 border-t border-brown-light/20">
+              <span className="font-bold text-brown-dark">AMOUNT PAID</span>
+              <span className="font-bold text-green-dark text-base">{peso(amountDue)}</span>
+            </div>
+
+            {paidAt && <>
+              <div className="border-t border-dashed border-brown-light/40 my-2" />
+              <p className="text-center font-bold text-green-dark text-sm">✓ PAID IN CASH</p>
+              <p className="text-center text-brown-light">{paidAt}</p>
+              {paidByName && <p className="text-center text-brown-light">Authorized by: {paidByName}</p>}
+            </>}
+
+            <div className="border-t border-dashed border-brown-light/40 my-2" />
+            <p className="text-center text-brown-light italic">Official cash payment receipt</p>
+            <p className="text-center text-brown-light">NERC Copra Trading — CopTrax</p>
+          </div>
+        </div>
+
+        {/* Print button */}
+        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
+          <button
+            onClick={handlePrint}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+          >
+            <LuReceipt className="w-4 h-4" /> Print Receipt
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

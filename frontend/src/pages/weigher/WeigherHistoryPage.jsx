@@ -27,7 +27,8 @@ export default function WeigherHistoryPage() {
       .select(`
         delivery_id, delivery_source, delivery_date, delivery_status,
         truck_plate_number, batch_number, created_at,
-        contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+        supplier:supplier_id(first_name, last_name),
+        contract:contract_id(contract_number),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg)
       `)
@@ -79,13 +80,13 @@ export default function WeigherHistoryPage() {
                 {deliveries.map(d => {
                   const supplierName = d.delivery_source === "Walkin"
                     ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-                    : `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+                    : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
                   const netWeight = d.weighing_records?.[0]?.net_weight_kg;
 
                   return (
                     <tr key={d.delivery_id} className="hover:bg-beige/30 transition-colors duration-150">
                       <td className="px-5 py-4">
-                        <p className="font-semibold text-brown-dark">{supplierName || "—"}</p>
+                       <p className="font-semibold text-brown-dark">{supplierName || <span className="text-brown-light italic text-xs">Unknown supplier</span>}</p>
                         {d.delivery_source === "Contract-based" && d.contract?.contract_number && (
                           <p className="text-xs text-brown-light mt-0.5">{d.contract.contract_number}</p>
                         )}
@@ -106,16 +107,17 @@ export default function WeigherHistoryPage() {
                         </p>
                       </td>
                       <td className="px-5 py-4 hidden lg:table-cell">
-                        <p className="font-semibold text-brown-dark">
-                          {netWeight != null ? `${Number(netWeight).toFixed(3)} kg` : "—"}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[d.delivery_status] ?? "bg-beige text-brown-mid"}`}>
-                          {d.delivery_status}
-                        </span>
-                      </td>
-                    </tr>
+                       {netWeight != null
+                         ? <p className="font-semibold text-brown-dark">{Number(netWeight).toFixed(3)} kg</p>
+                         : <p className="text-brown-light text-xs italic">No weigh record</p>
+                       }
+                     </td>
+                     <td className="px-5 py-4">
+                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[d.delivery_status] ?? "bg-beige text-brown-mid"}`}>
+                         {d.delivery_status}
+                       </span>
+                     </td>
+                   </tr>
                   );
                 })}
               </tbody>

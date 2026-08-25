@@ -82,15 +82,17 @@ export default function WalkinDeliveryForm() {
       return;
     }
 
-    // 2. Create delivery
+    // 2. Create delivery — lock in spot price at submission time
     const { data: delivery, error: dErr } = await supabase
       .from("deliveries")
       .insert({
-        delivery_source: "Walkin",
-        walkin_supplier_id: walkinSupplier.walkin_supplier_id,
-        delivery_date: form.deliveryDate,
-        weigher_id: user.id,
-        delivery_status: "Accepted",
+        delivery_source:      "Walkin",
+        walkin_supplier_id:   walkinSupplier.walkin_supplier_id,
+        delivery_date:        form.deliveryDate,
+        weigher_id:           user.id,
+        delivery_status:      "Accepted",
+        walkin_spot_price_kg: currentSpotPrice,
+        walkin_amount_paid:   Math.round(finalWeight * currentSpotPrice * 100) / 100,
       })
       .select("delivery_id, batch_number")
       .single();
@@ -108,6 +110,7 @@ export default function WalkinDeliveryForm() {
       gross_weight_kg: weight,
       tare_weight_kg: deduction,
       net_weight_kg: finalWeight,
+      copra_condition: form.condition,
     });
 
     if (wrErr) {
@@ -117,13 +120,19 @@ export default function WalkinDeliveryForm() {
     }
 
     // 4. Create inventory batch (Walk-in Holding)
-    await supabase.from("inventory_batches").insert({
+    const { error: ibErr } = await supabase.from("inventory_batches").insert({
       delivery_id: delivery.delivery_id,
       source_type: "Walkin",
       batch_status: "Walk-in Holding",
       weight_kg: finalWeight,
       recorded_date: form.deliveryDate,
     });
+
+    if (ibErr) {
+      setError(`Delivery recorded but inventory batch failed: ${ibErr.message}. Please contact support.`);
+      setSubmitting(false);
+      return;
+    }
 
     setSubmitting(false);
     setSuccess({
@@ -254,17 +263,9 @@ export default function WalkinDeliveryForm() {
                 {finalWeight > 0 ? finalWeight.toFixed(3) : "—"}
               </div>
             </div>
-          </div>
-          {finalWeight > 0 && (
-            <p className="text-xs text-brown-light mt-2">
-              {form.condition === "Wet" ? `Deduction = ${weight.toFixed(3)} × 10% = ${deduction.toFixed(3)} kg · ` : "No deduction · "}
-              Final weight = <span className="font-semibold text-green-dark">{finalWeight.toFixed(3)} kg</span>
-            </p>
-          )}
-          <div className="mt-4 rounded-xl bg-beige px-4 py-3 text-sm flex items-center justify-between">
-            <span className="text-brown-mid">Payment amount{spotPrice !== null ? ` at ₱${spotPrice.toFixed(2)}/kg` : ""}</span>
-            <span className="font-bold text-green-dark">{paymentAmount !== null ? `₱${paymentAmount.toFixed(2)}` : "—"}</span>
-          </div>
+          </div>          ALTER TABLE public.deliveries
+            ADD COLUMN IF NOT EXISTS walkin_paid_at  TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS walkin_paid_by  UUID REFERENCES public.users(user_id) ON DELETE SET NULL;
         </div>
 
         <div className="flex gap-3">

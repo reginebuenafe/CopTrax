@@ -43,7 +43,8 @@ export default function InventoryPage() {
           inventory_batch_id, weight_kg, recorded_date, merged_at,
           delivery:delivery_id(
             delivery_date, delivery_source,
-            contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+            supplier:supplier_id(first_name, last_name),
+            contract:contract_id(contract_number),
             walkin_supplier:walkin_supplier_id(first_name, last_name)
           )
         `)
@@ -106,12 +107,15 @@ export default function InventoryPage() {
       }
 
       // 2. Log inventory transaction
-      await supabase.from("inventory_transactions").insert({
+      const { error: txErr } = await supabase.from("inventory_transactions").insert({
         inventory_batch_id: batch.inventory_batch_id,
         transaction_type: "Merge to Resecada",
         quantity_kg: batch.weight_kg,
         performed_by: user.id,
       });
+      if (txErr) {
+        showToast("Merge approved but audit log failed — please contact support.", "error");
+      }
 
       // 3. Notify BO (self-notification confirming the merge)
       await supabase.from("notifications").insert({
@@ -125,13 +129,20 @@ export default function InventoryPage() {
       showToast(`${fmt3(batch.weight_kg)} kg merged into Resecada.`);
     } else {
       // Hold — keep in Ready to Merge, record decision
-      await supabase.from("inventory_batches")
+      const { error: holdErr } = await supabase.from("inventory_batches")
         .update({
           reviewed_by_user_id: user.id,
           reviewed_at: new Date().toISOString(),
           review_decision: "Held",
         })
         .eq("inventory_batch_id", batch.inventory_batch_id);
+
+      if (holdErr) {
+        showToast("Failed to hold batch. Please try again.", "error");
+        setProcessing(false);
+        setMergeModal(null);
+        return;
+      }
 
       showToast("Batch held — will remain in Ready to Merge queue.");
     }
@@ -326,7 +337,7 @@ function ResecadaTab({ batches, total }) {
     if (!delivery) return "—";
     return delivery.delivery_source === "Walkin"
       ? `${delivery.walkin_supplier?.first_name ?? ""} ${delivery.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${delivery.contract?.supplier?.first_name ?? ""} ${delivery.contract?.supplier?.last_name ?? ""}`.trim();
+      : `${delivery.supplier?.first_name ?? ""} ${delivery.supplier?.last_name ?? ""}`.trim();
   }
 
   if (batches.length === 0) {
@@ -354,7 +365,9 @@ function ResecadaTab({ batches, total }) {
             <tbody className="divide-y divide-beige-dark/20">
               {batches.map(b => (
                 <tr key={b.inventory_batch_id} className="hover:bg-beige/30 transition-colors">
-                  <td className="px-5 py-3.5 font-medium text-brown-dark">{getSupplierName(b.delivery)}</td>
+                  <td className="px-5 py-3.5 font-medium text-brown-dark">
+                    {getSupplierName(b.delivery) || <span className="text-brown-light italic text-xs">Unknown supplier</span>}
+                  </td>
                   <td className="px-5 py-3.5">
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                       b.delivery?.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
