@@ -16,6 +16,7 @@ dist/
 dist-ssr/
 frontend/dist/
 frontend/dist-ssr/
+*.local
 
 # ── Environment / secrets (NEVER commit these) ───────────────
 .env
@@ -37,12 +38,27 @@ supabase/.branches/
 .DS_Store
 **/.DS_Store
 
-# ── Editor directories ───────────────────────────────────────
+# ── Editor / IDE directories ─────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
 .idea/
+.cursor/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# ── AI assistant / tooling workspace files ───────────────────
+# .claude/ contains Copilot session context — keep skills & config committed
+# but exclude per-session/private state
+.claude/
+.impeccable/
+
+# ── OS / system files ────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+PRODUCT.md
