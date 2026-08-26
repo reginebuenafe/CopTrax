@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
-  LuUserPlus, LuTruck, LuStar,
+  LuUserPlus, LuTruck, LuStar, LuBot,
   LuFileText, LuWallet, LuActivity, LuChevronDown, LuChartLine,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -559,6 +559,10 @@ export default function OwnerOverview() {
   const [stats, setStats]           = useState(null);
   const [createModal, setCreateModal] = useState(false);
   const [toast, setToast]           = useState(null);
+  const [aiAutoGlobal, setAiAutoGlobal] = useState(false);
+  const [aiSaving, setAiSaving]     = useState(false);
+  const [aiFaqGlobal, setAiFaqGlobal] = useState(false);
+  const [aiFaqSaving, setAiFaqSaving] = useState(false);
 
   // ── analytics state ─────────────────────────────────────────────────────
   const [deliveryVolume, setDeliveryVolume] = useState([]);   // [{label, value, tooltip}] last 6 months
@@ -574,14 +578,18 @@ export default function OwnerOverview() {
   useEffect(() => {
     async function loadAll() {
       // ── summary stats (existing) ─────────────────────────────────────
-      const [spotRes, pendingRes, contractRes, deliveryRes, payRes] = await Promise.all([
+      const [spotRes, pendingRes, contractRes, deliveryRes, payRes, aiRes, faqRes] = await Promise.all([
         supabase.from("spot_price").select("price_per_kg").limit(1).single(),
         supabase.from("users").select("user_id", { count: "exact", head: true }).eq("account_status", "Pending"),
         supabase.from("contracts").select("contract_id", { count: "exact", head: true }).eq("status", "Active"),
         supabase.from("deliveries").select("delivery_id", { count: "exact", head: true }).eq("delivery_status", "Weighed"),
         supabase.from("payments").select("payment_id", { count: "exact", head: true }).eq("payment_status", "Pending"),
+        supabase.from("app_config").select("value").eq("key", "ai_auto_negotiate_global").maybeSingle(),
+        supabase.from("app_config").select("value").eq("key", "ai_faq_global").maybeSingle(),
       ]);
       setSpotPrice(spotRes.data?.price_per_kg ?? 0);
+      setAiAutoGlobal(aiRes.data?.value === "true");
+      setAiFaqGlobal(faqRes.data?.value === "true");
       setStats({
         pendingApprovals:   pendingRes.count ?? 0,
         activeContracts:    contractRes.count ?? 0,
@@ -725,6 +733,26 @@ export default function OwnerOverview() {
     setTimeout(() => setToast(null), 4000);
   }
 
+  async function toggleAiAutoGlobal() {
+    setAiSaving(true);
+    const next = !aiAutoGlobal;
+    setAiAutoGlobal(next);
+    await supabase.from("app_config")
+      .upsert({ key: "ai_auto_negotiate_global", value: String(next) }, { onConflict: "key" });
+    setAiSaving(false);
+    showToast(next ? "AI Auto-Negotiate enabled for all suppliers." : "AI Auto-Negotiate disabled.");
+  }
+
+  async function toggleAiFaqGlobal() {
+    setAiFaqSaving(true);
+    const next = !aiFaqGlobal;
+    setAiFaqGlobal(next);
+    await supabase.from("app_config")
+      .upsert({ key: "ai_faq_global", value: String(next) }, { onConflict: "key" });
+    setAiFaqSaving(false);
+    showToast(next ? "AI FAQ Assistant enabled." : "AI FAQ Assistant disabled.");
+  }
+
 
   const STAT_CARDS = stats ? [
     { label: "Pending Approvals",   value: stats.pendingApprovals,   color: "bg-amber-50 text-amber-600" },
@@ -775,7 +803,7 @@ export default function OwnerOverview() {
         </div>
       </section>
 
-      {/* ── Quick-action row: Create Staff (left) + Spot Price (right) ── */}
+      {/* ── Quick-action row: Create Staff (left) + AI Toggle + Spot Price (right) ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         {/* Create Staff Account */}
         <button onClick={() => setCreateModal(true)}
@@ -787,7 +815,56 @@ export default function OwnerOverview() {
           <span className="text-xs font-semibold text-brown-dark">Create Staff Account</span>
         </button>
 
-        {/* Current Spot Price */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* AI Auto-Negotiate toggle */}
+          <div className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-sm transition-colors duration-200 ${
+            aiAutoGlobal ? "border-[#2E7D32] bg-[#024023]" : "border-[#c5b9a8] bg-[#f5f0e8]"
+          }`}>
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${aiAutoGlobal ? "bg-white/10" : "bg-[#e0d9cc]"}`}>
+              <LuBot className={`h-4 w-4 ${aiAutoGlobal ? "text-emerald-300" : "text-brown-mid"}`} />
+            </div>
+            <div className="min-w-0">
+              <p className={`text-[9px] font-medium uppercase tracking-wider ${aiAutoGlobal ? "text-white/80" : "text-brown-light"}`}>AI Auto-Negotiate</p>
+              <p className={`text-[11px] font-semibold mt-0.5 ${aiAutoGlobal ? "text-emerald-200" : "text-brown-mid"}`}>
+                {aiAutoGlobal ? "Active" : "Off"}
+              </p>
+            </div>
+            <button
+              onClick={toggleAiAutoGlobal}
+              disabled={aiSaving}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
+                aiAutoGlobal ? "bg-emerald-400" : "bg-[#c5b9a8]"
+              }`}
+              title={aiAutoGlobal ? "Disable AI auto-negotiate" : "Enable AI auto-negotiate"}
+            >
+              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiAutoGlobal ? "translate-x-4" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+
+          {/* AI FAQ Assistant toggle */}
+          <div className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-sm transition-colors duration-200 ${
+            aiFaqGlobal ? "border-[#2E7D32] bg-[#024023]" : "border-[#c5b9a8] bg-[#f5f0e8]"
+          }`}>
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${aiFaqGlobal ? "bg-white/10" : "bg-[#e0d9cc]"}`}>
+              <LuBot className={`h-4 w-4 ${aiFaqGlobal ? "text-emerald-300" : "text-brown-mid"}`} />
+            </div>
+            <div className="min-w-0">
+              <p className={`text-[9px] font-medium uppercase tracking-wider ${aiFaqGlobal ? "text-white/80" : "text-brown-light"}`}>AI FAQ Assistant</p>
+              <p className={`text-[11px] font-semibold mt-0.5 ${aiFaqGlobal ? "text-emerald-200" : "text-brown-mid"}`}>
+                {aiFaqGlobal ? "Active" : "Off"}
+              </p>
+            </div>
+            <button
+              onClick={toggleAiFaqGlobal}
+              disabled={aiFaqSaving}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
+                aiFaqGlobal ? "bg-emerald-400" : "bg-[#c5b9a8]"
+              }`}
+              title={aiFaqGlobal ? "Disable AI FAQ assistant" : "Enable AI FAQ assistant"}
+            >
+              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiFaqGlobal ? "translate-x-4" : "translate-x-0.5"}`} />
+            </button>
+          </div>
         <div className={`transition-[width] shrink-0 ${editing ? "w-full sm:w-auto" : ""}`}>
           <div className="flex items-center gap-3.5 rounded-2xl border-2 border-[#2E7D32] bg-[#024023] px-4 py-3 text-white shadow-sm">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10">
@@ -836,6 +913,7 @@ export default function OwnerOverview() {
             </p>
           )}
         </div>
+        </div>{/* end right-side flex group */}
       </div>
 
       {/* ── Summary stat cards ── */}

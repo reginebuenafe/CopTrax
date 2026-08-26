@@ -415,7 +415,5 @@ enabled = true
 
 
 # ── Scheduled Edge Functions ─────────────────────────────────────────────────
-[functions.auto-release-payments]
-# Every Friday at 09:00 UTC = 5:00 PM Philippine Time (UTC+8)
-# Finds all Pending payment batches due today and submits them to Xendit.
-schedule = "0 9 * * 5"
+# Note: auto-release-payments is scheduled via pg_cron in migrations,
+# not via config.toml (schedule key removed — no longer supported by Supabase CLI).

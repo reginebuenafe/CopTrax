@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuMessageSquare, LuCalendar, LuArrowRight,
   LuCircleCheck, LuCircleAlert, LuClock, LuBanknote, LuTruck,
-  LuExternalLink, LuX, LuLoader, LuPackage,
+  LuX, LuLoader, LuPackage,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import ContractDocumentModal from "../../components/ContractDocumentModal";
 
 const STATUS_META = {
   Pending:   { label: "Pending",   color: "bg-beige text-brown-mid",        dot: "bg-brown-light" },
@@ -38,6 +39,7 @@ export default function MyContractsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [batchesModal, setBatchesModal] = useState(null); // contract object
+  const [viewContract, setViewContract] = useState(null); // { contractId, contractNumber, documentPath }
 
   const fetchContracts = useCallback(async () => {
     setLoading(true);
@@ -198,13 +200,14 @@ export default function MyContractsPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     {c.contract_document_url && (
                       <button
-                        onClick={async () => {
-                          const { data } = await supabase.storage.from("contracts").createSignedUrl(c.contract_document_url, 60 * 15);
-                          if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                        }}
+                        onClick={() => setViewContract({
+                          contractId: c.contract_id,
+                          contractNumber: c.contract_number,
+                          documentPath: c.contract_document_url,
+                        })}
                         className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline"
                       >
-                        <LuExternalLink className="w-3.5 h-3.5" /> View Contract
+                        <LuFileText className="w-3.5 h-3.5" /> View Contract
                       </button>
                     )}
                     <button onClick={() => setBatchesModal(c)}
@@ -269,6 +272,16 @@ export default function MyContractsPage() {
       {/* Delivery Batches Modal */}
       {batchesModal && (
         <SupplierBatchesModal contract={batchesModal} onClose={() => setBatchesModal(null)} />
+      )}
+
+      {/* Contract Document Modal */}
+      {viewContract && (
+        <ContractDocumentModal
+          contractId={viewContract.contractId}
+          contractNumber={viewContract.contractNumber}
+          documentPath={viewContract.documentPath}
+          onClose={() => setViewContract(null)}
+        />
       )}
     </div>
   );
