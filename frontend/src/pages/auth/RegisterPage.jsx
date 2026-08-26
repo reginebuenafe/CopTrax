@@ -27,8 +27,8 @@ const PH_BANKS = [
 const QR_MAX_FILE_SIZE = 5 * 1024 * 1024;
 const QR_MAX_PAYLOAD_LENGTH = 4096;
 const QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const OCR_MAX_IMAGE_DIMENSION = 2048;
-const OCR_JPEG_QUALITY = 0.9;
+const OCR_MAX_IMAGE_DIMENSION = 1024;
+const OCR_JPEG_QUALITY = 0.75;
 
 function toTitleCase(value = "") {
   return value
@@ -369,6 +369,13 @@ function StepIndicator({ current }) {
 export default function RegisterPage() {
   const navigate = useNavigate();
 
+  // Suppress dark mode on auth pages
+  useEffect(() => {
+    const prev = document.documentElement.getAttribute("data-theme") ?? "";
+    document.documentElement.setAttribute("data-theme", "");
+    return () => { if (prev) document.documentElement.setAttribute("data-theme", prev); };
+  }, []);
+
   const [currentStep, setCurrentStep] = useState(0); // 0-4
 
   const [form, setForm] = useState({
@@ -469,6 +476,10 @@ export default function RegisterPage() {
           const body = await fnError.context?.json?.();
           if (body?.error) msg = body.error;
         } catch { /* ignore */ }
+        // If the function itself was unreachable, show a simpler message
+        if (msg.includes("non-2xx") || msg.includes("Edge Function")) {
+          msg = "Smart auto-fill is temporarily unavailable.";
+        }
         throw new Error(msg);
       }
       if (data?.error) throw new Error(data.error);
@@ -485,7 +496,7 @@ export default function RegisterPage() {
       }
     } catch (err) {
       if (requestId !== idScanRequestRef.current) return;
-      setError("ID scan failed: " + err.message + " — you can still fill in your details manually.");
+      setError("Auto-fill unavailable: " + err.message + " You can still fill in your details manually.");
     } finally {
       if (requestId === idScanRequestRef.current) setIdExtracting(false);
     }

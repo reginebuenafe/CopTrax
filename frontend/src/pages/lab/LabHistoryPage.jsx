@@ -40,7 +40,7 @@ export default function LabHistoryPage() {
   }
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-beige rounded-xl flex items-center justify-center">
           <LuClipboardList className="w-5 h-5 text-brown-mid" />
@@ -105,13 +105,13 @@ export default function LabHistoryPage() {
                         <td className="px-5 py-3.5 text-brown-mid">
                           {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
-                        <td className="px-5 py-3.5 text-brown-mid">{Number(netKg).toFixed(3)} kg</td>
+                        <td className="px-5 py-3.5 text-brown-mid">{Number(netKg).toFixed(2)} kg</td>
                         <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}cc</td>
                         <td className="px-5 py-3.5 text-brown-mid">
                           {result === "Rejected" ? "—" : `${discountPct}%`}
                         </td>
                         <td className="px-5 py-3.5 font-semibold text-brown-dark">
-                          {result === "Rejected" ? "—" : `${finalKg.toFixed(3)} kg`}
+                          {result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}
                         </td>
                         <td className="px-5 py-3.5">
                           <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${
@@ -161,10 +161,10 @@ export default function LabHistoryPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid ml-10.5">
                       <p>Moisture: <span className="font-semibold text-brown-dark">{mc}cc</span></p>
-                      <p>Net: <span className="font-semibold text-brown-dark">{Number(netKg).toFixed(3)} kg</span></p>
+                      <p>Net: <span className="font-semibold text-brown-dark">{Number(netKg).toFixed(2)} kg</span></p>
                       {result === "Accepted" && <>
                         <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>
-                        <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(3)} kg</span></p>
+                        <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(2)} kg</span></p>
                       </>}
                     </div>
                   </li>

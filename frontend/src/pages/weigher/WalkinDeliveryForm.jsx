@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuTruck, LuArrowLeft, LuUser,
-  LuCalendar, LuScale, LuCircleAlert, LuCheck,
+  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -15,6 +15,7 @@ export default function WalkinDeliveryForm() {
     supplierName: "",
     deliveryDate: new Date().toISOString().split("T")[0],
     weight: "",
+    numSacks: "",
     condition: "Dry",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -38,17 +39,22 @@ export default function WalkinDeliveryForm() {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
 
-  const weight = parseFloat(form.weight) || 0;
-  const deduction = form.condition === "Wet" ? weight * 0.10 : 0;
-  const finalWeight = Math.max(weight - deduction, 0);
-  const paymentAmount = spotPrice !== null ? finalWeight * spotPrice : null;
+  // ── Weight computation ─────────────────────────────────────────────────────
+  // Entered weight IS the Gross Weight
+  const grossWeight    = parseFloat(form.weight) || 0;
+  const numSacks       = parseInt(form.numSacks, 10) || 0;
+  const sacksDeduction = numSacks / 2;                                          // sacks ÷ 2 = bag weight
+  const netWeight      = Math.max(grossWeight - sacksDeduction, 0);             // net after removing bags
+  const wetDeduction   = form.condition === "Wet" ? grossWeight * 0.10 : 0;    // 10% of GROSS weight
+  const finalWeight    = Math.max(netWeight - wetDeduction, 0);                 // final payable weight
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
 
     if (!form.supplierName.trim()) { setError("Enter the supplier name."); return; }
-    if (weight <= 0) { setError("Enter a valid weight."); return; }
+    if (grossWeight <= 0)          { setError("Enter a valid weight."); return; }
+    if (numSacks <= 0)             { setError("Enter the number of sacks."); return; }
 
     setSubmitting(true);
 
@@ -65,7 +71,7 @@ export default function WalkinDeliveryForm() {
     const currentSpotPrice = Number(currentSpot.price_per_kg);
     setSpotPrice(currentSpotPrice);
 
-    // 1. Create or find walk-in supplier
+    // 1. Create walk-in supplier
     const { data: walkinSupplier, error: wsErr } = await supabase
       .from("walkin_suppliers")
       .insert({
@@ -82,6 +88,8 @@ export default function WalkinDeliveryForm() {
       return;
     }
 
+    const computedAmount = Math.round(finalWeight * currentSpotPrice * 100) / 100;
+
     // 2. Create delivery — lock in spot price at submission time
     const { data: delivery, error: dErr } = await supabase
       .from("deliveries")
@@ -92,7 +100,7 @@ export default function WalkinDeliveryForm() {
         weigher_id:           user.id,
         delivery_status:      "Accepted",
         walkin_spot_price_kg: currentSpotPrice,
-        walkin_amount_paid:   Math.round(finalWeight * currentSpotPrice * 100) / 100,
+        walkin_amount_paid:   computedAmount,
       })
       .select("delivery_id, batch_number")
       .single();
@@ -103,14 +111,15 @@ export default function WalkinDeliveryForm() {
       return;
     }
 
-    // 3. Create weighing record
+    // 3. Create weighing record — gross = entered weight, tare = sacks deduction, net = final payable
     const { error: wrErr } = await supabase.from("weighing_records").insert({
-      delivery_id: delivery.delivery_id,
-      weigher_id: user.id,
-      gross_weight_kg: weight,
-      tare_weight_kg: deduction,
-      net_weight_kg: finalWeight,
+      delivery_id:     delivery.delivery_id,
+      weigher_id:      user.id,
+      gross_weight_kg: grossWeight,
+      tare_weight_kg:  sacksDeduction,
+      net_weight_kg:   finalWeight,
       copra_condition: form.condition,
+      num_sacks:       numSacks,
     });
 
     if (wrErr) {
@@ -121,10 +130,10 @@ export default function WalkinDeliveryForm() {
 
     // 4. Create inventory batch (Walk-in Holding)
     const { error: ibErr } = await supabase.from("inventory_batches").insert({
-      delivery_id: delivery.delivery_id,
-      source_type: "Walkin",
-      batch_status: "Walk-in Holding",
-      weight_kg: finalWeight,
+      delivery_id:   delivery.delivery_id,
+      source_type:   "Walkin",
+      batch_status:  "Walk-in Holding",
+      weight_kg:     finalWeight,
       recorded_date: form.deliveryDate,
     });
 
@@ -136,13 +145,15 @@ export default function WalkinDeliveryForm() {
 
     setSubmitting(false);
     setSuccess({
-      supplierName: form.supplierName.trim(),
-      weight,
-      condition: form.condition,
-      deduction,
+      supplierName:    form.supplierName.trim(),
+      grossWeight,
+      numSacks,
+      sacksDeduction,
+      netWeight,
+      condition:       form.condition,
+      wetDeduction,
       finalWeight,
-      paymentAmount: finalWeight * currentSpotPrice,
-      deliveryId: delivery.delivery_id,
+      deliveryId:      delivery.delivery_id,
     });
   }
 
@@ -156,19 +167,25 @@ export default function WalkinDeliveryForm() {
           <h2 className="text-xl font-bold text-brown-dark mb-2">Walk-in Delivery Recorded</h2>
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span> —{" "}
-            <span className="font-semibold text-green-dark">{success.finalWeight.toFixed(3)} kg</span> final weight.
+            <span className="font-semibold text-green-dark">{success.finalWeight.toFixed(2)} kg</span> final weight.
             Delivery accepted and added to inventory — no lab inspection required for Walk-in.
           </p>
           <div className="bg-beige rounded-xl px-4 py-3 text-left mb-6 text-sm space-y-1">
             <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Summary</p>
-            <p className="text-brown-mid">Weight: <span className="font-semibold text-brown-dark">{success.weight.toFixed(3)} kg</span></p>
+            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{success.grossWeight.toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">No. of sacks: <span className="font-semibold text-brown-dark">{success.numSacks}</span></p>
+            <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-red-600">−{success.sacksDeduction.toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{success.netWeight.toFixed(2)} kg</span></p>
             <p className="text-brown-mid">Condition: <span className="font-semibold text-brown-dark">{success.condition}</span></p>
-            <p className="text-brown-mid">Deduction: <span className="font-semibold text-brown-dark">{success.deduction.toFixed(3)} kg</span></p>
-            <p className="text-brown-mid">Final weight: <span className="font-bold text-green-dark">{success.finalWeight.toFixed(3)} kg</span></p>
-            <p className="text-brown-mid">Payment amount: <span className="font-bold text-green-dark">₱{success.paymentAmount.toFixed(2)}</span></p>
+            {success.condition === "Wet" && (
+              <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-red-600">−{success.wetDeduction.toFixed(2)} kg</span></p>
+            )}
+            <div className="border-t border-beige-dark mt-2 pt-2">
+              <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{success.finalWeight.toFixed(2)} kg</span></p>
+            </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => { setSuccess(null); setForm({ supplierName:"",deliveryDate:new Date().toISOString().split("T")[0],weight:"",condition:"Dry" }); }}
+            <button onClick={() => { setSuccess(null); setForm({ supplierName: "", deliveryDate: new Date().toISOString().split("T")[0], weight: "", numSacks: "", condition: "Dry" }); }}
               className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
               Record Another
             </button>
@@ -213,11 +230,9 @@ export default function WalkinDeliveryForm() {
           <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
             <LuUser className="w-4 h-4 text-brown-light" /> Supplier Information
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-brown-dark mb-1.5">Supplier Name <span className="text-red-500">*</span></label>
-              <input type="text" required value={form.supplierName} onChange={set("supplierName")} placeholder="Juan dela Cruz" className={inputClass} />
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-brown-dark mb-1.5">Supplier Name <span className="text-red-500">*</span></label>
+            <input type="text" required value={form.supplierName} onChange={set("supplierName")} placeholder="Juan dela Cruz" className={inputClass} />
           </div>
         </div>
 
@@ -226,13 +241,11 @@ export default function WalkinDeliveryForm() {
           <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
             <LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-brown-dark mb-1.5">
-                <LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span>
-              </label>
-              <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={inputClass} />
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-brown-dark mb-1.5">
+              <LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span>
+            </label>
+            <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={inputClass} />
           </div>
         </div>
 
@@ -241,11 +254,20 @@ export default function WalkinDeliveryForm() {
           <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
             <LuScale className="w-4 h-4 text-brown-light" /> Weighing Record
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Row 1: weight + sacks */}
             <div>
-              <label className="block text-xs font-medium text-brown-dark mb-1.5">Weight (kg) <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label>
               <input type="number" step="0.001" min="0.001" required value={form.weight} onChange={set("weight")} placeholder="0.000" className={inputClass} />
             </div>
+            <div>
+              <label className="block text-xs font-medium text-brown-dark mb-1.5">
+                <LuPackage className="inline w-3 h-3 mr-1" /> No. of Sacks <span className="text-red-500">*</span>
+              </label>
+              <input type="number" step="1" min="1" required value={form.numSacks} onChange={set("numSacks")} placeholder="0" className={inputClass} />
+            </div>
+
+            {/* Row 2: condition + computed breakdown */}
             <div>
               <span className="block text-xs font-medium text-brown-dark mb-1.5">Condition <span className="text-red-500">*</span></span>
               <div className="flex items-center gap-4 h-10">
@@ -257,15 +279,31 @@ export default function WalkinDeliveryForm() {
                 ))}
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-brown-dark mb-1.5">Final Weight (kg)</label>
-              <div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>
-                {finalWeight > 0 ? finalWeight.toFixed(3) : "—"}
+
+            {/* Computed breakdown (read-only) */}
+            <div className="space-y-2">
+              <div>
+                <label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label>
+                <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
+                  {netWeight > 0 ? netWeight.toFixed(2) : "—"}
+                </div>
+                {numSacks > 0 && grossWeight > 0 && (
+                  <p className="text-[11px] text-brown-light mt-1">{numSacks} ÷ 2 = <span className="text-red-500 font-semibold">−{sacksDeduction.toFixed(2)} kg</span> sacks deduction</p>
+                )}
               </div>
             </div>
-          </div>          ALTER TABLE public.deliveries
-            ADD COLUMN IF NOT EXISTS walkin_paid_at  TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS walkin_paid_by  UUID REFERENCES public.users(user_id) ON DELETE SET NULL;
+
+            {/* Final weight — full width */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-brown-dark mb-1.5">Final Weight (kg)</label>
+              <div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>
+                {finalWeight > 0 ? finalWeight.toFixed(2) : "—"}
+              </div>
+              {form.condition === "Wet" && grossWeight > 0 && (
+                <p className="text-[11px] text-brown-light mt-1">10% of gross = <span className="text-red-500 font-semibold">−{wetDeduction.toFixed(2)} kg</span> wet deduction</p>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="flex gap-3">

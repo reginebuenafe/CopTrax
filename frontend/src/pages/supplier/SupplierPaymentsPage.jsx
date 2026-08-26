@@ -9,7 +9,7 @@ import { useAuth } from "../../contexts/AuthContext";
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
@@ -58,7 +58,7 @@ export default function SupplierPaymentsPage() {
     .reduce((s, p) => s + Number(p.total_amount), 0);
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mt-5 mb-6">
         <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
           <LuWallet className="w-5 h-5 text-amber-600" />
@@ -166,7 +166,7 @@ export default function SupplierPaymentsPage() {
                                   <p className="text-brown-light text-xs">Delivery {i + 1}</p>
                                   <p className="text-brown-mid">
                                     {fmt3(pd.net_weight_kg)} kg net
-                                    {pd.moisture_deduction_kg > 0 ? ` − ${fmt3(pd.moisture_deduction_kg)} kg (${pd.moisture_content_pct}% MC)` : ""}
+                                    {pd.moisture_deduction_kg > 0 ? ` − ${fmt3(pd.moisture_deduction_kg)} kg (${pd.moisture_content_pct}cc MC)` : ""}
                                     {" = "}<span className="font-semibold text-brown-dark">{fmt3(pd.final_weight_kg)} kg final</span>
                                   </p>
                                   <p className="text-brown-mid text-xs mt-0.5">

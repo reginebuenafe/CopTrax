@@ -8,7 +8,7 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 
 export default function BOQualityPage() {
   const [inspections, setInspections] = useState([]);
@@ -61,7 +61,7 @@ export default function BOQualityPage() {
   const rejectedCount = inspections.filter(i => i.quality_results?.[0]?.result === "Rejected").length;
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
           <LuFlaskConical className="w-5 h-5 text-purple-600" />
@@ -131,7 +131,7 @@ export default function BOQualityPage() {
             <table className="w-full text-sm">
               <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                 <tr>
-                  {["Supplier", "Type", "Date", "Net Weight", "Moisture %", "Discount %", "Final Weight", "Result", "Inspector"].map(h => (
+                  {["Supplier", "Type", "Date", "Net Weight", "Moisture (cc)", "Discount %", "Final Weight", "Result", "Inspector"].map(h => (
                     <th key={h} className="px-4 py-3 text-left font-semibold whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -156,9 +156,9 @@ export default function BOQualityPage() {
                       </td>
                       <td className="px-4 py-3 text-brown-mid whitespace-nowrap">{fmtDate(i.delivery?.delivery_date)}</td>
                       <td className="px-4 py-3 text-brown-mid">{fmt3(netKg)} kg</td>
-                      <td className="px-4 py-3 font-semibold text-brown-dark">{i.moisture_content_pct}%</td>
+                      <td className="px-4 py-3 font-semibold text-brown-dark">{i.moisture_content_pct}cc</td>
                       <td className="px-4 py-3 text-brown-mid">{result === "Rejected" ? "—" : `${discountPct}%`}</td>
-                      <td className="px-4 py-3 font-semibold text-brown-dark">{result === "Rejected" ? "—" : `${finalKg.toFixed(3)} kg`}</td>
+                      <td className="px-4 py-3 font-semibold text-brown-dark">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full ${
                           result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
@@ -197,11 +197,11 @@ export default function BOQualityPage() {
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid">
-                    <p>Moisture: <span className="font-semibold text-brown-dark">{i.moisture_content_pct}%</span></p>
+                    <p>Moisture: <span className="font-semibold text-brown-dark">{i.moisture_content_pct}cc</span></p>
                     <p>Net: <span className="font-semibold text-brown-dark">{fmt3(netKg)} kg</span></p>
                     {result === "Accepted" && <>
                       <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>
-                      <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(3)} kg</span></p>
+                      <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(2)} kg</span></p>
                     </>}
                     <p className="col-span-2 text-brown-light">{fmtDate(i.delivery?.delivery_date)}</p>
                   </div>
