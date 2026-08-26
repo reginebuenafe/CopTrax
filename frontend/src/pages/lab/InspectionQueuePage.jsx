@@ -163,7 +163,7 @@ export default function InspectionQueuePage() {
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}cc.`
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(2)} kg net) has been accepted. Moisture: ${mc}cc.`
           : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}cc exceeds 20.2cc.`;
 
         await supabase.from("notifications").insert({
@@ -389,7 +389,7 @@ export default function InspectionQueuePage() {
 
   // ── Queue list ───────────────────────────────────────────────
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
           <LuFlaskConical className="w-5 h-5 text-purple-600" />

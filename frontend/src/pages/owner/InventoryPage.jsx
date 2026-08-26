@@ -8,7 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 
 const TABS = ["Resecada Pool", "Walk-in Holding", "Ready to Merge"];
 
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
@@ -158,7 +158,7 @@ export default function InventoryPage() {
   const readyTotal = readyToMerge.reduce((s, b) => s + Number(b.weight_kg), 0);
 
   return (
-    <div>
+    <div className="pt-6">
       {/* Toast */}
       {toast && (
         <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-card text-sm font-semibold

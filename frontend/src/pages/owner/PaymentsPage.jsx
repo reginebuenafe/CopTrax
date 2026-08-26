@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   LuWallet, LuCheck, LuClock, LuCircleAlert, LuChevronDown, LuChevronUp,
   LuReceipt, LuX, LuLoader, LuPackage, LuBanknote, LuTruck,
+  LuChevronLeft, LuChevronRight, LuDownload,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -13,12 +14,12 @@ const TABS = ["Ready to Pay", "Payment Batches", "Walk-In Payments"];
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
-// Escape HTML special characters before injecting DB values into document.write templates
+// Escape HTML for any injected strings (e.g. in download filenames)
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -73,7 +74,8 @@ export default function PaymentsPage() {
         payment_details(
           payment_detail_id, delivery_id, gross_weight_kg, tare_weight_kg,
           net_weight_kg, moisture_content_pct, moisture_deduction_kg,
-          final_weight_kg, price_type, price_per_kg_used, pca_discount_amount, line_amount
+          final_weight_kg, price_type, price_per_kg_used, pca_discount_amount, line_amount,
+          delivery:delivery_id(weigher:weigher_id(first_name, last_name))
         ),
         e_receipts(receipt_number)
       `).order("created_at", { ascending: false }),
@@ -86,7 +88,7 @@ export default function PaymentsPage() {
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weigher:weigher_id(first_name, last_name),
         paid_by:walkin_paid_by(first_name, last_name),
-        weighing_records(gross_weight_kg, net_weight_kg, copra_condition)
+        weighing_records(gross_weight_kg, net_weight_kg, copra_condition, num_sacks)
       `)
         .eq("delivery_source", "Walkin")
         .eq("delivery_status", "Accepted")
@@ -281,7 +283,7 @@ export default function PaymentsPage() {
 
   // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div>
+    <div className="pt-6">
       {/* Toast */}
       {toast && (
         <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-card text-sm font-semibold
@@ -378,7 +380,7 @@ export default function PaymentsPage() {
                     <div>
                       <p className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</p>
                       <p className="text-brown-light text-xs">
-                        {fmtDate(d.delivery_date)} · {fmt3(l.allocFinalKg)} kg final · {l.mc}% MC
+                        {fmtDate(d.delivery_date)} · {fmt3(l.allocFinalKg)} kg final · {l.mc}cc MC
                       </p>
                     </div>
                     <div className="text-right">
@@ -743,7 +745,7 @@ function BatchesTab({ batches, onRelease }) {
                     )}
                   </div>
 
-                  <div className="text-right shrink-0">
+                  <div className="flex flex-col items-end shrink-0">
                     <p className="font-bold text-brown-dark text-base">{peso(b.total_amount)}</p>
                     {isPending && (
                       <button
@@ -787,7 +789,7 @@ function BatchesTab({ batches, onRelease }) {
                         <div key={pd.payment_detail_id} className="px-3 py-2 flex justify-between gap-2">
                           <span className="text-brown-mid">
                             {Number(pd.net_weight_kg).toFixed(2)} kg → {Number(pd.final_weight_kg).toFixed(2)} kg
-                            · {pd.moisture_content_pct}% MC · {peso(pd.price_per_kg_used)}/kg
+                            · {pd.moisture_content_pct}cc MC · {peso(pd.price_per_kg_used)}/kg
                             <span className={`ml-1 font-semibold ${pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>({pd.price_type})</span>
                           </span>
                           <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
@@ -813,63 +815,55 @@ function BatchesTab({ batches, onRelease }) {
   );
 } // ── Batch E-Receipt Modal ─────────────────────────────────────────────────────
 function BatchReceiptModal({ batch: b, onClose }) {
+  const [page, setPage] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const receiptRef = useRef(null);
+
   const receiptNum   = b.e_receipts?.[0]?.receipt_number;
   const supplierName = `${b.supplier?.first_name ?? ""} ${b.supplier?.last_name ?? ""}`.trim();
   const details      = b.payment_details ?? [];
-  const totalNetKg   = details.reduce((s, d) => s + Number(d.net_weight_kg), 0);
-  const totalFinalKg = details.reduce((s, d) => s + Number(d.final_weight_kg), 0);
+  const totalPaid    = Number(b.total_amount ?? 0);
 
   const paidDate = b.payment_date
     ? new Date(b.payment_date).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
     : fmtDate(b.payment_week);
 
-  function handlePrint() {
-    const detailRows = details.map((pd, i) => `
-      <div class="row sm">
-        <span>${i + 1}. ${Number(pd.net_weight_kg).toFixed(2)} kg → ${Number(pd.final_weight_kg).toFixed(2)} kg · ${esc(pd.moisture_content_pct)}% MC · ${esc(peso(pd.price_per_kg_used))}/kg (${esc(pd.price_type)})</span>
-        <span class="b">${esc(peso(pd.line_amount))}</span>
-      </div>`).join("");
+  const pd = details[page] ?? details[0];
+  if (!pd) return null;
 
-    const win = window.open("", "_blank", "width=420,height=780,noopener");
-    if (!win) { alert("Popups are blocked. Please allow popups for this site to print receipts."); return; }
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>E-Receipt ${esc(receiptNum ?? "")}</title>
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:monospace;font-size:12px;width:80mm;padding:6mm 4mm;color:#000}
-        .c{text-align:center}.b{font-weight:bold}.lg{font-size:14px}.xl{font-size:16px}.sm{font-size:11px}
-        hr{border:none;border-top:1px dashed #555;margin:5px 0}
-        .row{display:flex;justify-content:space-between;margin:2px 0;gap:8px}
-        .stamp{text-align:center;font-weight:bold;font-size:15px;margin:6px 0}
-        .it{font-style:italic}
-      </style>
-    </head><body>
-      <p class="c b xl">NERC COPRA TRADING</p>
-      <p class="c sm">Electronic Payment Receipt</p>
-      <hr/>
-      ${receiptNum ? `<div class="row"><span>Receipt #:</span><span class="b">${esc(receiptNum)}</span></div>` : ""}
-      <div class="row"><span>Supplier:</span><span class="b">${esc(supplierName)}</span></div>
-      <div class="row"><span>Payment Week:</span><span>${esc(fmtDate(b.payment_week))}</span></div>
-      <div class="row"><span>Method:</span><span>${esc(b.payment_method ?? "Bank Transfer")}</span></div>
-      ${b.reference_number ? `<div class="row sm"><span>Ref:</span><span style="word-break:break-all;font-size:10px">${esc(b.reference_number)}</span></div>` : ""}
-      <hr/>
-      <p class="c b">ALLOCATION BREAKDOWN</p>
-      <hr/>
-      ${detailRows}
-      <hr/>
-      <div class="row"><span>Total Net Weight:</span><span>${totalNetKg.toFixed(2)} kg</span></div>
-      <div class="row"><span>Total Final Weight:</span><span>${totalFinalKg.toFixed(2)} kg</span></div>
-      <hr/>
-      <div class="row b lg"><span>TOTAL PAID:</span><span>${esc(peso(b.total_amount))}</span></div>
-      <hr/>
-      <p class="stamp">✓ PAYMENT RELEASED</p>
-      <p class="c sm">${esc(paidDate)}</p>
-      <hr/>
-      <p class="c sm it">This is an official electronic payment receipt.</p>
-      <p class="c sm">NERC Copra Trading — CopTrax System</p>
-      <script>window.onload=()=>{window.print();window.close()}<\/script>
-    </body></html>`);
-    win.document.close();
+  const grossKg    = Number(pd.gross_weight_kg ?? 0);
+  const tareKg     = Number(pd.tare_weight_kg ?? 0);
+  const netKg      = Number(pd.net_weight_kg ?? 0);
+  const finalKg    = Number(pd.final_weight_kg ?? 0);
+  const mc         = Number(pd.moisture_content_pct ?? 0);
+  const pcaDeductKg = Number(pd.pca_discount_amount ?? 0);
+  const pcaPct     = netKg > 0 ? ((pcaDeductKg / netKg) * 100).toFixed(2) : "0.00";
+  const pricePerKg = Number(pd.price_per_kg_used ?? 0);
+  const lineAmt    = Number(pd.line_amount ?? 0);
+  const isSpot     = pd.price_type === "Spot";
+  const weigherName = pd.delivery?.weigher
+    ? `${pd.delivery.weigher.first_name ?? ""} ${pd.delivery.weigher.last_name ?? ""}`.trim()
+    : "—";
+
+  async function handleDownload() {
+    if (!receiptRef.current) return;
+    setDownloading(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const link = document.createElement("a");
+      const pageLabel = details.length > 1 ? `_${page + 1}of${details.length}` : "";
+      link.download = `ereceipt_${receiptNum ?? supplierName.replace(/\s+/g, "_")}${pageLabel}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -891,9 +885,31 @@ function BatchReceiptModal({ batch: b, onClose }) {
           </button>
         </div>
 
+        {/* Pagination — only shown when multiple allocations */}
+        {details.length > 1 && (
+          <div className="flex items-center justify-between px-6 py-2 border-b border-beige-dark/20 shrink-0 bg-beige/40">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              className="p-1.5 rounded-lg hover:bg-beige disabled:opacity-30 transition-colors">
+              <LuChevronLeft className="w-4 h-4 text-brown-mid" />
+            </button>
+            <div className="text-center">
+              <p className="text-xs font-semibold text-brown-dark">
+                Allocation {page + 1} of {details.length}
+              </p>
+              <p className={`text-[10px] font-bold ${isSpot ? "text-amber-700" : "text-green-dark"}`}>
+                {pd.price_type}
+              </p>
+            </div>
+            <button onClick={() => setPage(p => Math.min(details.length - 1, p + 1))} disabled={page === details.length - 1}
+              className="p-1.5 rounded-lg hover:bg-beige disabled:opacity-30 transition-colors">
+              <LuChevronRight className="w-4 h-4 text-brown-mid" />
+            </button>
+          </div>
+        )}
+
         {/* Scrollable receipt preview */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "320px" }}>
+          <div ref={receiptRef} className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "320px" }}>
             <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
             <p className="text-center text-brown-light">Electronic Payment Receipt</p>
             <div className="border-t border-dashed border-brown-light/40 my-2" />
@@ -909,31 +925,30 @@ function BatchReceiptModal({ batch: b, onClose }) {
             )}
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
-            <p className="text-center font-bold text-brown-dark">ALLOCATION BREAKDOWN</p>
-            <div className="space-y-1 max-h-36 overflow-y-auto">
-              {details.map((pd, i) => (
-                <div key={pd.payment_detail_id} className="flex justify-between gap-1">
-                  <span className="text-brown-light" style={{ fontSize: "10px" }}>
-                    {i + 1}. {Number(pd.net_weight_kg).toFixed(2)} kg → {Number(pd.final_weight_kg).toFixed(2)} kg · {pd.moisture_content_pct}% MC
-                    <span className={`ml-1 font-semibold ${pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>({pd.price_type})</span>
-                  </span>
-                  <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
-                </div>
-              ))}
-            </div>
+            <p className="text-center font-bold text-brown-dark">DELIVERY DETAILS</p>
+            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Tare Weight</span><span className="text-brown-dark">{tareKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{netKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Moisture (cc)</span><span className="text-brown-dark">{mc}cc</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">PCA Discount</span><span className="text-brown-dark">{pcaPct}%</span></div>
+            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{finalKg.toFixed(2)} kg</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
-            <div className="flex justify-between"><span className="text-brown-light">Total Net Weight</span><span className="text-brown-dark">{totalNetKg.toFixed(2)} kg</span></div>
-            <div className="flex justify-between"><span className="text-brown-light">Total Final Weight</span><span className="text-brown-dark">{totalFinalKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between">
+              <span className="text-brown-light">Price Type</span>
+              <span className={`font-bold ${isSpot ? "text-amber-700" : "text-green-dark"}`}>{pd.price_type}</span>
+            </div>
+            <div className="flex justify-between"><span className="text-brown-light">Price per kg</span><span className="text-brown-dark">{peso(pricePerKg)}/kg</span></div>
+            <div className="flex justify-between font-semibold"><span className="text-brown-light">Line Amount</span><span className="text-brown-dark">{peso(lineAmt)}</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <div className="flex justify-between items-center">
               <span className="font-bold text-brown-dark">TOTAL PAID</span>
-              <span className="font-bold text-green-dark text-base">{peso(b.total_amount)}</span>
+              <span className="font-bold text-green-dark text-base">{peso(totalPaid)}</span>
             </div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
-            <p className="text-center font-bold text-green-dark text-sm">✓ PAYMENT RELEASED</p>
+            <p className="text-center font-bold text-green-dark text-sm">PAYMENT RELEASED</p>
             <p className="text-center text-brown-light">{paidDate}</p>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
@@ -942,13 +957,15 @@ function BatchReceiptModal({ batch: b, onClose }) {
           </div>
         </div>
 
-        {/* Print button */}
+        {/* Download button */}
         <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
           <button
-            onClick={handlePrint}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+            onClick={handleDownload}
+            disabled={downloading}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60"
           >
-            <LuReceipt className="w-4 h-4" /> Print E-Receipt
+            {downloading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
+            {downloading ? "Generating…" : `Download Receipt${details.length > 1 ? ` (${page + 1}/${details.length})` : ""}`}
           </button>
         </div>
       </div>
@@ -1010,11 +1027,6 @@ function WalkinPaymentsTab({ deliveries, spotPrice, user, profile, onRefresh, on
   return (
     <>
       <div className="space-y-3">
-        <div className="flex items-start gap-2.5 bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-sm text-orange-800 mb-2">
-          <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
-          <p>Walk-in payments are settled in <strong>cash</strong>. Click <strong>Mark as Paid</strong> after handing over the cash to view and print the receipt.</p>
-        </div>
-
         {/* Sub-filter tabs */}
         <div className="flex gap-1 bg-beige rounded-xl p-1 w-fit">
           {["Pending", "Completed"].map(f => (
@@ -1067,9 +1079,11 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
   const wr         = d.weighing_records?.[0];
   const sellerName = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
   const condition  = wr?.copra_condition ?? "Dry";
-  const grossKg    = parseFloat(wr?.gross_weight_kg ?? 0);
-  const netKg      = parseFloat(wr?.net_weight_kg ?? 0);
-  const deductedKg = condition === "Wet" ? grossKg * 0.10 : 0;
+  const numSacks   = parseInt(wr?.num_sacks ?? 0, 10);
+  const grossKg    = parseFloat(wr?.gross_weight_kg ?? 0);   // true gross = entered weight
+  const netKg      = parseFloat(wr?.net_weight_kg ?? 0);     // stored final weight
+  const sacksDeduct = parseInt(wr?.num_sacks ?? 0, 10) / 2;
+  const deductedKg = condition === "Wet" ? grossKg * 0.10 : 0;  // 10% of GROSS
   // Use stored price snapshot if available (locked in at delivery creation); fall back to live spot price
   const spot       = d.walkin_spot_price_kg != null ? parseFloat(d.walkin_spot_price_kg) : parseFloat(spotPrice ?? 0);
   const amountDue  = d.walkin_amount_paid   != null ? parseFloat(d.walkin_amount_paid)   : netKg * spot;
@@ -1096,6 +1110,10 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
           {/* Compact detail strip */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-brown-light">
             <span>{fmtDate(d.delivery_date)}</span>
+            {numSacks > 0 && <>
+              <span className="text-beige-dark">·</span>
+              <span><span className="text-brown-mid font-medium">{numSacks}</span> sacks</span>
+            </>}
             <span className="text-beige-dark">·</span>
             <span>Gross <span className="text-brown-mid font-medium">{grossKg.toFixed(2)} kg</span></span>
             <span className="text-beige-dark">·</span>
@@ -1105,7 +1123,7 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
               <span>Ded <span className="text-red-500 font-medium">−{deductedKg.toFixed(2)} kg</span></span>
             </>}
             <span className="text-beige-dark">·</span>
-            <span>Net <span className="text-brown-mid font-medium">{netKg.toFixed(2)} kg</span></span>
+            <span>Final <span className="text-brown-mid font-medium">{netKg.toFixed(2)} kg</span></span>
             <span className="text-beige-dark">·</span>
             <span>{peso(spot)}/kg</span>
           </div>
@@ -1150,16 +1168,21 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
 
 // ── Walk-In Receipt Modal ─────────────────────────────────────────────────────
 function WalkinReceiptModal({ d, spotPrice, onClose }) {
-  const wr          = d.weighing_records?.[0];
-  const sellerName  = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
-  const weigherName = `${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—";
-  const condition   = wr?.copra_condition ?? "Dry";
-  const grossKg     = parseFloat(wr?.gross_weight_kg ?? 0);
-  const netKg       = parseFloat(wr?.net_weight_kg ?? 0);
-  const deductedKg  = condition === "Wet" ? grossKg * 0.10 : 0;
-  const spot        = d.walkin_spot_price_kg != null ? parseFloat(d.walkin_spot_price_kg) : parseFloat(spotPrice ?? 0);
-  const amountDue   = d.walkin_amount_paid   != null ? parseFloat(d.walkin_amount_paid)   : netKg * spot;
-  const paidAt      = d.walkin_paid_at
+  const [downloading, setDownloading] = useState(false);
+  const receiptRef = useRef(null);
+  const wr           = d.weighing_records?.[0];
+  const sellerName   = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
+  const weigherName  = `${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—";
+  const condition    = wr?.copra_condition ?? "Dry";
+  const numSacks     = parseInt(wr?.num_sacks ?? 0, 10);
+  const sacksDeduct  = numSacks / 2;
+  const grossKg      = parseFloat(wr?.gross_weight_kg ?? 0);  // true gross = entered weight
+  const netAfterSacks = Math.max(grossKg - sacksDeduct, 0);   // net after sacks
+  const finalKg      = parseFloat(wr?.net_weight_kg ?? 0);    // stored final weight
+  const wetDeductKg  = condition === "Wet" ? grossKg * 0.10 : 0;  // 10% of GROSS
+  const spot         = d.walkin_spot_price_kg != null ? parseFloat(d.walkin_spot_price_kg) : parseFloat(spotPrice ?? 0);
+  const amountDue    = d.walkin_amount_paid   != null ? parseFloat(d.walkin_amount_paid)   : finalKg * spot;
+  const paidAt       = d.walkin_paid_at
     ? new Date(d.walkin_paid_at).toLocaleString("en-PH", {
         month: "short", day: "numeric", year: "numeric",
         hour: "2-digit", minute: "2-digit",
@@ -1169,49 +1192,24 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
     ? `${d.paid_by.first_name} ${d.paid_by.last_name ?? ""}`.trim()
     : null;
 
-  function handlePrint() {
-    const win = window.open("", "_blank", "width=400,height=750,noopener");
-    if (!win) { alert("Popups are blocked. Please allow popups for this site to print receipts."); return; }
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>Walk-In Receipt</title>
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:monospace;font-size:13px;width:76mm;padding:6mm 4mm;color:#000}
-        .c{text-align:center}.b{font-weight:bold}.lg{font-size:15px}.sm{font-size:11px}
-        hr{border:none;border-top:1px dashed #555;margin:5px 0}
-        .row{display:flex;justify-content:space-between;margin:3px 0}
-        .stamp{text-align:center;font-weight:bold;font-size:16px;margin:6px 0}
-        .it{font-style:italic}
-      </style>
-    </head><body>
-      <p class="c b lg">NERC COPRA TRADING</p>
-      <p class="c sm">Walk-In Cash Payment Receipt</p>
-      <hr/>
-      <div class="row"><span>Seller:</span><span class="b">${esc(sellerName)}</span></div>
-      <div class="row"><span>Date:</span><span>${esc(fmtDate(d.delivery_date))}</span></div>
-      <div class="row"><span>Recorded by:</span><span>${esc(weigherName)}</span></div>
-      <hr/>
-      <p class="c b">WEIGHT DETAILS</p>
-      <div class="row"><span>Gross Weight:</span><span>${grossKg.toFixed(2)} kg</span></div>
-      ${condition === "Wet" ? `<div class="row"><span>Deduction:</span><span>-${deductedKg.toFixed(2)} kg</span></div>` : ""}
-      <div class="row"><span>Net Weight:</span><span class="b">${netKg.toFixed(2)} kg</span></div>
-      <div class="row"><span>Condition:</span><span>${esc(condition)}</span></div>
-      <hr/>
-      <p class="c b">PAYMENT</p>
-      <div class="row"><span>Spot Price:</span><span>${esc(peso(spot))}/kg</span></div>
-      <div class="row b lg"><span>AMOUNT PAID:</span><span>${esc(peso(amountDue))}</span></div>
-      <hr/>
-      ${paidAt ? `
-        <p class="stamp">✓ PAID IN CASH</p>
-        <p class="c sm">Paid: ${esc(paidAt)}</p>
-        ${paidByName ? `<p class="c sm">Authorized by: ${esc(paidByName)}</p>` : ""}
-        <hr/>
-      ` : ""}
-      <p class="c sm it">This is an official cash payment receipt.</p>
-      <p class="c sm">NERC Copra Trading — CopTrax System</p>
-      <script>window.onload=()=>{window.print();window.close()}<\/script>
-    </body></html>`);
-    win.document.close();
+  async function handleDownload() {
+    if (!receiptRef.current) return;
+    setDownloading(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 3,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const link = document.createElement("a");
+      link.download = `walkin_receipt_${sellerName.replace(/\s+/g, "_")}_${fmtDate(d.delivery_date).replace(/\s/g, "_")}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -1235,7 +1233,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 
         {/* Scrollable receipt preview */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "300px" }}>
+          <div ref={receiptRef} className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "300px" }}>
             <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
             <p className="text-center text-brown-light text-xs">Walk-In Cash Payment Receipt</p>
             <div className="border-t border-dashed border-brown-light/40 my-2" />
@@ -1247,11 +1245,14 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">WEIGHT DETAILS</p>
             <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
-            {condition === "Wet" && (
-              <div className="flex justify-between"><span className="text-brown-light">Deduction</span><span className="text-red-500">−{deductedKg.toFixed(2)} kg</span></div>
-            )}
-            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="font-semibold text-brown-dark">{netKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">No. of Sacks</span><span className="text-brown-dark">{numSacks}</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Sacks Deduction</span><span className="text-red-500">−{sacksDeduct.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{netAfterSacks.toFixed(2)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Condition</span><span className={condition === "Wet" ? "text-blue-600 font-semibold" : "text-green-dark font-semibold"}>{condition}</span></div>
+            {condition === "Wet" && (
+              <div className="flex justify-between"><span className="text-brown-light">Wet Deduction</span><span className="text-red-500">−{wetDeductKg.toFixed(2)} kg</span></div>
+            )}
+            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{finalKg.toFixed(2)} kg</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">PAYMENT</p>
@@ -1263,7 +1264,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 
             {paidAt && <>
               <div className="border-t border-dashed border-brown-light/40 my-2" />
-              <p className="text-center font-bold text-green-dark text-sm">✓ PAID IN CASH</p>
+              <p className="text-center font-bold text-green-dark text-sm">PAID IN CASH</p>
               <p className="text-center text-brown-light">{paidAt}</p>
               {paidByName && <p className="text-center text-brown-light">Authorized by: {paidByName}</p>}
             </>}
@@ -1274,13 +1275,15 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
           </div>
         </div>
 
-        {/* Print button */}
+        {/* Download button */}
         <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
           <button
-            onClick={handlePrint}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+            onClick={handleDownload}
+            disabled={downloading}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60"
           >
-            <LuReceipt className="w-4 h-4" /> Print Receipt
+            {downloading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
+            {downloading ? "Generating…" : "Download Receipt"}
           </button>
         </div>
       </div>

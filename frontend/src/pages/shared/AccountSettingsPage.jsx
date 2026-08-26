@@ -69,11 +69,32 @@ export default function AccountSettingsPage() {
   const { profile, user, refreshProfile } = useAuth();
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState("Account");
-  const [preferences, setPreferences] = useState({
-    contractUpdates: true, paymentAlerts: true, deliveryUpdates: true,
-    weeklyPayments: true, emailNotifications: true, smsNotifications: false,
-    darkMode: false, compactTables: false,
+
+  // Load preferences from localStorage on mount — keyed by user ID so each account is independent
+  const prefKey = `coptrax_preferences_${user?.id ?? "guest"}`;
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`coptrax_preferences_${user?.id ?? "guest"}`) ?? "{}");
+      return {
+        contractUpdates:     saved.contractUpdates     ?? true,
+        paymentAlerts:       saved.paymentAlerts       ?? true,
+        deliveryUpdates:     saved.deliveryUpdates     ?? true,
+        weeklyPayments:      saved.weeklyPayments      ?? true,
+        emailNotifications:  saved.emailNotifications  ?? true,
+        smsNotifications:    saved.smsNotifications    ?? false,
+        labInspectionAlerts: saved.labInspectionAlerts ?? true,
+        darkMode:            saved.darkMode            ?? false,
+        compactTables:       saved.compactTables       ?? false,
+      };
+    } catch { return { contractUpdates: true, paymentAlerts: true, deliveryUpdates: true, weeklyPayments: true, emailNotifications: true, smsNotifications: false, labInspectionAlerts: true, darkMode: false, compactTables: false }; }
   });
+
+  // Apply appearance effects and persist whenever preferences change
+  useEffect(() => {
+    localStorage.setItem(prefKey, JSON.stringify(preferences));
+    document.documentElement.setAttribute("data-theme", preferences.darkMode ? "dark" : "");
+    document.documentElement.setAttribute("data-compact", preferences.compactTables ? "true" : "false");
+  }, [preferences, prefKey]);
 
   function showToast(type, message) {
     setToast({ type, message });
@@ -156,8 +177,10 @@ export default function AccountSettingsPage() {
     );
   }
 
-  const isSupplier = profile.roles?.role_name === "Supplier";
-  const isBO       = profile.roles?.role_name === "Business Owner";
+  const isSupplier  = profile.roles?.role_name === "Supplier";
+  const isBO        = profile.roles?.role_name === "Business Owner";
+  const isWeigher   = profile.roles?.role_name === "Weigher";
+  const isLabStaff  = profile.roles?.role_name === "Laboratory Staff";
 
   return (
     <div className="mx-auto w-full max-w-3xl mt-5">
@@ -289,11 +312,34 @@ export default function AccountSettingsPage() {
 
       {activeTab === "Notifications" && (
         <Section title="Notification preferences">
-          <div className="space-y-2">
-            {[["contractUpdates", "Contract Updates"], ["paymentAlerts", "Payment Alerts"], ["deliveryUpdates", "Delivery Updates"], ["weeklyPayments", "Weekly Payment Notifications"], ["emailNotifications", "Email Notifications"], ["smsNotifications", "SMS Notifications"]].map(([key, label]) => (
-              <SettingToggle key={key} label={label} checked={preferences[key]} onChange={value => setPreferences(p => ({ ...p, [key]: value }))} />
-            ))}
-          </div>
+          {isWeigher ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <p className="text-brown-dark font-semibold text-sm">No notification settings</p>
+              <p className="text-brown-light text-xs mt-1 max-w-xs">Weighers don&apos;t receive in-app notifications. Delivery records are managed directly through the weighing queue.</p>
+            </div>
+          ) : isLabStaff ? (
+            <div className="space-y-2">
+              <SettingToggle
+                label="Delivery Ready for Inspection"
+                description="Receive a notification when a weigher submits a delivery batch waiting for quality assessment."
+                checked={preferences.labInspectionAlerts}
+                onChange={value => setPreferences(p => ({ ...p, labInspectionAlerts: value }))}
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {[
+                ["contractUpdates",    "Contract Updates"],
+                ["paymentAlerts",      "Payment Alerts"],
+                ["deliveryUpdates",    "Delivery Updates"],
+                ["weeklyPayments",     "Weekly Payment Notifications"],
+                ["emailNotifications", "Email Notifications"],
+                ["smsNotifications",   "SMS Notifications"],
+              ].map(([key, label]) => (
+                <SettingToggle key={key} label={label} checked={preferences[key]} onChange={value => setPreferences(p => ({ ...p, [key]: value }))} />
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

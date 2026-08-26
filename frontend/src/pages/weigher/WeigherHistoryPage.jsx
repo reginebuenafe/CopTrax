@@ -40,7 +40,7 @@ export default function WeigherHistoryPage() {
   }
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
           <LuClipboardList className="w-5 h-5 text-green-dark" />
@@ -108,7 +108,7 @@ export default function WeigherHistoryPage() {
                       </td>
                       <td className="px-5 py-4 hidden lg:table-cell">
                        {netWeight != null
-                         ? <p className="font-semibold text-brown-dark">{Number(netWeight).toFixed(3)} kg</p>
+                         ? <p className="font-semibold text-brown-dark">{Number(netWeight).toFixed(2)} kg</p>
                          : <p className="text-brown-light text-xs italic">No weigh record</p>
                        }
                      </td>

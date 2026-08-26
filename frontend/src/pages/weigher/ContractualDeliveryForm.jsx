@@ -271,7 +271,7 @@ export default function ContractualDeliveryForm() {
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span>
             <br />
-            <span className="font-semibold text-green-dark">{success.netWeight.toFixed(3)} kg</span> net weight · Awaiting lab inspection
+            <span className="font-semibold text-green-dark">{success.netWeight.toFixed(2)} kg</span> net weight · Awaiting lab inspection
           </p>
 
           {/* Allocation breakdown */}
@@ -292,7 +292,7 @@ export default function ContractualDeliveryForm() {
                     }`}>{a.price_type}</span>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-brown-dark">{a.allocated_weight_kg.toFixed(3)} kg</p>
+                    <p className="font-semibold text-brown-dark">{a.allocated_weight_kg.toFixed(2)} kg</p>
                     <p className="text-xs text-brown-light">{peso(a.price_per_kg)}/kg</p>
                   </div>
                 </div>
@@ -461,13 +461,13 @@ export default function ContractualDeliveryForm() {
             <div>
               <label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label>
               <div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>
-                {net > 0 ? net.toFixed(3) : "—"}
+                {net > 0 ? net.toFixed(2) : "—"}
               </div>
             </div>
           </div>
           {net > 0 && (
             <p className="text-xs text-brown-light mt-2">
-              Net = {gross.toFixed(3)} − {tare.toFixed(3)} = <span className="font-semibold text-green-dark">{net.toFixed(3)} kg</span>
+              Net = {gross.toFixed(2)} − {tare.toFixed(2)} = <span className="font-semibold text-green-dark">{net.toFixed(2)} kg</span>
             </p>
           )}
         </div>
@@ -496,7 +496,7 @@ export default function ContractualDeliveryForm() {
                     }
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-brown-dark">{a.allocated_weight_kg.toFixed(3)} kg</p>
+                    <p className="font-bold text-brown-dark">{a.allocated_weight_kg.toFixed(2)} kg</p>
                     <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
                       a.price_type === "Spot"
                         ? "bg-amber-100 text-amber-700"

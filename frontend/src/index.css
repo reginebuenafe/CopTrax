@@ -11,6 +11,250 @@
     -moz-osx-font-smoothing: grayscale;
     @apply bg-cream text-brown-dark font-sans;
   }
+
+  /* ── Dark mode ─────────────────────────────────────────────────────── */
+  html[data-theme="dark"] body {
+    background-color: #1a1a1a;
+    color: #e8e0d8;
+  }
+
+  /* Sidebar and header panels */
+  html[data-theme="dark"] aside {
+    background-color: #1e1e1e !important;
+    border-color: #333 !important;
+  }
+  html[data-theme="dark"] header {
+    background-color: rgba(28,28,28,0.92) !important;
+    border-color: #333 !important;
+  }
+
+  /* White and beige surfaces */
+  html[data-theme="dark"] .bg-white  { background-color: #252525 !important; }
+  html[data-theme="dark"] .bg-beige  { background-color: #1e1e1e !important; }
+  html[data-theme="dark"] .bg-cream  { background-color: #1a1a1a !important; }
+  html[data-theme="dark"] [class*="bg-beige"]     { background-color: #1e1e1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#f8f4ec"] { background-color: #252525 !important; }
+  html[data-theme="dark"] [class*="bg-\[#faf6ee"] { background-color: #1e1e1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#FAF6EE"] { background-color: #1e1e1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#FFFEFB"] { background-color: #1e1e1e !important; }
+
+  /* Tab bar */
+  html[data-theme="dark"] [class*="bg-\[#e9ddc9"] { background-color: #2a2a2a !important; }
+  html[data-theme="dark"] [class*="border-\[#d8c7ac"] { border-color: #3a3a3a !important; }
+
+  /* Text colours */
+  html[data-theme="dark"] .text-brown-dark   { color: #ede5dc !important; }
+  html[data-theme="dark"] .text-brown-mid    { color: #c4b0a6 !important; }
+  html[data-theme="dark"] .text-brown-light  { color: #9a8a82 !important; }
+  html[data-theme="dark"] [class*="text-\[#4E342E"],
+  html[data-theme="dark"] [class*="text-\[#3e2723"],
+  html[data-theme="dark"] [class*="text-\[#60463D"],
+  html[data-theme="dark"] [class*="text-\[#3E2723"] { color: #ede5dc !important; }
+  html[data-theme="dark"] [class*="text-\[#9A8176"],
+  html[data-theme="dark"] [class*="text-\[#9A857A"],
+  html[data-theme="dark"] [class*="text-\[#765D52"] { color: #9a8a82 !important; }
+
+  /* All remaining uncoloured text — catch-all for any dark-on-dark */
+  html[data-theme="dark"] p:not([class*="text-green"]):not([class*="text-red"]):not([class*="text-blue"]):not([class*="text-amber"]):not([class*="text-brown"]):not([class*="text-em"]):not([class*="text-purple"]):not([class*="text-white"]) {
+    color: #ede5dc;
+  }
+  html[data-theme="dark"] span:not([class*="text-"]),
+  html[data-theme="dark"] label:not([class*="text-"]) { color: #ede5dc; }
+
+  /* Borders */
+  html[data-theme="dark"] .border-beige-dark          { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-beige"]     { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#E4D5BD"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#E8DCC8"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#d8c7ac"] { border-color: #3a3a3a !important; }
+  html[data-theme="dark"] [class*="border-\[#eee7dc"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#dfd1bb"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#e4ddd2"] { border-color: #3a3a3a !important; }
+
+  /* Sidebar hover and active nav backgrounds */
+  html[data-theme="dark"] [class*="hover:bg-\[#F7F0E5"]:hover { background-color: #2d2d2d !important; }
+  html[data-theme="dark"] [class*="bg-\[#F7F0E5"]             { background-color: #2d2d2d !important; }
+
+  /* Inputs */
+  html[data-theme="dark"] input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  html[data-theme="dark"] select,
+  html[data-theme="dark"] textarea {
+    background-color: #2d2d2d !important;
+    border-color: #444 !important;
+    color: #ede5dc !important;
+  }
+  html[data-theme="dark"] input::placeholder { color: #666 !important; }
+  html[data-theme="dark"] input:disabled {
+    background-color: #222 !important;
+    color: #777 !important;
+  }
+
+  /* Cards and shadows */
+  html[data-theme="dark"] .shadow-card { box-shadow: 0 2px 20px rgba(0,0,0,0.5) !important; }
+
+  /* ── Sidebar active nav item — must stay readable in dark mode ──────── */
+  /* bg-green-pale becomes dark green bg; ensure text is light enough */
+  html[data-theme="dark"] .bg-green-pale { background-color: #1e3a1e !important; }
+  html[data-theme="dark"] .bg-green-pale .text-green-dark,
+  html[data-theme="dark"] .text-green-dark.bg-green-pale,
+  html[data-theme="dark"] nav .text-green-dark { color: #6abf69 !important; }
+  /* Active nav chevron */
+  html[data-theme="dark"] nav .text-green-mid { color: #6abf69 !important; }
+
+  /* ── Chat / Negotiation panels ─────────────────────────────────────── */
+  /* Outer chat wrapper */
+  html[data-theme="dark"] [class*="bg-\[#FAF7EF"]  { background-color: #181818 !important; }
+
+  /* Main chat panels, headers, scroll area */
+  html[data-theme="dark"] [class*="bg-\[#FFFEFB"]  { background-color: #1e1e1e !important; }
+
+  /* Negotiation summary / contract cards */
+  html[data-theme="dark"] [class*="bg-\[#FAF5EC"]  { background-color: #252525 !important; }
+  html[data-theme="dark"] [class*="bg-\[#FAF5EA"]  { background-color: #252525 !important; }
+
+  /* Message input bar */
+  html[data-theme="dark"] [class*="bg-\[#EDE3D1"]  { background-color: #272727 !important; }
+
+  /* Quick-action chips and card rows */
+  html[data-theme="dark"] [class*="bg-\[#FDF7E7"]  { background-color: #2a2a22 !important; }
+  html[data-theme="dark"] [class*="bg-\[#f5f0e8"]  { background-color: #2a2a27 !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#ebe5d5"]:hover { background-color: #333327 !important; }
+
+  /* Green-tinted backgrounds (accept/active states) */
+  html[data-theme="dark"] [class*="bg-\[#e8f0e5"]  { background-color: #1e2d1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#E8F5E9"]  { background-color: #1e2d1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#d4e5cf"]  { background-color: #1a2a1a !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#d4e5cf"]:hover { background-color: #1a2a1a !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#F7FCF8"]:hover { background-color: #1e2d1e !important; }
+  html[data-theme="dark"] [class*="bg-\[#D9EFDE"]  { background-color: #1e2d1e !important; }
+
+  /* Conversation list backgrounds */
+  html[data-theme="dark"] [class*="bg-\[#F7F0E5"]  { background-color: #2a2a2a !important; }
+  html[data-theme="dark"] [class*="bg-\[#E9DDC7"]  { background-color: #263220 !important; }
+
+  /* Received message bubbles */
+  html[data-theme="dark"] [class*="bg-white"][class*="rounded-bl-sm"] { background-color: #2a2a2a !important; }
+
+  /* Border colours in chat */
+  html[data-theme="dark"] [class*="border-\[#E4D5BD"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#AFCDB2"] { border-color: #2d4030 !important; }
+  html[data-theme="dark"] [class*="border-\[#E7DCC9"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#EEE4D4"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#E0D5C1"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#A2D5AB"] { border-color: #2d4030 !important; }
+  html[data-theme="dark"] [class*="border-\[#e8e0d0"] { border-color: #333 !important; }
+
+  /* Presence dot border on avatar (uses panel bg as border color) */
+  html[data-theme="dark"] [class*="border-\[#FFFEFB"] { border-color: #1e1e1e !important; }
+
+  /* Text colours in chat */
+  html[data-theme="dark"] [class*="text-\[#3d2b1f"],
+  html[data-theme="dark"] [class*="text-\[#4E342E"],
+  html[data-theme="dark"] [class*="text-\[#3D2B1F"] { color: #ede5dc !important; }
+  html[data-theme="dark"] [class*="text-\[#5D4037"],
+  html[data-theme="dark"] [class*="text-\[#5c4a32"] { color: #c4b0a6 !important; }
+  html[data-theme="dark"] [class*="text-\[#8b7355"],
+  html[data-theme="dark"] [class*="text-\[#b09a7a"] { color: #9a8a82 !important; }
+  html[data-theme="dark"] [class*="placeholder-\[#A18D82"] { color: #666 !important; }
+
+  /* "Send First Message" (bg-blue-50) and similar light chips */
+  html[data-theme="dark"] .bg-blue-50 { background-color: #1e2030 !important; }
+
+  /* Disabled propose-price button */
+  html[data-theme="dark"] [class*="bg-\[#e8e0d0"]  { background-color: #2a2a2a !important; }
+  html[data-theme="dark"] [class*="text-\[#b09a7a"] { color: #6a5a52 !important; }
+
+  /* Toast in chat (non-error) */
+  html[data-theme="dark"] [class*="bg-\[#e8f0e5"][class*="border-\[#2d5a27"] {
+    background-color: #1e2d1e !important;
+    border-color: #2d5a27 !important;
+  }
+
+  /* ── NegotiationChatWidget ─────────────────────────────────────────── */
+  /* Widget popup container (rounded-3xl bg-white) */
+  html[data-theme="dark"] [class*="rounded-3xl"][class*="bg-white"][class*="border-\[#55B968"] {
+    background-color: #1a1a1a !important;
+    border-color: #2d5a27 !important;
+  }
+  /* Message scroll area (bg-white flex-1) */
+  html[data-theme="dark"] [class*="overflow-y-auto"][class*="bg-white"][class*="p-4"] {
+    background-color: #1a1a1a !important;
+  }
+  /* Widget footer bar */
+  html[data-theme="dark"] [class*="bg-white"][class*="border-t"][class*="space-y-2"] {
+    background-color: #1a1a1a !important;
+    border-color: #2d2d2d !important;
+  }
+  /* Message input wrapper in widget */
+  html[data-theme="dark"] [class*="bg-\[#EFE8D8"]  { background-color: #252525 !important; }
+  html[data-theme="dark"] [class*="border-\[#E0D5C1"] { border-color: #333 !important; }
+
+  /* Proposal card — received (EDF7EF green tint) */
+  html[data-theme="dark"] [class*="bg-\[#EDF7EF"]  { background-color: #1a2a1e !important; }
+  html[data-theme="dark"] [class*="border-\[#2E7D32"]\/20 { border-color: #2d5a27 !important; }
+  html[data-theme="dark"] [class*="border-\[#A2D5AB"]\/50 { border-color: #2d4030 !important; }
+  html[data-theme="dark"] [class*="border-\[#B7DDBD"] { border-color: #2d4030 !important; }
+
+  /* Proposal card header (EAF6EC) */
+  html[data-theme="dark"] [class*="bg-\[#EAF6EC"]  { background-color: #1a2a1e !important; }
+
+  /* Sent message bubble (FDF7E7 / cream) */
+  html[data-theme="dark"] [class*="bg-\[#FDF7E7"]  { background-color: #2a2a22 !important; }
+
+  /* Accept / counter buttons inside proposal card */
+  html[data-theme="dark"] [class*="bg-\[#E8F0E5"]  { background-color: #1e2d1e !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#D4E5CF"]:hover { background-color: #162616 !important; }
+  html[data-theme="dark"] [class*="text-\[#2D5A27"] { color: #6ab870 !important; }
+
+  /* Decline / secondary buttons inside proposal card */
+  html[data-theme="dark"] [class*="bg-\[#F5F0E8"]  { background-color: #2a2727 !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#EBE5D5"]:hover { background-color: #333 !important; }
+  html[data-theme="dark"] [class*="text-\[#5C4A32"] { color: #c4b0a6 !important; }
+
+  /* Timestamp separator badge */
+  html[data-theme="dark"] [class*="bg-\[#A38D80"] { background-color: #3a3232 !important; }
+
+  /* Welcome state icon bg */
+  html[data-theme="dark"] [class*="bg-\[#E8F5E9"]  { background-color: #1e2d1e !important; }
+
+  /* Active contracts modal */
+  html[data-theme="dark"] [class*="bg-\[#FFFEFB"][class*="rounded-2xl"][class*="border-\[#DCCDB4"] {
+    background-color: #1e1e1e !important;
+    border-color: #333 !important;
+  }
+  html[data-theme="dark"] [class*="border-\[#DCCDB4"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="border-\[#DFD2BE"] { border-color: #333 !important; }
+  html[data-theme="dark"] [class*="bg-\[#F8F2E8"]  { background-color: #252525 !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#F8F2E8"]:hover { background-color: #2d2d2d !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#F4EBDD"]:hover { background-color: #2d2d2d !important; }
+
+  /* Maximize modal backdrop content bg */
+  html[data-theme="dark"] [class*="bg-\[#FFFEFB"][class*="shadow-2xl"] {
+    background-color: #1e1e1e !important;
+  }
+
+  /* Proposal header text (green label) */
+  html[data-theme="dark"] [class*="text-\[#17682D"] { color: #6ab870 !important; }
+  html[data-theme="dark"] [class*="text-\[#765D52"] { color: #9a8a82 !important; }
+
+  /* Quick action chips */
+  html[data-theme="dark"] [class*="bg-\[#FDF7E7"][class*="border-\[#E8DCC8"] {
+    background-color: #2a2a22 !important;
+    border-color: #3a3830 !important;
+  }
+  html[data-theme="dark"] [class*="bg-\[#F5EFEB"]  { background-color: #2d2d27 !important; }
+  html[data-theme="dark"] [class*="hover:bg-\[#F5EFEB"]:hover { background-color: #2d2d27 !important; }
+
+  /* Additional text colours used across BO / Weigher / Lab pages */
+  html[data-theme="dark"] [class*="text-\[#6D5147"] { color: #c4b0a6 !important; }
+  html[data-theme="dark"] [class*="text-\[#8B7368"] { color: #9a8a82 !important; }
+  html[data-theme="dark"] [class*="text-\[#c5b9a8"] { color: #7a6a62 !important; }
+
+  /* ── Compact tables ────────────────────────────────────────────────── */
+  html[data-compact="true"] td,
+  html[data-compact="true"] th { padding-top: 6px !important; padding-bottom: 6px !important; }
+  html[data-compact="true"] .py-3   { padding-top: 6px !important; padding-bottom: 6px !important; }
+  html[data-compact="true"] .py-2\.5 { padding-top: 5px !important; padding-bottom: 5px !important; }
 }
 
 @layer utilities {

@@ -166,7 +166,7 @@ function AnalyticsChart({ data, maxVal }) {
             transform: "translate(-50%, -110%)",
           }}>
           <p className="font-bold">{tooltip.label}</p>
-          <p className="opacity-80">{(tooltip.value / 1000).toFixed(3)} t</p>
+          <p className="opacity-80">{(tooltip.value / 1000).toFixed(2)} t</p>
           <p className="opacity-80">{Math.round(tooltip.value).toLocaleString()} kg</p>
         </div>
       )}
@@ -729,7 +729,10 @@ export default function OwnerOverview() {
   const STAT_CARDS = stats ? [
     { label: "Pending Approvals",   value: stats.pendingApprovals,   color: "bg-amber-50 text-amber-600" },
     { label: "Active Contracts",    value: stats.activeContracts,    color: "bg-green-pale text-green-dark" },
-    { label: "Awaiting Inspection", value: stats.awaitingInspection, color: "bg-purple-50 text-purple-600" },
+    { label: "Total Amount Paid",   value: paymentSummary
+        ? "₱" + Number(paymentSummary.paidTotal ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : "—",
+      color: "bg-purple-50 text-purple-700", small: true },
     { label: "Pending Payments",    value: stats.pendingPayments,    color: "bg-blue-50 text-blue-600" },
   ] : [];
 
@@ -837,13 +840,13 @@ export default function OwnerOverview() {
 
       {/* ── Summary stat cards ── */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {STAT_CARDS.map(s => (
-            <div key={s.label} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${s.color.split(" ")[0]}`}>
-                <span className={`text-xl font-extrabold ${s.color.split(" ")[1]}`}>{s.value}</span>
+            <div key={s.label} className="bg-white rounded-xl shadow-card border border-beige-dark/20 px-4 py-3 flex items-center gap-3">
+              <div className={`inline-flex items-center justify-center shrink-0 rounded-lg px-2 py-1.5 ${s.small ? "min-w-8" : "w-8 h-8"} ${s.color.split(" ")[0]}`}>
+                <span className={`font-extrabold ${s.small ? "text-xs leading-tight" : "text-base"} ${s.color.split(" ")[1]}`}>{s.value}</span>
               </div>
-              <p className="text-brown-light text-xs font-medium">{s.label}</p>
+              <p className="text-brown-light text-xs font-medium leading-tight">{s.label}</p>
             </div>
           ))}
         </div>

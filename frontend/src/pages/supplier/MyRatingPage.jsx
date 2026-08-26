@@ -63,7 +63,7 @@ export default function MyRatingPage() {
   const overall = snapshots[0]?.overall_supplier_rating ?? null;
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mt-5 mb-6">
         <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
           <LuStar className="w-5 h-5 text-amber-500" />

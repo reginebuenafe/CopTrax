@@ -68,7 +68,7 @@ async function fetchContracts(from, to) {
   const q = supabase
     .from("contracts")
     .select(`
-      contract_number, status, negotiated_price_per_ton, contracted_tons,
+      contract_number, status, negotiated_price_per_kg, contracted_tons,
       signing_date, activation_date, due_date, created_at,
       supplier:supplier_id(first_name, last_name, email),
       owner:business_owner_id(first_name, last_name)
@@ -86,14 +86,14 @@ async function fetchDeliveries(from, to) {
     .from("deliveries")
     .select(`
       batch_number, delivery_date, delivery_source, delivery_status, created_at,
-      truck_plate_number,
+      truck_plate_number, walkin_spot_price_kg, walkin_amount_paid,
       supplier:supplier_id(first_name, last_name),
       walkin_supplier:walkin_supplier_id(first_name, last_name),
-      weighing:weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
+      weighing:weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg, copra_condition),
       lab:laboratory_inspections(moisture_content_pct),
       quality:quality_results(result, remarks),
       allocations:delivery_allocations(
-        allocated_weight_kg, price_type, allocation_order,
+        allocated_weight_kg, price_type, sequence_order,
         contract:contract_id(contract_number)
       )
     `)
@@ -129,7 +129,7 @@ async function fetchPayments(from, to) {
       supplier:supplier_id(first_name, last_name, email),
       detail:payment_details(
         gross_weight_kg, tare_weight_kg, net_weight_kg, moisture_content_pct,
-        final_weight_kg, payable_amount
+        final_weight_kg, line_amount
       )
     `)
     .order("created_at", { ascending: false });
@@ -154,7 +154,15 @@ async function fetchRatings(from, to) {
   if (to)   q.lte("snapshot_date", to);
   const { data, error } = await q;
   if (error) throw error;
-  return data;
+
+  // Deduplicate: keep only the latest snapshot per (supplier email + contract number)
+  const seen = new Set();
+  return (data ?? []).filter(row => {
+    const key = `${row.supplier?.email ?? ""}::${row.contract?.contract_number ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ── Preview tables ────────────────────────────────────────────────────────────
@@ -182,7 +190,7 @@ function ContractsTable({ rows }) {
                 {r.status}
               </span>
             </td>
-            <td className="px-3 py-2.5 text-brown-mid">{peso(r.negotiated_price_per_ton)}</td>
+            <td className="px-3 py-2.5 text-brown-mid">{peso(r.negotiated_price_per_kg)}</td>
             <td className="px-3 py-2.5 text-brown-mid">{r.contracted_tons}</td>
             <td className="px-3 py-2.5 text-brown-mid">{fmtDate(r.activation_date)}</td>
             <td className="px-3 py-2.5 text-brown-mid">{fmtDate(r.due_date)}</td>
@@ -198,39 +206,60 @@ function DeliveriesTable({ rows }) {
     <table className="w-full text-xs">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Batch #","Date","Supplier","Type","Net Wt","Moisture","Quality","Allocations"].map(h => (
+          {["Batch #","Date","Supplier","Type","Net Wt","Moisture (cc)","Quality","Allocations"].map(h => (
             <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody className="divide-y divide-beige-dark/10">
         {rows.map((r, i) => {
+          const isWalkin = r.delivery_source === "Walkin";
           const supplier = r.supplier
             ? `${r.supplier.first_name} ${r.supplier.last_name}`
             : r.walkin_supplier
             ? `${r.walkin_supplier.first_name} ${r.walkin_supplier.last_name} (Walk-in)`
             : "—";
-          const netWt = r.weighing?.[0]?.net_weight_kg;
+          const wr      = r.weighing?.[0];
+          const netWt   = wr?.net_weight_kg;
           const moisture = r.lab?.[0]?.moisture_content_pct;
-          const quality = r.quality?.[0]?.result ?? "—";
-          const allocs = (r.allocations ?? []).sort((a, b) => a.allocation_order - b.allocation_order);
+
+          // Quality: Dry/Wet for walk-in, result badge for contractual
+          const condition = wr?.copra_condition;
+          const quality   = r.quality?.[0]?.result;
+
+          // Allocations: walk-in shows spot computation; contractual shows alloc lines
+          const allocs = (r.allocations ?? []).sort((a, b) => a.sequence_order - b.sequence_order);
+          const spotPrice = r.walkin_spot_price_kg != null ? Number(r.walkin_spot_price_kg) : null;
+          const amountPaid = r.walkin_amount_paid != null ? Number(r.walkin_amount_paid) : null;
+
           return (
             <tr key={i} className="hover:bg-beige/30">
-              <td className="px-3 py-2.5 font-medium text-brown-dark">{r.batch_number}</td>
+              <td className="px-3 py-2.5 font-medium text-brown-dark">{r.batch_number ?? "—"}</td>
               <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.delivery_date)}</td>
               <td className="px-3 py-2.5 text-brown-mid">{supplier}</td>
               <td className="px-3 py-2.5 text-brown-mid">{r.delivery_source}</td>
               <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(netWt)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{moisture != null ? `${moisture}%` : "—"}</td>
+              <td className="px-3 py-2.5 text-brown-mid">{moisture != null ? `${moisture}cc` : "—"}</td>
               <td className="px-3 py-2.5">
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                  quality === "Accepted" ? "bg-green-pale text-green-dark" :
-                  quality === "Rejected" ? "bg-red-50 text-red-600" : "bg-beige text-brown-mid"}`}>
-                  {quality}
-                </span>
+                {isWalkin && condition ? (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                    condition === "Wet" ? "bg-blue-50 text-blue-600" : "bg-green-pale text-green-dark"}`}>
+                    {condition}
+                  </span>
+                ) : quality ? (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                    quality === "Accepted" ? "bg-green-pale text-green-dark" :
+                    quality === "Rejected" ? "bg-red-50 text-red-600" : "bg-beige text-brown-mid"}`}>
+                    {quality}
+                  </span>
+                ) : "—"}
               </td>
               <td className="px-3 py-2.5 text-brown-mid">
-                {allocs.length === 0 ? "—" : allocs.map((a, j) => (
+                {isWalkin ? (
+                  spotPrice != null
+                    ? <span>Spot: {fmtWeight(netWt)} · {peso(spotPrice)}/kg</span>
+                    : "—"
+                ) : allocs.length === 0 ? "—" : allocs.map((a, j) => (
                   <div key={j}>{a.contract?.contract_number ?? "Spot"}: {fmtWeight(a.allocated_weight_kg)} ({a.price_type})</div>
                 ))}
               </td>
@@ -280,7 +309,7 @@ function PaymentsTable({ rows }) {
     <table className="w-full text-xs">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Reference","Supplier","Date","Net Wt","Moisture","Final Wt","Payable","Status","Method"].map(h => (
+          {["Reference","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status","Method"].map(h => (
             <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
           ))}
         </tr>
@@ -294,9 +323,9 @@ function PaymentsTable({ rows }) {
               <td className="px-3 py-2.5 text-brown-mid">{r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—"}</td>
               <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.payment_date)}</td>
               <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(d?.net_weight_kg)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{d?.moisture_content_pct != null ? `${d.moisture_content_pct}%` : "—"}</td>
+              <td className="px-3 py-2.5 text-brown-mid">{d?.moisture_content_pct != null ? `${d.moisture_content_pct}cc` : "—"}</td>
               <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(d?.final_weight_kg)}</td>
-              <td className="px-3 py-2.5 font-semibold text-brown-dark">{d?.payable_amount != null ? peso(d.payable_amount) : "—"}</td>
+              <td className="px-3 py-2.5 font-semibold text-brown-dark">{d?.line_amount != null ? peso(d.line_amount) : "—"}</td>
               <td className="px-3 py-2.5">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                   r.payment_status === "Released" ? "bg-green-pale text-green-dark" :
@@ -362,7 +391,7 @@ function exportXLSX(reportId, rows) {
           r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
           r.supplier?.email ?? "",
           r.status,
-          r.negotiated_price_per_ton,
+          r.negotiated_price_per_kg,
           r.contracted_tons,
           fmtDate(r.signing_date),
           fmtDate(r.activation_date),
@@ -371,7 +400,7 @@ function exportXLSX(reportId, rows) {
       ];
     } else if (reportId === "deliveries") {
       wsData = [
-        ["Batch #", "Delivery Date", "Source", "Supplier", "Gross Wt (kg)", "Tare Wt (kg)", "Net Wt (kg)", "Moisture %", "Quality", "Allocation Summary"],
+        ["Batch #", "Delivery Date", "Source", "Supplier", "Gross Wt (kg)", "Tare Wt (kg)", "Net Wt (kg)", "Moisture (cc)", "Quality", "Allocation Summary"],
         ...rows.map(r => {
           const w = r.weighing?.[0];
           const allocs = (r.allocations ?? []).map(a => `${a.contract?.contract_number ?? "Spot"}: ${a.allocated_weight_kg}kg (${a.price_type})`).join("; ");
@@ -405,7 +434,7 @@ function exportXLSX(reportId, rows) {
       ];
     } else if (reportId === "payments") {
       wsData = [
-        ["Reference #", "Supplier", "Email", "Payment Date", "Net Wt (kg)", "Moisture %", "Final Wt (kg)", "Payable (₱)", "Status", "Method"],
+        ["Reference #", "Supplier", "Email", "Payment Date", "Net Wt (kg)", "Moisture (cc)", "Final Wt (kg)", "Payable (₱)", "Status", "Method"],
         ...rows.map(r => {
           const d = r.detail?.[0];
           return [
@@ -416,7 +445,7 @@ function exportXLSX(reportId, rows) {
             d?.net_weight_kg ?? "",
             d?.moisture_content_pct ?? "",
             d?.final_weight_kg ?? "",
-            d?.payable_amount ?? "",
+            d?.line_amount ?? "",
             r.payment_status,
             r.payment_method,
           ];
@@ -468,16 +497,16 @@ function exportPDF(reportId, reportLabel, rows) {
         head = [["Contract #","Supplier","Status","Price/ton","Contracted (t)","Activation","Due Date"]];
         body = rows.map(r => [
           r.contract_number, r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
-          r.status, peso(r.negotiated_price_per_ton), r.contracted_tons,
+          r.status, peso(r.negotiated_price_per_kg), r.contracted_tons,
           fmtDate(r.activation_date), fmtDate(r.due_date),
         ]);
       } else if (reportId === "deliveries") {
-        head = [["Batch #","Date","Supplier","Net Wt","Moisture","Quality"]];
+        head = [["Batch #","Date","Supplier","Net Wt","Moisture (cc)","Quality"]];
         body = rows.map(r => [
           r.batch_number, fmtDate(r.delivery_date),
           r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : (r.walkin_supplier ? `${r.walkin_supplier.first_name} ${r.walkin_supplier.last_name}` : "—"),
           fmtWeight(r.weighing?.[0]?.net_weight_kg),
-          r.lab?.[0]?.moisture_content_pct != null ? `${r.lab[0].moisture_content_pct}%` : "—",
+          r.lab?.[0]?.moisture_content_pct != null ? `${r.lab[0].moisture_content_pct}cc` : "—",
           r.quality?.[0]?.result ?? "—",
         ]);
       } else if (reportId === "inventory") {
@@ -488,13 +517,13 @@ function exportPDF(reportId, reportLabel, rows) {
         ]);
       } else if (reportId === "payments") {
         const d = rows.map(r => r.detail?.[0]);
-        head = [["Reference #","Supplier","Date","Net Wt","Moisture","Final Wt","Payable","Status"]];
+        head = [["Reference #","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status"]];
         body = rows.map((r, i) => [
           r.reference_number ?? "—",
           r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
           fmtDate(r.payment_date), fmtWeight(d[i]?.net_weight_kg),
-          d[i]?.moisture_content_pct != null ? `${d[i].moisture_content_pct}%` : "—",
-          fmtWeight(d[i]?.final_weight_kg), d[i]?.payable_amount != null ? peso(d[i].payable_amount) : "—",
+          d[i]?.moisture_content_pct != null ? `${d[i].moisture_content_pct}cc` : "—",
+          fmtWeight(d[i]?.final_weight_kg), d[i]?.line_amount != null ? peso(d[i].line_amount) : "—",
           r.payment_status,
         ]);
       } else if (reportId === "ratings") {
@@ -536,6 +565,7 @@ export default function BOReportsPage() {
   const [selected, setSelected] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [deliverySource, setDeliverySource] = useState("All"); // All | Contractual | Walk-in
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -564,11 +594,16 @@ export default function BOReportsPage() {
 
   const reportMeta = REPORTS.find(r => r.id === selected);
 
+  // Apply source filter for deliveries report
+  const displayRows = (selected === "deliveries" && deliverySource !== "All")
+    ? rows.filter(r => deliverySource === "Walk-in" ? r.delivery_source === "Walkin" : r.delivery_source !== "Walkin")
+    : rows;
+
   const inputCls = "px-3 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark " +
     "focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all";
 
   return (
-    <div>
+    <div className="pt-6">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
@@ -586,7 +621,7 @@ export default function BOReportsPage() {
           const Icon = r.icon;
           const isActive = selected === r.id;
           return (
-            <button key={r.id} onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); }}
+            <button key={r.id} onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); setDeliverySource("All"); }}
               className={`bg-white rounded-2xl shadow-card border p-4 text-left transition-all duration-200
                 hover:shadow-card-hover hover:-translate-y-0.5 ${isActive ? "border-green-dark ring-2 ring-green-dark/20" : "border-beige-dark/20"}`}>
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${r.color.split(" ")[0]}`}>
@@ -616,6 +651,21 @@ export default function BOReportsPage() {
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
             </div>
           </div>
+          {/* Source filter — only for Delivery Report */}
+          {selected === "deliveries" && (
+            <div>
+              <label className="block text-xs text-brown-light mb-1">Delivery Type</label>
+              <div className="flex gap-1 bg-beige rounded-xl p-1">
+                {["All", "Contractual", "Walk-in"].map(s => (
+                  <button key={s} onClick={() => setDeliverySource(s)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
+                      ${deliverySource === s ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <button
             onClick={generate}
             disabled={!selected || loading}
@@ -623,15 +673,15 @@ export default function BOReportsPage() {
             {loading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuFileChartColumn className="w-4 h-4" />}
             Generate Report
           </button>
-          {generated && rows.length > 0 && (
+          {generated && displayRows.length > 0 && (
             <>
               <button
-                onClick={() => exportXLSX(selected, rows)}
+                onClick={() => exportXLSX(selected, displayRows)}
                 className="flex items-center gap-2 bg-green-pale text-green-dark font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-green-mid/20 transition-all border border-green-dark/20">
                 <LuDownload className="w-4 h-4" /> Export .xlsx
               </button>
               <button
-                onClick={() => exportPDF(selected, reportMeta?.label ?? "Report", rows)}
+                onClick={() => exportPDF(selected, reportMeta?.label ?? "Report", displayRows)}
                 className="flex items-center gap-2 bg-amber-50 text-amber-700 font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-amber-100 transition-all border border-amber-200">
                 <LuDownload className="w-4 h-4" /> Export PDF
               </button>
@@ -655,20 +705,20 @@ export default function BOReportsPage() {
         <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-beige-dark/20">
             <p className="font-bold text-brown-dark text-sm">{reportMeta?.label}</p>
-            <span className="text-xs text-brown-light">{rows.length} records</span>
+            <span className="text-xs text-brown-light">{displayRows.length} records</span>
           </div>
-          {rows.length === 0 ? (
+          {displayRows.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-brown-mid font-semibold text-sm">No records found</p>
               <p className="text-brown-light text-xs mt-1">Try adjusting the date range or check that data exists.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              {selected === "contracts"  && <ContractsTable  rows={rows} />}
-              {selected === "deliveries" && <DeliveriesTable rows={rows} />}
-              {selected === "inventory"  && <InventoryTable  rows={rows} />}
-              {selected === "payments"   && <PaymentsTable   rows={rows} />}
-              {selected === "ratings"    && <RatingsTable    rows={rows} />}
+              {selected === "contracts"  && <ContractsTable  rows={displayRows} />}
+              {selected === "deliveries" && <DeliveriesTable rows={displayRows} />}
+              {selected === "inventory"  && <InventoryTable  rows={displayRows} />}
+              {selected === "payments"   && <PaymentsTable   rows={displayRows} />}
+              {selected === "ratings"    && <RatingsTable    rows={displayRows} />}
             </div>
           )}
         </div>

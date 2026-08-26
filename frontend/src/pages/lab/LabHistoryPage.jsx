@@ -40,7 +40,7 @@ export default function LabHistoryPage() {
   }
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-beige rounded-xl flex items-center justify-center">
           <LuClipboardList className="w-5 h-5 text-brown-mid" />

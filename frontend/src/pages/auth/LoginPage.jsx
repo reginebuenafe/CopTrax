@@ -17,6 +17,13 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const { isLoading, role, accountStatus } = useAuth();
 
+  // Suppress dark mode on auth pages
+  useEffect(() => {
+    const prev = document.documentElement.getAttribute("data-theme") ?? "";
+    document.documentElement.setAttribute("data-theme", "");
+    return () => { if (prev) document.documentElement.setAttribute("data-theme", prev); };
+  }, []);
+
   // Set to true after a successful signInWithPassword so the useEffect below
   // knows to wait for AuthContext to finish loading before redirecting.
   const signingInRef = useRef(false);

@@ -44,7 +44,7 @@ export default function SupplierRatingsPage() {
 
       if (!data) { setLoading(false); return; }
 
-      // Group by supplier
+      // Group by supplier, deduplicate snapshots by contract_id (keep latest per contract)
       const grouped = data.reduce((acc, snap) => {
         const sid = snap.supplier?.user_id;
         if (!sid) return acc;
@@ -52,19 +52,25 @@ export default function SupplierRatingsPage() {
           acc[sid] = {
             supplier: snap.supplier,
             overall: snap.overall_supplier_rating,
-            snapshots: [],
+            snapshots: {},
           };
         }
         // Always keep the latest overall rating
-        if (new Date(snap.snapshot_date) >= new Date(acc[sid].snapshots[0]?.snapshot_date ?? "2000-01-01")) {
+        if (new Date(snap.snapshot_date) >= new Date(Object.values(acc[sid].snapshots)[0]?.snapshot_date ?? "2000-01-01")) {
           acc[sid].overall = snap.overall_supplier_rating;
         }
-        acc[sid].snapshots.push(snap);
+        // Keep only the latest snapshot per contract_id
+        const cid = snap.contract?.contract_number ?? snap.snapshot_id;
+        if (!acc[sid].snapshots[cid] || new Date(snap.snapshot_date) > new Date(acc[sid].snapshots[cid].snapshot_date)) {
+          acc[sid].snapshots[cid] = snap;
+        }
         return acc;
       }, {});
 
-      // Sort by overall rating descending
-      const sorted = Object.values(grouped).sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
+      // Convert snapshot map back to array
+      const sorted = Object.values(grouped)
+        .map(s => ({ ...s, snapshots: Object.values(s.snapshots) }))
+        .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
       setSuppliers(sorted);
       setLoading(false);
     }
@@ -72,7 +78,7 @@ export default function SupplierRatingsPage() {
   }, []);
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
           <LuStar className="w-5 h-5 text-amber-500" />
