@@ -40,13 +40,25 @@ export function AuthProvider({ children }) {
 
   const fetchProfile = useCallback(async (userId) => {
     setProfileLoading(true);
-    const { data } = await supabase
-      .from("users")
-      .select("*, roles(role_name)")
-      .eq("user_id", userId)
-      .single();
-    setProfile(data);
-    setProfileLoading(false);
+    try {
+      // Race against a 10-second timeout so a stalled network never blocks login
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Profile fetch timed out")), 10_000)
+      );
+      const query = supabase
+        .from("users")
+        .select("*, roles(role_name)")
+        .eq("user_id", userId)
+        .single();
+      const { data, error } = await Promise.race([query, timeout]);
+      if (error) console.error("fetchProfile error:", error.message);
+      setProfile(data ?? null);
+    } catch (err) {
+      console.error("fetchProfile failed:", err?.message ?? err);
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
   }, []);
 
   // ── Inactivity timer ──────────────────────────────────────────────────────

@@ -445,6 +445,10 @@ export default function SupplierChatLayout() {
     }
     setText("");
     setSending(false);
+    // Fire-and-forget: let AI FAQ respond if enabled globally
+    if (newMsg?.message_text) {
+      supabase.functions.invoke("ai-faq", { body: { conversation_id: conversationId, message_text: newMsg.message_text } });
+    }
   }
 
     // ── UPSERT: reuse existing conversation, never create a duplicate ──────
