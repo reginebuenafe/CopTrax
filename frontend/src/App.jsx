@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { useEffect } from "react";
+import { useAuth } from "./contexts/AuthContext";
 
 import Navbar from "./Navbar";
 import Footer from "./Footer";
@@ -61,9 +62,30 @@ function ComingSoon({ label }) {
   );
 }
 
+// Applies the correct user's appearance preferences whenever the logged-in user changes.
+// Clears theme when user logs out so another user's dark mode doesn't bleed through.
+function ThemeInitializer() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user?.id) {
+      // Logged out — always light mode
+      document.documentElement.setAttribute("data-theme", "");
+      document.documentElement.setAttribute("data-compact", "false");
+      return;
+    }
+    try {
+      const prefs = JSON.parse(localStorage.getItem(`coptrax_preferences_${user.id}`) ?? "{}");
+      document.documentElement.setAttribute("data-theme", prefs.darkMode ? "dark" : "");
+      document.documentElement.setAttribute("data-compact", prefs.compactTables ? "true" : "false");
+    } catch { /* ignore */ }
+  }, [user?.id]);
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
+      <ThemeInitializer />
       <ScrollToTop />
       <Routes>
         {/* Public landing pages */}

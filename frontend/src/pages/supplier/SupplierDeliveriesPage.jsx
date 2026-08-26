@@ -10,7 +10,7 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 
 function contractLabel(d) {
   const allocs = (d.delivery_allocations ?? []).filter(a => a.contract_id);
@@ -65,7 +65,7 @@ export default function SupplierDeliveriesPage() {
   const filtered = filter === "All" ? deliveries : deliveries.filter(d => d.delivery_status === filter);
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mt-5 mb-6">
         <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
           <LuTruck className="w-5 h-5 text-blue-600" />
@@ -174,9 +174,9 @@ export default function SupplierDeliveriesPage() {
                     {li && (
                       <Section title="Quality Inspection" icon={LuFlaskConical}>
                         <Grid items={[
-                          { label: "Moisture Content", value: `${li.moisture_content_pct}%` },
+                          { label: "Moisture Content", value: `${li.moisture_content_pct}cc` },
                           { label: "PCA Discount",     value: `${discountPct}%` },
-                          { label: "Final Weight",     value: finalKg !== null ? `${finalKg.toFixed(3)} kg` : "—" },
+                          { label: "Final Weight",     value: finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—" },
                           { label: "Result",           value: qr?.result ?? "—", highlight: qr?.result },
                         ]} />
                       </Section>

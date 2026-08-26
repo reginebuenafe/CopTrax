@@ -144,7 +144,7 @@ export default function InspectionQueuePage() {
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(3)} kg net) has been accepted. Moisture: ${mc}cc.`
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(2)} kg net) has been accepted. Moisture: ${mc}cc.`
           : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}cc exceeds 20.2cc.`;
 
         await supabase.from("notifications").insert({
@@ -206,18 +206,18 @@ export default function InspectionQueuePage() {
           {success.result === "Accepted" ? (
             <div className="bg-green-pale rounded-xl px-4 py-3 text-sm text-left mb-6 space-y-2">
               <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-1">Quality Summary</p>
-              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{Number(success.netKg).toFixed(3)} kg</span></p>
+              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{Number(success.netKg).toFixed(2)} kg</span></p>
               <p className="text-brown-mid">Moisture discount: <span className="font-semibold text-brown-dark">{success.discount ?? 0}%</span></p>
               <p className="text-brown-mid">
                 Moisture deduction:{" "}
                 <span className="font-semibold text-brown-dark">
-                  {(Number(success.netKg) * ((success.discount ?? 0) / 100)).toFixed(3)} kg
+                  {(Number(success.netKg) * ((success.discount ?? 0) / 100)).toFixed(2)} kg
                 </span>
               </p>
               <p className="text-brown-mid">
                 Final weight:{" "}
                 <span className="font-bold text-green-dark">
-                  {(Number(success.netKg) * (1 - (success.discount ?? 0) / 100)).toFixed(3)} kg
+                  {(Number(success.netKg) * (1 - (success.discount ?? 0) / 100)).toFixed(2)} kg
                 </span>
               </p>
             </div>
@@ -279,7 +279,7 @@ export default function InspectionQueuePage() {
             </div>
             <div>
               <p className="text-brown-light text-xs">Net Weight</p>
-              <p className="font-semibold text-brown-dark">{Number(netKg).toFixed(3)} kg</p>
+              <p className="font-semibold text-brown-dark">{Number(netKg).toFixed(2)} kg</p>
             </div>
             <div>
               <p className="text-brown-light text-xs">Delivery Date</p>
@@ -347,15 +347,15 @@ export default function InspectionQueuePage() {
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Moisture Deduction</p>
-                    <p className="font-bold text-brown-dark">{deductionKg.toFixed(3)} kg</p>
+                    <p className="font-bold text-brown-dark">{deductionKg.toFixed(2)} kg</p>
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Net Weight</p>
-                    <p className="text-brown-mid">{Number(netKg).toFixed(3)} kg</p>
+                    <p className="text-brown-mid">{Number(netKg).toFixed(2)} kg</p>
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Final Weight</p>
-                    <p className="font-bold text-green-dark text-base">{finalKg.toFixed(3)} kg</p>
+                    <p className="font-bold text-green-dark text-base">{finalKg.toFixed(2)} kg</p>
                   </div>
                 </div>
               ) : (
@@ -392,7 +392,7 @@ export default function InspectionQueuePage() {
 
   // ── Queue list ───────────────────────────────────────────────
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
           <LuFlaskConical className="w-5 h-5 text-purple-600" />
@@ -454,7 +454,7 @@ export default function InspectionQueuePage() {
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                         </p>
                         {netKg && (
-                          <p className="text-brown-light text-xs">· {Number(netKg).toFixed(3)} kg net</p>
+                          <p className="text-brown-light text-xs">· {Number(netKg).toFixed(2)} kg net</p>
                         )}
                         {d.contract?.contract_number && (
                           <p className="text-brown-light text-xs">· {d.contract.contract_number}</p>

@@ -9,7 +9,7 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(3); }
+function fmt3(n) { return Number(n ?? 0).toFixed(2); }
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -82,7 +82,7 @@ export default function BODeliveriesPage() {
   });
 
   return (
-    <div>
+    <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
           <LuTruck className="w-5 h-5 text-blue-600" />
@@ -197,9 +197,9 @@ export default function BODeliveriesPage() {
                       </> : null}
                       {d.delivery_source !== "Walkin" && (
                         li ? <>
-                          <InfoItem label="Moisture %" value={`${li.moisture_content_pct}%`} />
+                          <InfoItem label="Moisture (cc)" value={`${li.moisture_content_pct}cc`} />
                           <InfoItem label="PCA Discount" value={`${discountPct}%`} />
-                          <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(3)} kg` : "—"} />
+                          <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—"} />
                           <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
                         </> : (
                           <InfoItem label="Quality Result" value="Pending" />
