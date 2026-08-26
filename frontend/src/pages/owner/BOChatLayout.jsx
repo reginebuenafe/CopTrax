@@ -260,7 +260,15 @@ export default function BOChatLayout() {
     const listChannel = supabase
       .channel(`bo-conversation-list:${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, fetchConversations)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms" }, fetchConversations)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms" }, (payload) => {
+        fetchConversations();
+        // If a Supplier submitted a new proposal, call ai-negotiate. The Edge Function
+        // checks the global ai_auto_negotiate_global flag server-side and skips if off.
+        const newProp = payload.new;
+        if (newProp?.proposal_id && newProp?.submitted_by && newProp.submitted_by !== user.id) {
+          supabase.functions.invoke("ai-negotiate", { body: { proposal_id: newProp.proposal_id } });
+        }
+      })
       .subscribe();
     return () => supabase.removeChannel(listChannel);
   }, [fetchConversations, user.id]);
