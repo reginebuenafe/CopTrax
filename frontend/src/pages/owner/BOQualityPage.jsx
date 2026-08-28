@@ -25,6 +25,7 @@ export default function BOQualityPage() {
           lab_staff:lab_staff_id(first_name, last_name),
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
+            supplier:supplier_id(first_name, last_name),
             contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
             walkin_supplier:walkin_supplier_id(first_name, last_name),
             weighing_records(net_weight_kg)
@@ -40,9 +41,12 @@ export default function BOQualityPage() {
 
   function getSupplierName(d) {
     if (!d) return "—";
-    return d.delivery_source === "Walkin"
-      ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+    if (d.delivery_source === "Walkin")
+      return `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim();
+    // Contract-based: try contract supplier first, fall back to direct supplier_id join
+    const fromContract = `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+    if (fromContract) return fromContract;
+    return `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim() || "—";
   }
 
   const filtered = inspections.filter(i => {
@@ -74,7 +78,7 @@ export default function BOQualityPage() {
 
       {/* Summary */}
       {!loading && inspections.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
             <p className="text-xs text-brown-light mb-1">Total Inspections</p>
             <p className="text-2xl font-extrabold text-brown-dark">{inspections.length}</p>
@@ -178,7 +182,7 @@ export default function BOQualityPage() {
           </div>
 
           {/* Mobile cards */}
-          <ul className="md:hidden divide-y divide-beige-dark/20">
+          <div className="md:hidden space-y-3 p-4">
             {filtered.map(i => {
               const result = i.quality_results?.[0]?.result;
               const remarkMatch = i.quality_results?.[0]?.remarks?.match(/Discount:\s*([\d.]+)%/);
@@ -186,9 +190,9 @@ export default function BOQualityPage() {
               const netKg = i.delivery?.weighing_records?.[0]?.net_weight_kg ?? 0;
               const finalKg = Number(netKg) * (1 - discountPct / 100);
               return (
-                <li key={i.inspection_id} className="px-5 py-4">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="font-semibold text-brown-dark text-sm">{getSupplierName(i.delivery)}</p>
+                <div key={i.inspection_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-semibold text-brown-dark">{getSupplierName(i.delivery)}</p>
                     <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
                       result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
                     }`}>
@@ -196,19 +200,44 @@ export default function BOQualityPage() {
                       {result}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid">
-                    <p>Moisture: <span className="font-semibold text-brown-dark">{i.moisture_content_pct}cc</span></p>
-                    <p>Net: <span className="font-semibold text-brown-dark">{fmt3(netKg)} kg</span></p>
-                    {result === "Accepted" && <>
-                      <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>
-                      <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(2)} kg</span></p>
-                    </>}
-                    <p className="col-span-2 text-brown-light">{fmtDate(i.delivery?.delivery_date)}</p>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Type</span>
+                      <span className={`font-semibold ${
+                        i.delivery?.delivery_source === "Walkin" ? "text-orange-600" : "text-green-dark"
+                      }`}>
+                        {i.delivery?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Date</span>
+                      <span className="font-semibold text-brown-dark text-right">{fmtDate(i.delivery?.delivery_date)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Net Weight</span>
+                      <span className="font-semibold text-brown-dark text-right">{fmt3(netKg)} kg</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Moisture (cc)</span>
+                      <span className="font-semibold text-brown-dark text-right">{i.moisture_content_pct}cc</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Discount %</span>
+                      <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${discountPct}%`}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Final Weight</span>
+                      <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-brown-light">Inspector</span>
+                      <span className="font-semibold text-brown-dark text-right">{i.lab_staff?.first_name} {i.lab_staff?.last_name}</span>
+                    </div>
                   </div>
-                </li>
+                </div>
               );
             })}
-          </ul>
+          </div>
         </div>
       )}
     </div>

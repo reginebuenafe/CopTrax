@@ -401,7 +401,7 @@ export default function BOContractsPage() {
                 </div>
 
                 {/* Delivery quantities + fulfillment */}
-                <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Delivered Qty</p>
                     <p className="font-semibold text-brown-dark">{deliveredTons.toFixed(2)} tons</p>
@@ -597,22 +597,22 @@ function DeliveryBatchesModal({ contract, onClose }) {
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-card w-full max-w-2xl flex flex-col max-h-[88vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-7 pt-7 pb-5 border-b border-beige-dark/20 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-amber-50 rounded-xl flex items-center justify-center">
+        <div className="flex items-center justify-between px-4 sm:px-7 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b border-beige-dark/20 shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-11 h-11 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
               <LuTruck className="w-6 h-6 text-amber-600" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-lg font-bold text-brown-dark">Delivery Batches</h2>
-              <p className="text-sm text-brown-light">{contract.contract_number} · {contract.supplier?.first_name} {contract.supplier?.last_name}</p>
+              <p className="text-sm text-brown-light break-words">{contract.contract_number} · {contract.supplier?.first_name} {contract.supplier?.last_name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
+          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors shrink-0">
             <LuX className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-7 py-5">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-7 py-5">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <LuLoader className="w-6 h-6 text-brown-light animate-spin" />
@@ -632,15 +632,15 @@ function DeliveryBatchesModal({ contract, onClose }) {
                 const wr = d?.weighing_records?.[0];
                 const result = d?.quality_results?.[0]?.result;
                 return (
-                  <div key={i} className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-beige/50 border border-beige-dark/20">
-                    <div className="flex items-center gap-2.5 flex-wrap">
+                  <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 rounded-xl bg-beige/50 border border-beige-dark/20">
+                    <div className="flex items-start gap-2.5 flex-wrap min-w-0 flex-1">
                       <span className="font-semibold text-brown-dark whitespace-nowrap">{d?.batch_number ?? `Batch ${i + 1}`}</span>
                       {result && (
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${RESULT_STYLE[result] ?? "bg-beige text-brown-mid"}`}>
                           {result}
                         </span>
                       )}
-                      <span className="text-sm text-brown-light whitespace-nowrap">
+                      <span className="text-sm text-brown-light break-words">
                         {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         {wr?.copra_condition && ` · ${wr.copra_condition}`}
                         {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toFixed(0)}kg N:${Number(wr.net_weight_kg ?? 0).toFixed(0)}kg`}
@@ -660,7 +660,7 @@ function DeliveryBatchesModal({ contract, onClose }) {
         </div>
 
         {!loading && batches.length > 0 && (
-          <div className="px-7 py-4 border-t border-beige-dark/20 shrink-0">
+          <div className="px-4 sm:px-7 py-4 border-t border-beige-dark/20 shrink-0">
             <div className="flex justify-between items-center">
               <span className="text-sm text-brown-light">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
               <span className="font-bold text-brown-dark">

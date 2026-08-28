@@ -105,7 +105,13 @@ export default function BODeliveriesPage() {
               placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
           />
         </div>
-        <div className="flex gap-1 bg-beige rounded-xl p-1">
+        {/* Mobile: compact select */}
+        <select value={filter} onChange={e => setFilter(e.target.value)}
+          className="sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
+          {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        {/* Desktop: pill buttons */}
+        <div className="hidden sm:flex gap-1 bg-beige rounded-xl p-1">
           {FILTERS.map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap

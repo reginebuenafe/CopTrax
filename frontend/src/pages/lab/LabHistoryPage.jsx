@@ -133,7 +133,7 @@ export default function LabHistoryPage() {
             </div>
 
             {/* Mobile cards */}
-            <ul className="md:hidden divide-y divide-beige-dark/20">
+            <div className="md:hidden space-y-3 p-4">
               {records.map(r => {
                 const d = r.delivery;
                 const result = r.quality_results?.[0]?.result ?? "—";
@@ -144,13 +144,13 @@ export default function LabHistoryPage() {
                 const finalKg = netKg * (1 - discountPct / 100);
 
                 return (
-                  <li key={r.inspection_id} className="px-5 py-4">
-                    <div className="flex items-start justify-between gap-3 mb-2">
+                  <div key={r.inspection_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
                           <LuFlaskConical className="w-4 h-4 text-purple-500" />
                         </div>
-                        <p className="font-semibold text-brown-dark text-sm">{getSupplierName(d)}</p>
+                        <p className="font-semibold text-brown-dark">{getSupplierName(d)}</p>
                       </div>
                       <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
                         result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
@@ -159,18 +159,42 @@ export default function LabHistoryPage() {
                         {result}
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid ml-10.5">
-                      <p>Moisture: <span className="font-semibold text-brown-dark">{mc}cc</span></p>
-                      <p>Net: <span className="font-semibold text-brown-dark">{Number(netKg).toFixed(2)} kg</span></p>
-                      {result === "Accepted" && <>
-                        <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>
-                        <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(2)} kg</span></p>
-                      </>}
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Type</span>
+                        <span className={`font-semibold ${
+                          d?.delivery_source === "Walkin" ? "text-orange-600" : "text-green-dark"
+                        }`}>
+                          {d?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Date</span>
+                        <span className="font-semibold text-brown-dark text-right">
+                          {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Net Weight</span>
+                        <span className="font-semibold text-brown-dark text-right">{Number(netKg).toFixed(2)} kg</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Moisture (cc)</span>
+                        <span className="font-semibold text-brown-dark text-right">{mc}cc</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Discount (%)</span>
+                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${discountPct}%`}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Final Weight</span>
+                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</span>
+                      </div>
                     </div>
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
           </>
         )}
       </div>

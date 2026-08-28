@@ -54,10 +54,10 @@ Deno.serve(async (req) => {
     });
 
     const models = [
-      "gemini-flash-latest",
-      "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
       "gemini-flash-lite-latest",
+      "gemini-2.5-flash",
+      "gemini-flash-latest",
     ];
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     let response: Response | null = null;
     let lastErr = "";
     outer: for (const model of models) {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
         const r = await fetch(url, {
           method: "POST",
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
         lastErr = "Gemini error " + r.status + " (" + model + "): " + errText;
         // Retry only on transient errors (503 overload, 429 rate limit, 500)
         if (r.status !== 503 && r.status !== 429 && r.status !== 500) break;
-        await sleep(500 * (attempt + 1));
+        await sleep(200 * (attempt + 1));
       }
     }
 

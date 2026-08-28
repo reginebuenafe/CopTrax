@@ -336,19 +336,22 @@ export default function UserApprovalsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
+      <div className="flex items-start sm:items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
             <LuUsers className="w-5 h-5 text-green-dark" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-brown-dark">User Management</h1>
-            <p className="text-brown-light text-sm">Review Supplier registrations and manage staff accounts</p>
+            <p className="text-brown-light text-sm hidden sm:block">Review Supplier registrations and manage staff accounts</p>
+            <p className="text-brown-light text-sm sm:hidden">Manage accounts</p>
           </div>
         </div>
         <button onClick={() => setCreateModal(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm px-4 py-2.5 rounded-xl hover:shadow-glow-green transition-all shrink-0">
-          <LuUserPlus className="w-4 h-4" /> Create Staff Account
+          className="flex items-center gap-2 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm px-3 sm:px-4 py-2.5 rounded-xl hover:shadow-glow-green transition-all shrink-0">
+          <LuUserPlus className="w-4 h-4" />
+          <span className="hidden sm:inline">Create Staff Account</span>
+          <span className="sm:hidden">Add Staff</span>
         </button>
       </div>
 

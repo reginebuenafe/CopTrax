@@ -113,9 +113,11 @@ export default function InspectionQueuePage() {
 
     // 3. Update delivery status
     const newStatus = preview.result === "Accepted" ? "Accepted" : "Rejected";
-    await supabase.from("deliveries")
+    const { error: dErr } = await supabase.from("deliveries")
       .update({ delivery_status: newStatus, lab_staff_id: user.id })
       .eq("delivery_id", selected.delivery_id);
+
+    if (dErr) { setError("Inspection saved but delivery status update failed. Please reload and try again."); setSubmitting(false); return; }
 
     // 4. For accepted contractual deliveries → add to Resecada inventory
     // (Walk-in batches are already inserted into Walk-in Holding by WalkinDeliveryForm at record time)

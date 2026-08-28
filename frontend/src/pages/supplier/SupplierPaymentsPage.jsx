@@ -71,7 +71,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Summary */}
       {!loading && payments.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
             <p className="text-xs text-brown-light mb-1">Total Received</p>
             <p className="text-xl font-extrabold text-green-dark">{peso(totalReleased)}</p>

@@ -720,11 +720,18 @@ export default function OwnerOverview() {
     const val = parseFloat(newPrice);
     if (isNaN(val) || val <= 0) { setError("Enter a valid positive price."); return; }
     setSaving(true); setError("");
-    const { error: err } = await supabase.from("spot_price")
+    const { data: rows, error: err } = await supabase.from("spot_price")
       .update({ price_per_kg: val, updated_at: new Date().toISOString() })
-      .gte("price_per_kg", 0);
+      .gte("price_per_kg", 0)
+      .select();
     setSaving(false);
     if (err) { setError("Failed to update spot price."); return; }
+    if (!rows || rows.length === 0) {
+      // Table was empty — insert the first row
+      const { error: insertErr } = await supabase.from("spot_price")
+        .insert({ price_per_kg: val });
+      if (insertErr) { setError("Failed to set spot price."); return; }
+    }
     setSpotPrice(val); setEditing(false); setNewPrice("");
   }
 
@@ -803,17 +810,8 @@ export default function OwnerOverview() {
         </div>
       </section>
 
-      {/* ── Quick-action row: Create Staff (left) + AI Toggle + Spot Price (right) ── */}
+      {/* ── Quick-action row: AI Toggle (left) + Spot Price (right) ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        {/* Create Staff Account */}
-        <button onClick={() => setCreateModal(true)}
-          className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-beige-dark/40 bg-white
-            hover:bg-beige/60 hover:border-beige-dark transition-all text-left group shrink-0">
-          <div className="w-7 h-7 bg-beige rounded-lg flex items-center justify-center shrink-0 group-hover:bg-beige-dark/40 transition-colors">
-            <LuUserPlus className="w-3.5 h-3.5 text-brown-mid" />
-          </div>
-          <span className="text-xs font-semibold text-brown-dark">Create Staff Account</span>
-        </button>
 
         <div className="flex items-center gap-3 flex-wrap">
           {/* AI Auto-Negotiate toggle */}
@@ -865,6 +863,9 @@ export default function OwnerOverview() {
               <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiFaqGlobal ? "translate-x-4" : "translate-x-0.5"}`} />
             </button>
           </div>
+        </div>
+
+        {/* Spot Price — pinned to the right */}
         <div className={`transition-[width] shrink-0 ${editing ? "w-full sm:w-auto" : ""}`}>
           <div className="flex items-center gap-3.5 rounded-2xl border-2 border-[#2E7D32] bg-[#024023] px-4 py-3 text-white shadow-sm">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10">
@@ -913,7 +914,6 @@ export default function OwnerOverview() {
             </p>
           )}
         </div>
-        </div>{/* end right-side flex group */}
       </div>
 
       {/* ── Summary stat cards ── */}

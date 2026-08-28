@@ -226,7 +226,8 @@ export default function PaymentsPage() {
     });
 
     if (error) {
-      showToast("Failed to create payment batch. No changes were made.", "error");
+      console.error("[createBatch] RPC error:", error);
+      showToast(error.message ?? "Failed to create payment batch. No changes were made.", "error");
       setProcessing(false);
       return;
     }
@@ -316,16 +317,20 @@ export default function PaymentsPage() {
       <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 w-fit">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
-            className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+            className={`px-3 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200
               ${tab === i ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
-            {t}
+            {/* Shorter label on mobile */}
+            <span className="sm:hidden">
+              {t === "Ready to Pay" ? "Ready" : t === "Payment Batches" ? "Batches" : "Walk-In"}
+            </span>
+            <span className="hidden sm:inline">{t}</span>
             {i === 0 && Object.keys(supplierGroups).length > 0 && (
-              <span className="ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 sm:ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
                 {Object.keys(supplierGroups).length}
               </span>
             )}
             {i === 2 && walkinDeliveries.filter(d => !d.walkin_paid_at).length > 0 && (
-              <span className="ml-2 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 sm:ml-2 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full">
                 {walkinDeliveries.filter(d => !d.walkin_paid_at).length}
               </span>
             )}
@@ -500,7 +505,7 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
   }
 
   return (
-    <div className="flex gap-4 items-start">
+    <div className="flex flex-col md:flex-row gap-4 items-start">
       {/* ── Left: supplier list ── */}
       <div className="w-full md:w-[44%] shrink-0 space-y-2">
         {groupKeys.map(key => {
@@ -560,69 +565,120 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
 function PaymentPreviewPanel({ group, onCreateBatch }) {
   const { supplier, paymentWeek, deliveries } = group;
 
-  // Aggregate across all allocation lines
   const allLines = deliveries.flatMap(d => (d._computed?.allocLines ?? []));
-  const totalNetKg     = allLines.reduce((s, l) => s + l.allocNetKg, 0);
-  const grossAmount    = allLines.reduce((s, l) => s + l.allocNetKg * l.pricePerKg, 0);
-  const totalDeductAmt = allLines.reduce((s, l) => s + l.deductedKg * l.pricePerKg, 0);
-  const netPayable     = allLines.reduce((s, l) => s + l.lineAmount, 0);
+  const totalNetKg  = allLines.reduce((s, l) => s + l.allocNetKg, 0);
+  const netPayable  = allLines.reduce((s, l) => s + l.lineAmount, 0);
+
+  // Tare — per delivery to avoid double-counting with multi-allocation deliveries
+  const totalGrossKg = deliveries.reduce((s, d) => s + parseFloat(d.weighing_records?.[0]?.gross_weight_kg ?? 0), 0);
+  const totalTareKg  = deliveries.reduce((s, d) => s + parseFloat(d.weighing_records?.[0]?.tare_weight_kg ?? 0), 0);
+
+  // Weight deduction flow (all in kg; price applied only at the very end)
+  const moistDedKg   = allLines.reduce((s, l) => s + l.deductedKg, 0);
+  const totalFinalKg = allLines.reduce((s, l) => s + l.allocFinalKg, 0);
+  const discountPct  = totalNetKg > 0 ? (moistDedKg / totalNetKg * 100).toFixed(2) : "0.00";
+
+  // Price display: show single price if uniform, otherwise "see breakdown"
+  const uniformPrice = allLines.length > 0 && allLines.every(l => l.pricePerKg === allLines[0].pricePerKg);
   const priceTypeLabel = allLines.every(l => l.priceType === "Negotiated") ? "Negotiated"
     : allLines.every(l => l.priceType === "Spot") ? "Spot" : "Mixed";
 
   return (
-    <div className="flex-1 bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+    <div className="flex-1 bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-beige-dark/20 bg-beige/30">
+      <div className="px-5 py-4 border-b border-beige-dark/20 bg-beige/40">
         <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Payment Preview</p>
         <p className="text-lg font-bold text-brown-dark mt-0.5">{supplier.first_name} {supplier.last_name}</p>
       </div>
 
-      {/* Summary rows */}
-      <div className="divide-y divide-beige-dark/20 px-5">
-        <PreviewRow label="Supplier" value={`${supplier.first_name} ${supplier.last_name}`} />
-        <PreviewRow label="Total Deliveries" value={`${deliveries.length} delivery(ies)`} />
-        <PreviewRow label="Total Net Weight" value={`${totalNetKg.toFixed(2)} kg`} />
-        <PreviewRow label="Disbursement Date" value={fmtDate(paymentWeek)} />
-        <PreviewRow label="Price Type" value={
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-            priceTypeLabel === "Negotiated" ? "bg-green-pale text-green-dark"
-            : priceTypeLabel === "Spot" ? "bg-amber-50 text-amber-700"
-            : "bg-blue-50 text-blue-600"
-          }`}>{priceTypeLabel}</span>
-        } />
-        <PreviewRow label="Gross Amount" value={peso(grossAmount)} />
-        <PreviewRow label="Less Deductions" value={<span className="text-red-500 font-semibold">−{peso(totalDeductAmt)}</span>} />
-        <div className="flex justify-between items-center py-3.5">
-          <p className="font-bold text-brown-dark text-sm">Net Payable</p>
-          <p className="text-xl font-bold text-green-dark">{peso(netPayable)}</p>
+      <div className="flex-1 overflow-y-auto">
+        {/* Info rows */}
+        <div className="px-5 py-3 space-y-2.5 border-b border-beige-dark/20">
+          <div className="flex justify-between text-sm">
+            <span className="text-brown-light">Total Deliveries</span>
+            <span className="font-semibold text-brown-dark">{deliveries.length} delivery(ies)</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-brown-light">Disbursement Date</span>
+            <span className="font-semibold text-brown-dark">{fmtDate(paymentWeek)}</span>
+          </div>
+          <div className="flex justify-between text-sm items-center">
+            <span className="text-brown-light">Price Type</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+              priceTypeLabel === "Negotiated" ? "bg-green-pale text-green-dark"
+              : priceTypeLabel === "Spot" ? "bg-amber-50 text-amber-700"
+              : "bg-blue-50 text-blue-600"
+            }`}>{priceTypeLabel}</span>
+          </div>
+          <div className="flex justify-between text-sm items-center">
+            <span className="text-brown-light">Price per kg</span>
+            {uniformPrice
+              ? <span className="font-semibold text-brown-dark">{peso(allLines[0].pricePerKg)}<span className="text-brown-light font-normal">/kg</span></span>
+              : <span className="text-xs text-brown-light italic">Multiple — see breakdown</span>
+            }
+          </div>
         </div>
-      </div>
 
-      {/* Allocation breakdown (scrollable) */}
-      <div className="px-5 pb-2">
-        <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-2">Allocation Breakdown</p>
-        <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 max-h-40 overflow-y-auto text-xs">
-          {deliveries.flatMap((d, di) =>
-            (d._computed?.allocLines ?? []).map((l, li) => (
-              <div key={`${di}-${li}`} className="px-3 py-2 flex justify-between gap-2">
-                <div>
-                  <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
-                  <span className="text-brown-light ml-1.5">{fmtDate(d.delivery_date)}</span>
+        {/* Weight breakdown */}
+        <div className="px-5 py-3 border-b border-beige-dark/20">
+          <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-3">Weight Breakdown</p>
+          <div className="bg-beige rounded-xl px-4 py-3 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-brown-light">Gross Weight</span>
+              <span className="font-semibold text-brown-dark">{fmt3(totalGrossKg)} kg</span>
+            </div>
+            <div className="flex justify-between text-xs pl-3 text-brown-light">
+              <span>Tare Weight</span>
+              <span className="text-brown-mid">−{fmt3(totalTareKg)} kg</span>
+            </div>
+            <div className="flex justify-between font-semibold pt-1 border-t border-beige-dark/40 text-sm">
+              <span className="text-brown-dark">Net Weight</span>
+              <span className="text-brown-dark">{fmt3(totalNetKg)} kg</span>
+            </div>
+            <div className="flex justify-between text-xs pl-3 text-brown-light">
+              <span>Moisture/PCA Deduction <span className="text-red-400">({discountPct}%)</span></span>
+              <span className="text-red-500">−{fmt3(moistDedKg)} kg</span>
+            </div>
+            <div className="flex justify-between font-semibold pt-1 border-t border-beige-dark/40 text-sm">
+              <span className="text-brown-dark">Final Weight</span>
+              <span className="text-green-dark">{fmt3(totalFinalKg)} kg</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Allocation breakdown */}
+        <div className="px-5 py-3 border-b border-beige-dark/20">
+          <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-2">Allocation Breakdown</p>
+          <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 max-h-32 overflow-y-auto text-xs">
+            {deliveries.flatMap((d, di) =>
+              (d._computed?.allocLines ?? []).map((l, li) => (
+                <div key={`${di}-${li}`} className="px-3 py-2 flex justify-between gap-2">
+                  <div>
+                    <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
+                    <span className="text-brown-light ml-1.5">{fmtDate(d.delivery_date)}</span>
+                    <span className="text-brown-light ml-1.5">{peso(l.pricePerKg)}/kg</span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
+                      l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
+                    }`}>{l.priceType}</span>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
-                  <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
-                    l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
-                  }`}>{l.priceType}</span>
-                </div>
-              </div>
-            ))
-          )}
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Net Payable */}
+        <div className="px-5 py-4 flex justify-between items-center">
+          <p className="font-bold text-brown-dark text-sm">Net Payable</p>
+          <p className="text-2xl font-bold text-green-dark">{peso(netPayable)}</p>
         </div>
       </div>
 
       {/* Create Batch button */}
-      <div className="px-5 py-4">
+      <div className="px-5 pb-5 pt-1">
         <button
           onClick={() => onCreateBatch({
             supplierId: supplier.user_id,
@@ -784,17 +840,49 @@ function BatchesTab({ batches, onRelease }) {
                     View delivery breakdown
                   </summary>
                   <div className="pb-2 px-4">
-                    <div className="bg-beige rounded-xl divide-y divide-beige-dark/20 text-xs">
-                      {(b.payment_details ?? []).map(pd => (
-                        <div key={pd.payment_detail_id} className="px-3 py-2 flex justify-between gap-2">
-                          <span className="text-brown-mid">
-                            {Number(pd.net_weight_kg).toFixed(2)} kg → {Number(pd.final_weight_kg).toFixed(2)} kg
-                            · {pd.moisture_content_pct}cc MC · {peso(pd.price_per_kg_used)}/kg
-                            <span className={`ml-1 font-semibold ${pd.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>({pd.price_type})</span>
-                          </span>
-                          <span className="font-semibold text-brown-dark shrink-0">{peso(pd.line_amount)}</span>
-                        </div>
-                      ))}
+                    <div className="space-y-2 text-xs">
+                      {(b.payment_details ?? []).map(pd => {
+                        const grossKg = Number(pd.gross_weight_kg ?? 0);
+                        const tareKg  = Number(pd.tare_weight_kg ?? 0);
+                        const netKg   = Number(pd.net_weight_kg ?? 0);
+                        const mcDedKg = Number(pd.moisture_deduction_kg ?? 0);
+                        const finalKg = Number(pd.final_weight_kg ?? 0);
+                        const mcPct   = netKg > 0 ? (mcDedKg / netKg * 100).toFixed(2) : "0.00";
+                        return (
+                          <div key={pd.payment_detail_id} className="bg-beige rounded-xl px-3 py-2.5">
+                            {/* Header row: type badge + price + amount */}
+                            <div className="flex justify-between items-center mb-2">
+                              <span className={`font-semibold px-2 py-0.5 rounded-full ${
+                                pd.price_type === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
+                              }`}>{pd.price_type} · {peso(pd.price_per_kg_used)}/kg</span>
+                              <span className="font-bold text-brown-dark">{peso(pd.line_amount)}</span>
+                            </div>
+                            {/* Weight breakdown rows */}
+                            <div className="space-y-1 text-brown-light">
+                              <div className="flex justify-between">
+                                <span>Gross Weight</span>
+                                <span className="text-brown-dark font-medium">{grossKg.toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between pl-3">
+                                <span>Tare Weight</span>
+                                <span className="text-brown-mid">−{tareKg.toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between font-semibold text-brown-dark border-t border-beige-dark/40 pt-1">
+                                <span>Net Weight</span>
+                                <span>{netKg.toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between pl-3">
+                                <span>Moisture/PCA ({mcPct}%)</span>
+                                <span className="text-red-500">−{mcDedKg.toFixed(2)} kg</span>
+                              </div>
+                              <div className="flex justify-between font-semibold text-green-dark border-t border-beige-dark/40 pt-1">
+                                <span>Final Weight</span>
+                                <span>{finalKg.toFixed(2)} kg</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </details>
@@ -1295,7 +1383,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 function Modal({ children, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-md p-6 relative">
+      <div className="bg-white rounded-3xl shadow-card w-full max-w-md max-h-[92vh] overflow-y-auto p-6 relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-brown-light hover:text-brown-dark transition-colors">
           <LuX className="w-5 h-5" />
         </button>
