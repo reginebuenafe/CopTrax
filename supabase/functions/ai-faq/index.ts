@@ -161,16 +161,20 @@ Deno.serve(async (req) => {
 
     // 3. Call Gemini with the FAQ system prompt
     const models = [
-      "gemini-flash-latest",
-      "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
       "gemini-flash-lite-latest",
+      "gemini-2.5-flash",
+      "gemini-flash-latest",
     ];
 
     const geminiBody = JSON.stringify({
       system_instruction: { parts: [{ text: COPTRAX_SYSTEM_PROMPT }] },
       contents: [{ parts: [{ text: message_text }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 200,
+        responseMimeType: "text/plain",
+      },
     });
 
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
