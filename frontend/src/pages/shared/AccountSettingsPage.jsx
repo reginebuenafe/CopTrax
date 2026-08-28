@@ -208,7 +208,7 @@ export default function AccountSettingsPage() {
 
       {/* Read-only identity */}
       <Section title="Personal Information" icon={LuUser}>
-        <div className="grid grid-cols-2 gap-4 mb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
           <Field label="First Name">
             <input value={profile.first_name ?? ""} disabled className={inputLocked} />
           </Field>

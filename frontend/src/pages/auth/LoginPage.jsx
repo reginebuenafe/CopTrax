@@ -14,7 +14,7 @@ const ROLE_REDIRECT = {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const { isLoading, role, accountStatus } = useAuth();
 
   // Suppress dark mode on auth pages
@@ -31,15 +31,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Show a one-time message from the ?reason= query param, then clear it from
+  // the URL so a page re-render (or back-navigation) doesn't re-apply it.
+  const reason = params.get("reason");
   const [error, setError] = useState(
-    params.get("reason") === "rejected"
+    reason === "rejected"
       ? "Your account registration was declined. Please contact NERC Copra Trading."
-      : params.get("reason") === "expired"
+      : reason === "expired"
       ? "Your session has expired. Please log in again."
-      : params.get("reason") === "deleted"
+      : reason === "deleted"
       ? "Your account has been deactivated. Please contact NERC Copra Trading."
       : ""
   );
+  useEffect(() => {
+    if (reason) {
+      setParams({}, { replace: true }); // remove ?reason= so it can't persist
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
@@ -101,17 +112,32 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    // Trim email to prevent autofill trailing-space false failures
+    const trimmedEmail = email.trim();
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email:    trimmedEmail,
+      password,
+    });
 
     if (authError) {
-      setError("Invalid email or password.");
+      const msg = authError.message?.toLowerCase() ?? "";
+      if (authError.status === 429 || msg.includes("rate limit") || msg.includes("too many")) {
+        setError("Too many login attempts. Please wait a moment and try again.");
+      } else if (msg.includes("invalid login") || msg.includes("invalid email") || msg.includes("wrong password") || authError.status === 400) {
+        setError("Invalid email or password. Please check your credentials.");
+      } else if (msg.includes("email not confirmed")) {
+        setError("Please confirm your email address before logging in.");
+      } else if (authError.status >= 500 || msg.includes("network") || msg.includes("fetch")) {
+        setError("A server error occurred. Please try again in a moment.");
+      } else {
+        setError("Login failed. Please try again.");
+      }
+      console.error("[login] auth error:", authError.status, authError.message);
       setLoading(false);
       return;
     }
 
-    // Signal the useEffect to watch AuthContext until profile loading finishes,
-    // then redirect. Do NOT read profile here — AuthContext.onAuthStateChange
-    // already fetches it and that query is the authoritative one.
     signingInRef.current = true;
   }
 

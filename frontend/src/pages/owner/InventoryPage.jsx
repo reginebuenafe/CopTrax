@@ -180,7 +180,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <SummaryCard
           label="Resecada Pool"
           value={`${fmt3(resecadaTotal)} kg`}
@@ -212,11 +212,13 @@ export default function InventoryPage() {
       <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 w-fit">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+            className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200
               ${tab === i ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
-            {t}
+            {/* Shorter label on mobile */}
+            <span className="sm:hidden">{t === "Resecada Pool" ? "Resecada" : t === "Walk-in Holding" ? "Walk-in" : "Merge"}</span>
+            <span className="hidden sm:inline">{t}</span>
             {i === 2 && readyToMerge.length > 0 && (
-              <span className="ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 sm:ml-2 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
                 {readyToMerge.length}
               </span>
             )}
@@ -383,7 +385,44 @@ function ResecadaTab({ batches, total }) {
             </tbody>
           </table>
         </div>
-        <MobileList batches={batches} getLabel={b => getSupplierName(b.delivery)} getSubLabel={b => fmtDate(b.recorded_date)} getTag={b => b.delivery?.delivery_source === "Walkin" ? "Walk-in (merged)" : "Contractual"} tagColor={b => b.delivery?.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"} icon={LuLeaf} iconColor="text-green-dark bg-green-pale" />
+        <div className="md:hidden space-y-3 p-4">
+          {batches.map(b => (
+            <div key={b.inventory_batch_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold text-brown-dark">
+                  {getSupplierName(b.delivery) || <span className="text-brown-light italic text-xs">Unknown supplier</span>}
+                </p>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  b.delivery?.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
+                }`}>
+                  {b.delivery?.delivery_source === "Walkin" ? "Walk-in (merged)" : "Contractual"}
+                </span>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between gap-3">
+                  <span className="text-brown-light">Source</span>
+                  <span className={`font-semibold text-right ${
+                    b.delivery?.delivery_source === "Walkin" ? "text-orange-600" : "text-green-dark"
+                  }`}>
+                    {b.delivery?.delivery_source === "Walkin" ? "Walk-in (merged)" : "Contractual"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-brown-light">Delivery Date</span>
+                  <span className="font-semibold text-brown-dark text-right">{fmtDate(b.delivery?.delivery_date)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-brown-light">Recorded</span>
+                  <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-brown-light">Weight (kg)</span>
+                  <span className="font-semibold text-green-dark text-right">{fmt3(b.weight_kg)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -440,33 +479,41 @@ function WalkinHoldingTab({ batches, total }) {
         </div>
 
         {/* Mobile */}
-        <ul className="md:hidden divide-y divide-beige-dark/20">
+        <div className="md:hidden space-y-3 p-4">
           {batches.map(b => {
             const days = b.merge_eligible_date ? daysUntil(b.merge_eligible_date) : null;
             return (
-              <li key={b.inventory_batch_id} className="px-5 py-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center shrink-0">
-                    <LuTruck className="w-4 h-4 text-orange-500" />
-                  </div>
-                  <p className="font-semibold text-brown-dark text-sm">
+              <div key={b.inventory_batch_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-semibold text-brown-dark">
                     {b.delivery?.walkin_supplier?.first_name} {b.delivery?.walkin_supplier?.last_name}
                   </p>
-                  <span className="ml-auto font-bold text-orange-600">{fmt3(b.weight_kg)} kg</span>
+                  <span className="font-bold text-orange-600 shrink-0">{fmt3(b.weight_kg)} kg</span>
                 </div>
-                <div className="grid grid-cols-2 gap-1 text-xs text-brown-mid ml-11">
-                  <p>Recorded: {fmtDate(b.recorded_date)}</p>
-                  <p>Eligible: {fmtDate(b.merge_eligible_date)}</p>
-                  {days !== null && (
-                    <p className={days <= 2 ? "text-amber-600 font-semibold" : ""}>
-                      {days > 0 ? `${days} days left` : "Eligible today"}
-                    </p>
-                  )}
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-brown-light">Delivery Date</span>
+                    <span className="font-semibold text-brown-dark text-right">{fmtDate(b.delivery?.delivery_date)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-brown-light">Recorded</span>
+                    <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-brown-light">Eligible to Merge</span>
+                    <span className="font-semibold text-brown-dark text-right">{fmtDate(b.merge_eligible_date)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-brown-light">Days Left</span>
+                    <span className={`font-semibold text-right ${days !== null && days <= 2 ? "text-amber-600" : "text-brown-dark"}`}>
+                      {days !== null ? (days > 0 ? `${days}d` : "Today") : "—"}
+                    </span>
+                  </div>
                 </div>
-              </li>
+              </div>
             );
           })}
-        </ul>
+        </div>
       </div>
     </div>
   );
@@ -548,27 +595,5 @@ function EmptyState({ icon: Icon, title, subtitle }) {
       <p className="text-brown-dark font-semibold">{title}</p>
       <p className="text-brown-light text-sm mt-1">{subtitle}</p>
     </div>
-  );
-}
-
-function MobileList({ batches, getLabel, getSubLabel, getTag, tagColor, icon: Icon, iconColor }) {
-  return (
-    <ul className="md:hidden divide-y divide-beige-dark/20">
-      {batches.map(b => (
-        <li key={b.inventory_batch_id} className="px-5 py-4 flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconColor.split(" ")[1]} ${iconColor.split(" ")[0]}`}>
-            <Icon className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-brown-dark text-sm">{getLabel(b)}</p>
-            <p className="text-brown-light text-xs">{getSubLabel(b)}</p>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="font-bold text-brown-dark text-sm">{fmt3(b.weight_kg)} kg</p>
-            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${tagColor(b)}`}>{getTag(b)}</span>
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }

@@ -484,6 +484,9 @@ export default function NegotiationChatWidget() {
       fetchMessages(conv.conversation_id);
       // Fire-and-forget: let AI FAQ respond if enabled globally
       supabase.functions.invoke("ai-faq", { body: { conversation_id: conv.conversation_id, message_text: textToSend } });
+    } else {
+      // Restore the unsent text so the user can try again
+      setInputText(textToSend);
     }
   }
 
