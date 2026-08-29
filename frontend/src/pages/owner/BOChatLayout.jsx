@@ -616,7 +616,7 @@ export default function BOChatLayout() {
                     <div className="flex items-center justify-between gap-1 mt-0.5">
                       <p className="text-[#8b7355] text-xs truncate">{c.lastMsg?.message_text?.replace(/^CONTRACT_CARD:.*/, "Contract sent") ?? "No messages yet"}</p>
                       {c.unread && (
-                        <span className="w-4 h-4 rounded-full bg-[#2d5a27] text-white text-[9px] font-bold flex items-center justify-center shrink-0">!</span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
                       )}
                     </div>
                   </div>

@@ -25,6 +25,7 @@ import {
   computeContractHash,
 } from "../_shared/contract_hash.ts";
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
+import { sendEmail } from "../_shared/send_email.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -318,6 +319,40 @@ Deno.serve(async (req) => {
       message:             `Contract ${contract.contract_number} is ready for your review and signature.`,
       related_entity_type: "contracts",
       related_entity_id:   contract_id,
+    });
+
+    // Send email to supplier
+    await sendEmail({
+      to:      supplier.email as string,
+      subject: `Action Required: Contract ${contract.contract_number} is ready for your signature`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; color: #3E2723;">
+          <div style="background: #2E7D32; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 20px;">NERC Copra Trading</h1>
+            <p style="color: #C8E6C9; margin: 4px 0 0; font-size: 13px;">CopTrax Supplier Portal</p>
+          </div>
+          <div style="background: #FFFEFB; padding: 32px; border: 1px solid #DCCDB4; border-top: none; border-radius: 0 0 12px 12px;">
+            <p style="font-size: 16px; font-weight: 600; margin-top: 0;">Hi ${supplier.first_name},</p>
+            <p style="line-height: 1.6;">
+              A procurement contract (<strong>${contract.contract_number}</strong>) has been generated for you
+              by NERC Copra Trading based on your agreed negotiation terms.
+            </p>
+            <p style="line-height: 1.6;">Please log in to CopTrax to review and sign the contract.</p>
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="https://coptrax.onrender.com/dashboard/supplier/conversations"
+                 style="background: #2E7D32; color: #fff; text-decoration: none;
+                        padding: 14px 32px; border-radius: 8px; font-weight: 700;
+                        font-size: 15px; display: inline-block;">
+                Review &amp; Sign Contract
+              </a>
+            </div>
+            <hr style="border: none; border-top: 1px solid #DCCDB4; margin: 24px 0;" />
+            <p style="font-size: 12px; color: #A1887F; margin: 0;">
+              This is an automated message from CopTrax — NERC Copra Trading's procurement system.
+            </p>
+          </div>
+        </div>
+      `,
     });
 
     // ── 9. Post contract card + message into chat (as Business Owner) ────────
