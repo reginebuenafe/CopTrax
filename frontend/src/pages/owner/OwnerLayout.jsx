@@ -1,5 +1,5 @@
-import { createElement, useState, useEffect } from "react";
-import { NavLink, useNavigate, Outlet } from "react-router-dom";
+import { createElement, useState, useEffect, useCallback, useRef } from "react";
+import { NavLink, useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
   LuUsers, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
@@ -38,6 +38,72 @@ export default function OwnerLayout() {
 
   const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ── Unread chat messages dot ─────────────────────────────────────────────
+  const [hasUnread, setHasUnread] = useState(false);
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
+
+  const LAST_VISIT_KEY = user?.id ? `coptrax_bo_convs_last_visit_${user.id}` : null;
+
+  const checkUnread = useCallback(async () => {
+    if (!user?.id || !LAST_VISIT_KEY) return;
+    const lastVisit = localStorage.getItem(LAST_VISIT_KEY) ?? new Date(0).toISOString();
+
+    // Step 1: get conversation IDs for this BO
+    const { data: convs } = await supabase
+      .from("conversations")
+      .select("conversation_id")
+      .eq("business_owner_id", user.id);
+    if (!convs?.length) { setHasUnread(false); return; }
+
+    const convIds = convs.map(c => c.conversation_id);
+
+    // Step 2: count messages from non-BO senders sent after last visit
+    const { count } = await supabase
+      .from("messages")
+      .select("message_id", { count: "exact", head: true })
+      .neq("sender_id", user.id)
+      .gt("sent_at", lastVisit)
+      .in("conversation_id", convIds);
+
+    setHasUnread((count ?? 0) > 0);
+  }, [user?.id, LAST_VISIT_KEY]);
+
+  // Mark as read when BO is on the conversations page
+  useEffect(() => {
+    if (!LAST_VISIT_KEY) return;
+    if (location.pathname.startsWith("/dashboard/owner/conversations")) {
+      localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
+      setHasUnread(false);
+    }
+  }, [location.pathname, LAST_VISIT_KEY]);
+
+  // Initial check + realtime subscription for new messages
+  useEffect(() => {
+    if (!user?.id) return;
+    checkUnread();
+
+    const channel = supabase
+      .channel(`bo-unread-dot-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          if (
+            payload.new?.sender_id !== user.id &&
+            !pathnameRef.current.startsWith("/dashboard/owner/conversations")
+          ) {
+            setHasUnread(true);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -125,14 +191,22 @@ export default function OwnerLayout() {
             >
               {({ isActive }) => (
                 <>
-                  {createElement(Icon, {
-                    className: `shrink-0 transition-all duration-200
-                      ${collapsed ? "lg:w-5 lg:h-5 w-5 h-5" : "w-5 h-5"}
-                      ${isActive ? "text-white" : "text-[#A18D82] group-hover:text-[#6D5147]"}`,
-                  })}
+                  <span className="relative shrink-0">
+                    {createElement(Icon, {
+                      className: `transition-all duration-200
+                        ${collapsed ? "lg:w-5 lg:h-5 w-5 h-5" : "w-5 h-5"}
+                        ${isActive ? "text-white" : "text-[#A18D82] group-hover:text-[#6D5147]"}`,
+                    })}
+                    {label === "Negotiations" && hasUnread && collapsed && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white hidden lg:block" />
+                    )}
+                  </span>
                   <span className={`flex-1 whitespace-nowrap transition-[opacity,max-width] duration-300 ease-in-out
                     ${collapsed ? "lg:opacity-0 lg:max-w-0 lg:overflow-hidden" : "opacity-100 max-w-[160px]"}`}>
                     {label}
+                    {label === "Negotiations" && hasUnread && (
+                      <span className="ml-2 inline-block w-2 h-2 rounded-full bg-green-500 align-middle" />
+                    )}
                   </span>
                   {isActive && (
                     <LuChevronRight className={`w-3.5 h-3.5 text-white/70 shrink-0

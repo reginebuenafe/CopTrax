@@ -442,7 +442,10 @@ export default function RegisterPage() {
         accountNumber: details.accountNumber || current.accountNumber,
       }));
     } catch (qrError) {
-      setError(qrError.message || "The QR code could not be read. Please enter the account details manually.");
+      const msg = (typeof qrError?.message === "string" && qrError.message)
+        ? qrError.message
+        : "The QR code could not be read. Please enter the account details manually.";
+      setError(msg);
     } finally {
       URL.revokeObjectURL(objectUrl);
       setQrDecoding(false);
@@ -496,7 +499,7 @@ export default function RegisterPage() {
       }
     } catch (err) {
       if (requestId !== idScanRequestRef.current) return;
-      setError("Auto-fill unavailable: " + err.message + " You can still fill in your details manually.");
+      setError("Auto-fill unavailable: " + (err?.message || "Unexpected error") + " You can still fill in your details manually.");
     } finally {
       if (requestId === idScanRequestRef.current) setIdExtracting(false);
     }
@@ -557,6 +560,7 @@ export default function RegisterPage() {
   }
 
   function goNext() {
+    setError("");
     if (currentStep === 0 && idExtracting) {
       setError("Please wait while your government ID is being scanned.");
       return;
@@ -584,7 +588,25 @@ export default function RegisterPage() {
       email: form.email, password: form.password,
       options: { data: { role: "Supplier" } },
     });
-    if (authError) { setError(authError.message); setLoading(false); return; }
+    if (authError) {
+      const rawMsg = authError.message ?? "";
+      const msg = typeof rawMsg === "string" ? rawMsg.toLowerCase() : "";
+      let displayMsg;
+      if (!rawMsg || rawMsg === "{}" || rawMsg === "[]" || authError.status >= 500) {
+        displayMsg = "Registration failed due to a server error. Please check your internet connection and try again. If the problem persists, the email service may be temporarily unavailable.";
+      } else if (msg.includes("already registered") || msg.includes("user already registered")) {
+        displayMsg = "An account with this email already exists. Try logging in instead.";
+      } else if (msg.includes("invalid email")) {
+        displayMsg = "Please enter a valid email address.";
+      } else if (msg.includes("password")) {
+        displayMsg = "Password does not meet requirements. Please use at least 8 characters.";
+      } else {
+        displayMsg = typeof rawMsg === "string" ? rawMsg : "Registration failed. Please try again.";
+      }
+      setError(displayMsg);
+      setLoading(false);
+      return;
+    }
     const userId = data?.user?.id;
     if (!userId) {
       setError("Account creation failed — this email may already be registered, or email confirmation may be pending. Try logging in or use a different email.");
@@ -623,11 +645,32 @@ export default function RegisterPage() {
           account_number: form.accountNumber.trim(),
         },
       });
-      const errMsg = fnData?.error ?? fnErr?.message;
-      if (errMsg) throw new Error(`Document upload failed: ${errMsg}`);
+
+      if (fnErr || fnData?.error) {
+        // Log the raw values so we can debug any unexpected shapes
+        console.error("[register] upload error — fnData:", fnData, "fnErr:", fnErr);
+
+        // Try to read the actual error message from the edge function's JSON response body
+        let errMsg = "";
+        if (typeof fnData?.error === "string" && fnData.error) {
+          errMsg = fnData.error;
+        } else if (fnErr) {
+          try {
+            const body = await fnErr.context?.json?.();
+            console.error("[register] fnErr response body:", body);
+            errMsg = typeof body?.error === "string" ? body.error : "";
+          } catch { /* response body couldn't be parsed */ }
+          if (!errMsg) errMsg = fnErr.message || "";
+        }
+        setError(errMsg || "Document upload failed. Please try again.");
+        setLoading(false);
+        return;
+      }
     } catch (uploadErr) {
-      setError(uploadErr.message);
-      setLoading(false); return;
+      console.error("[register] unexpected upload error:", uploadErr);
+      setError(uploadErr?.message || "An error occurred uploading your documents. Please try again.");
+      setLoading(false);
+      return;
     }
 
     await supabase.auth.signOut();
@@ -646,14 +689,42 @@ export default function RegisterPage() {
 
   // ── Uploading overlay ────────────────────────────────────────────────────
   if (loading) {
+    const steps = ["Creating account…", "Preparing documents…", "Uploading documents…"];
+    const stepIndex = steps.indexOf(uploadProgress);
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4">
-        <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-card border border-white/60 p-10 text-center max-w-sm w-full">
-          <div className="w-16 h-16 bg-green-pale rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <div className="w-8 h-8 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
+        {/* Background blobs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-24 -left-24 w-80 h-80 bg-green-light/15 rounded-full blur-3xl" />
+          <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-green-mid/10 rounded-full blur-3xl" />
+        </div>
+
+        <div className="relative bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 px-10 py-12 text-center max-w-xs w-full">
+          {/* Animated logo ring */}
+          <div className="relative w-20 h-20 mx-auto mb-7">
+            <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="36" fill="none" stroke="#e8f5e9" strokeWidth="6" />
+              <circle cx="40" cy="40" r="36" fill="none" stroke="#1b5e20" strokeWidth="6"
+                strokeDasharray="226" strokeDashoffset="170" strokeLinecap="round" />
+            </svg>
+            <div className="absolute inset-[10px] bg-gradient-to-br from-green-dark to-green-mid rounded-2xl flex items-center justify-center shadow-lg">
+              <BrandLogo className="w-8 h-8" size="100%" />
+            </div>
           </div>
-          <h2 className="text-lg font-bold text-brown-dark mb-2">Submitting your registration…</h2>
-          <p className="text-sm text-brown-light">{uploadProgress}</p>
+
+          <h2 className="text-lg font-bold text-brown-dark mb-1">Submitting your registration…</h2>
+          <p className="text-sm text-brown-light mb-6">{uploadProgress || "Please wait…"}</p>
+
+          {/* Step dots */}
+          <div className="flex items-center justify-center gap-2">
+            {steps.map((s, i) => (
+              <div key={s} className={`h-1.5 rounded-full transition-all duration-500 ${
+                i < stepIndex ? "w-6 bg-green-dark" :
+                i === stepIndex ? "w-8 bg-green-dark animate-pulse" :
+                "w-4 bg-beige-dark/40"
+              }`} />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -988,7 +1059,7 @@ export default function RegisterPage() {
             {error && (
               <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm mb-5">
                 <LuCircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{error}</span>
+                <span>{typeof error === "string" ? error : "An unexpected error occurred. Please try again."}</span>
               </div>
             )}
 

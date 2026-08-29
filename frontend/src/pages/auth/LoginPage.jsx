@@ -115,30 +115,39 @@ export default function LoginPage() {
     // Trim email to prevent autofill trailing-space false failures
     const trimmedEmail = email.trim();
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email:    trimmedEmail,
-      password,
-    });
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email:    trimmedEmail,
+        password,
+      });
 
-    if (authError) {
-      const msg = authError.message?.toLowerCase() ?? "";
-      if (authError.status === 429 || msg.includes("rate limit") || msg.includes("too many")) {
-        setError("Too many login attempts. Please wait a moment and try again.");
-      } else if (msg.includes("invalid login") || msg.includes("invalid email") || msg.includes("wrong password") || authError.status === 400) {
-        setError("Invalid email or password. Please check your credentials.");
-      } else if (msg.includes("email not confirmed")) {
-        setError("Please confirm your email address before logging in.");
-      } else if (authError.status >= 500 || msg.includes("network") || msg.includes("fetch")) {
-        setError("A server error occurred. Please try again in a moment.");
-      } else {
-        setError("Login failed. Please try again.");
+      if (authError) {
+        const msg = authError.message?.toLowerCase() ?? "";
+        if (authError.status === 429 || msg.includes("rate limit") || msg.includes("too many")) {
+          setError("Too many login attempts. Please wait a moment and try again.");
+        } else if (msg.includes("invalid login") || msg.includes("invalid email") || msg.includes("wrong password") || authError.status === 400) {
+          setError("Invalid email or password. Please check your credentials.");
+        } else if (msg.includes("email not confirmed")) {
+          setError("Please confirm your email address before logging in.");
+        } else if (authError.status >= 500 || msg.includes("network") || msg.includes("fetch")) {
+          setError("A server error occurred. Please try again in a moment.");
+        } else {
+          setError("Login failed. Please try again.");
+        }
+        console.error("[login] auth error:", authError.status, authError.message);
+        setLoading(false);
+        return;
       }
-      console.error("[login] auth error:", authError.status, authError.message);
-      setLoading(false);
-      return;
-    }
 
-    signingInRef.current = true;
+      // Auth succeeded — hand off to the useEffect below which waits for
+      // AuthContext to finish loading the profile before redirecting.
+      signingInRef.current = true;
+    } catch (err) {
+      // Unexpected throw (network failure, Supabase client error, etc.)
+      console.error("[login] unexpected error:", err);
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
+    }
   }
 
   return (

@@ -281,6 +281,23 @@ export default function UserApprovalsPage() {
         ? `${targetUser.first_name} ${targetUser.last_name}'s account has been approved.`
         : `${targetUser.first_name} ${targetUser.last_name}'s account has been rejected.`
     );
+
+    // Send email notification to the supplier (fire-and-forget — do not block UI)
+    if (targetUser.roles?.role_name === "Supplier") {
+      const { data: { session } } = await supabase.auth.getSession();
+      fetch(`${supabase.supabaseUrl}/functions/v1/notify-supplier`, {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          type:        action === "approve" ? "approved" : "rejected",
+          supplier_id: targetUser.user_id,
+        }),
+      }).catch((err) => console.warn("[notify-supplier] email failed:", err));
+    }
+
     fetchUsers();
   }
 
