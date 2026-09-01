@@ -65,15 +65,38 @@ Deno.serve(async (req) => {
       return json({ error: "bank_name, account_name, and account_number are required" }, 400);
     }
 
+    // ── Caller-identity check ─────────────────────────────────────────────────
+    // If the client sent a JWT (which supabase.functions.invoke does when a
+    // session exists), verify that the JWT subject matches the user_id being
+    // submitted. This prevents any other caller from overwriting another user's
+    // profile/documents/bank row by guessing a UUID.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const jwtMatch  = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (jwtMatch) {
+      const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
+      if (jwtErr || !jwtUser) {
+        return json({ error: "Invalid or expired authentication token." }, 401);
+      }
+      if (jwtUser.id !== user_id) {
+        return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Verify the user exists in public.users (trigger should have created the row)
+    // Verify the user exists in public.users AND is still Pending Verification
+    // (prevents overwriting an already-approved or rejected supplier's data)
     const { data: userRow, error: userErr } = await admin
       .from("users")
       .select("user_id, account_status")
       .eq("user_id", user_id)
+      .eq("account_status", "Pending Verification")
       .single();
 
     if (userErr || !userRow) {
@@ -83,9 +106,10 @@ Deno.serve(async (req) => {
         .from("users")
         .select("user_id, account_status")
         .eq("user_id", user_id)
+        .eq("account_status", "Pending Verification")
         .single();
       if (retryErr || !retryRow) {
-        return json({ error: "User profile not found. Please try again." }, 404);
+        return json({ error: "User profile not found or account is not in Pending Verification status. Please try again." }, 404);
       }
     }
 

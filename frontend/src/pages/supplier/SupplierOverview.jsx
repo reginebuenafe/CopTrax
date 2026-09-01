@@ -1,4 +1,4 @@
-import { createElement, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuLayoutDashboard, LuFileText, LuTruck, LuWallet,
@@ -8,22 +8,16 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
-function StatCard({ icon, label, value, sub, color, onClick }) {
+function StatCard({ label, value, sub, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 text-left w-full
-        hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200
-        flex items-center justify-between gap-3 ${onClick ? "cursor-pointer" : "cursor-default"}`}
+      className={`bg-white border border-beige-dark/40 rounded-xl px-5 py-4 text-left w-full
+        hover:border-green-dark/30 transition-colors ${onClick ? "cursor-pointer" : "cursor-default"}`}
     >
-      <div className="min-w-0 flex-1">
-        <p className="text-brown-mid text-xs font-semibold mb-1">{label}</p>
-        <p className="text-2xl font-extrabold text-brown-dark leading-none">{value}</p>
-        {sub && <p className="text-brown-light text-xs mt-1 truncate">{sub}</p>}
-      </div>
-      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center shrink-0`}>
-        {createElement(icon, { className: "w-5 h-5" })}
-      </div>
+      <p className="text-2xl font-bold text-brown-dark leading-none break-words">{value}</p>
+      <p className="text-xs text-brown-light mt-1.5 leading-snug">{label}</p>
+      {sub && <p className="text-brown-light text-xs mt-1 break-words">{sub}</p>}
     </button>
   );
 }
@@ -68,9 +62,9 @@ export default function SupplierOverview() {
           .eq("supplier_id", user.id)
           .order("snapshot_date", { ascending: false })
           .limit(1)
-          .single(),
+          .maybeSingle(),
 
-        supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+        supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle(),
       ]);
 
       const contracts = contractRes.data ?? [];
@@ -129,7 +123,7 @@ export default function SupplierOverview() {
 
         {/* Spot Price badge */}
         <div className="bg-[#024023] border-2 border-[#2E7D32] rounded-2xl px-4 py-4 text-white shrink-0 flex items-center gap-3.5 shadow-sm">
-          <div className="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center shrink-0">
             <LuTrendingUp className="w-5 h-5 text-emerald-300" />
           </div>
           <div>
@@ -153,7 +147,7 @@ export default function SupplierOverview() {
       ) : (
         <>
           {/* Stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
               icon={LuFileText}
               label="Active Contracts"
@@ -191,8 +185,8 @@ export default function SupplierOverview() {
 
 
           {/* Recent deliveries */}
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 mb-5">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-beige-dark/20">
+          <div className="bg-white border border-beige-dark/40 rounded-xl mb-5">
+            <div className="flex items-center justify-between gap-3 px-4 py-4 border-b border-beige-dark/20 sm:px-5">
               <p className="font-bold text-brown-dark text-sm flex items-center gap-2">
                 <LuTruck className="w-4 h-4 text-brown-light" /> Recent Deliveries
               </p>
@@ -212,18 +206,15 @@ export default function SupplierOverview() {
                   const meta = STATUS_META[d.delivery_status] ?? STATUS_META.Pending;
                   const Icon = meta.icon;
                   return (
-                    <li key={d.delivery_id} className="flex items-center gap-4 px-5 py-3.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${meta.color.split(" ")[0]}`}>
-                        <Icon className={`w-4 h-4 ${meta.color.split(" ")[1]}`} />
-                      </div>
+                    <li key={d.delivery_id} className="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-brown-dark">{d.contract?.contract_number ?? "—"}</p>
+                        <p className="text-sm font-medium text-brown-dark break-words">{d.contract?.contract_number ?? "—"}</p>
                         <p className="text-xs text-brown-light">
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                         </p>
                       </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${meta.color}`}>
-                        {meta.label}
+                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${meta.color}`}>
+                        <Icon className="w-3 h-3" />{meta.label}
                       </span>
                     </li>
                   );
@@ -233,18 +224,16 @@ export default function SupplierOverview() {
           </div>
 
           {/* Quick actions */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
-              { label: "Start Negotiation", icon: LuMessageSquare, to: "/dashboard/supplier/conversations", color: "bg-green-pale text-green-dark" },
-              { label: "View Contracts", icon: LuFileText, to: "/dashboard/supplier/contracts", color: "bg-blue-50 text-blue-600" },
-              { label: "Payment History", icon: LuWallet, to: "/dashboard/supplier/payments", color: "bg-amber-50 text-amber-600" },
+              { label: "Start Negotiation", icon: LuMessageSquare, to: "/dashboard/supplier/conversations" },
+              { label: "View Contracts", icon: LuFileText, to: "/dashboard/supplier/contracts" },
+              { label: "Payment History", icon: LuWallet, to: "/dashboard/supplier/payments" },
             ].map(a => (
               <button key={a.label} onClick={() => navigate(a.to)}
-                className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-4 flex items-center gap-3
-                  hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 text-left">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${a.color.split(" ")[0]}`}>
-                  <a.icon className={`w-4.5 h-4.5 ${a.color.split(" ")[1]}`} />
-                </div>
+                className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4 flex items-center gap-3
+                  hover:border-green-dark/30 transition-colors text-left">
+                <a.icon className="w-4.5 h-4.5 text-brown-light shrink-0" />
                 <span className="text-sm font-semibold text-brown-dark">{a.label}</span>
                 <LuArrowRight className="w-4 h-4 text-brown-light ml-auto" />
               </button>

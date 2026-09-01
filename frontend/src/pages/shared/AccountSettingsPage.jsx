@@ -34,7 +34,7 @@ function Toast({ toast }) {
   if (!toast) return null;
   const isErr = toast.type === "error";
   return (
-    <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg text-sm font-semibold
+    <div className={`fixed bottom-5 left-3 right-3 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg text-sm font-semibold sm:left-auto sm:right-5 sm:max-w-sm
       ${isErr ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-pale text-green-dark border border-green-light/40"}`}>
       {isErr ? <LuTriangleAlert className="w-4 h-4 shrink-0" /> : <LuCheck className="w-4 h-4 shrink-0" />}
       {toast.message}
@@ -48,8 +48,8 @@ const tabs = ["Account", "Security", "Notifications", "Appearance"];
 
 function SettingToggle({ label, description, checked, onChange }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#eee7dc] bg-white px-5 py-3 shadow-sm">
-      <div>
+    <div className="flex items-start justify-between gap-4 rounded-2xl border border-[#eee7dc] bg-white px-4 py-3 shadow-sm sm:items-center sm:px-5">
+      <div className="min-w-0">
         <p className="text-sm font-semibold text-brown-dark">{label}</p>
         {description && <p className="mt-0.5 text-[11px] text-brown-light">{description}</p>}
       </div>
@@ -255,7 +255,7 @@ export default function AccountSettingsPage() {
             </div>
           </Field>
           <button type="submit" disabled={profileSaving}
-            className="w-full py-2.5 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm rounded-xl hover:shadow-glow-green transition-all disabled:opacity-60 mt-1">
+            className="w-full py-2.5 bg-green-dark text-white font-semibold text-sm rounded-xl hover:bg-green-dark/90 transition-colors disabled:opacity-60 mt-1">
             {profileSaving ? "Saving…" : "Save Changes"}
           </button>
         </form>
@@ -303,7 +303,7 @@ export default function AccountSettingsPage() {
             Show passwords
           </label>
           <button type="submit" disabled={pwSaving}
-            className="w-full py-2.5 bg-gradient-to-r from-brown-dark to-brown-mid text-white font-semibold text-sm rounded-xl hover:opacity-90 transition-all disabled:opacity-60">
+            className="w-full py-2.5 bg-brown-dark text-white font-semibold text-sm rounded-xl hover:bg-brown-dark/90 transition-colors disabled:opacity-60">
             {pwSaving ? "Updating…" : "Update Password"}
           </button>
         </form>
@@ -428,7 +428,7 @@ function BankAccountSection({ showToast }) {
             className={inputBase} placeholder="e.g. 001234567890" />
         </Field>
         <button type="submit" disabled={saving}
-          className="w-full py-2.5 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm rounded-xl hover:shadow-glow-green transition-all disabled:opacity-60 mt-1">
+          className="w-full py-2.5 bg-green-dark text-white font-semibold text-sm rounded-xl hover:bg-green-dark/90 transition-colors disabled:opacity-60 mt-1">
           {saving ? "Saving…" : "Save Bank Information"}
         </button>
       </form>

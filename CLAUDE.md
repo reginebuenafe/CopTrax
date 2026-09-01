@@ -341,6 +341,39 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
+### 2026-08-31 — Business Owner and Supplier responsive layout pass
+
+- **Responsive UI only**: improved Business Owner and Supplier non-negotiation pages for mobile/tablet by tightening app-shell padding, allowing header cards/actions to stack, making filter bars horizontally scrollable where needed, and preventing dense detail rows from forcing horizontal overflow.
+- **Protected chat/negotiation surfaces untouched**: did not edit `BOChatLayout`, `SupplierChatLayout`, `NegotiationChatWidget`, or negotiation logic.
+
+### 2026-08-31 — Full-flow bug-fix pass (part 3: R8 delivery allocation race condition)
+
+- **R8 — Atomic server-side delivery allocation**: new migration `20260831000042_record_contractual_delivery_rpc.sql` creates `public.record_contractual_delivery()` — a `SECURITY DEFINER` PL/pgSQL function that (1) locks the supplier's Active contracts with `SELECT ... FOR UPDATE`, (2) recomputes the cascade allocation from fresh DB state inside the same transaction, (3) inserts `deliveries` + `weighing_records` + `delivery_allocations` atomically. This prevents concurrent Weigher submissions from over-allocating the same contract.
+- **`ContractualDeliveryForm.jsx` `handleSubmit`**: replaced the three separate `supabase.from(...)` INSERT calls with a single `supabase.rpc("record_contractual_delivery", ...)` call. The `buildAllocationPreview` client-side function and all UI/preview/success screen/reset code are completely unchanged — they are for display only.
+
+### 2026-08-31 — Full-flow bug-fix pass (part 2: security + negotiation termination)
+
+- **R3 — upload-registration-files caller-identity check**: Edge Function now reads the `Authorization: Bearer <jwt>` header (which `supabase.functions.invoke` always sends). If a JWT is present, its subject (`sub`) must match the `user_id` in the body — any mismatch returns 403. The existing user-existence lookup now also filters `.eq("account_status", "Pending Verification")` so only a freshly-signed-up user can submit their own files.
+- **R5 — Negotiation rejection terminates conversation**: `BOChatLayout.jsx`, `SupplierChatLayout.jsx`, and `NegotiationChatWidget.jsx` each have one new line added inside `rejectProposal` / `rejectCounteroffer`: `supabase.from("conversations").update({ status: "Terminated" })`. All other accept/counter/message/notification/realtime logic is completely unchanged. Requires migration `20260831000041_add_terminated_conversation_status.sql` (adds `'Terminated'` value to the `conversation_status_enum`).
+- **R11 — process-payment role guard**: Edge Function now validates the `Authorization` header JWT and checks that the caller's role is `"Business Owner"` before processing. Returns 401 with no JWT, 403 for non-BO callers.
+- **R12 — xendit-payout-webhook token enforcement**: Webhook now returns HTTP 401 (instead of just logging) when `XENDIT_WEBHOOK_TOKEN` is set and the `x-callback-token` header does not match — rejects forged callbacks. Failed-payout notification type corrected from `"Payment Released"` to `"Payment Failed"`.
+
+**Still deferred (requires larger architectural decision):**
+- R8: Client-side allocation with no server-side revalidation (concurrent-delivery race condition).
+- R10: Payments batched per-supplier per-week rather than one transaction per delivery.
+
+### 2026-08-31 — Full-flow bug-fix pass (part 1: frontend + rating function)
+
+- **R1 — Registration phone required**: `RegisterPage.jsx` step-1 validation now requires the contact number field before advancing.
+- **R2 — Auth rollback on upload failure**: `RegisterPage.jsx` now calls `supabase.auth.signOut()` in both upload-error paths so the orphaned auth user is cleared and the supplier can retry registration with the same email.
+- **R4 — Approval in-app notifications**: `UserApprovalsPage.jsx` `handleDecision` now inserts a `notifications` row (`"Account Approved"` / `"Account Rejected"`) for the supplier immediately after the status update, in addition to the existing email.
+- **R6 — Wrong notification type on proposal acceptance**: `BOChatLayout.jsx` `acceptProposal` changed `notification_type` from `"Contract Signed"` (wrong — contract wasn't signed yet) to `"Proposal Accepted"`.
+- **R7 — Activation date on Contracts page**: `BOContractsPage.jsx` now selects `activation_date` in both contract queries and the "Activation Date" card correctly displays `c.activation_date` instead of `c.signing_date`.
+- **R9 — Moisture Content boundary**: `InspectionQueuePage.jsx` zero-discount boundary corrected from `mc < 5.0` to `mc <= 5.0` per spec (MC ≤ 5.0% → 0% discount).
+- **R13 — Supplier rating uses delivery_allocations**: migration `20260831000040_fix_supplier_rating_use_allocations.sql` rewrites `compute_supplier_rating()` to join `delivery_allocations` for delivered volume and quality average.
+- **R14 — Payment report aggregation**: `BOReportsPage.jsx` aggregates all `payment_details` rows per payment in table, XLSX, and PDF.
+- **R15 — Price label unit fix**: Reports corrected from `"Price/ton"` to `"Price/kg"`.
+
 ### 2026-08-24 — BO Dashboard analytics polish and modal overlay fix
 
 - **Xendit test-mode setup**: payment flow is configured for sandbox/test-mode behavior using Xendit test API credentials, so payment processing remains a simulation rather than a live transaction flow.

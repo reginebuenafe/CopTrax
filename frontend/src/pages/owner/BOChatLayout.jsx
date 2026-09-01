@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSearch, LuSend, LuCoins, LuCheck, LuX, LuPencil,
@@ -201,9 +202,10 @@ export default function BOChatLayout() {
   const [contracts, setContracts] = useState([]);
   const [viewContract, setViewContract] = useState(null);
   const [contractError, setContractError] = useState(null);
-  const [proposalActing, setProposalActing] = useState(false); // prevent double-click
+  const [proposalActing, setProposalActing] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineSupplierIds, setOnlineSupplierIds] = useState(() => new Set());
+  const [profileOpen, setProfileOpen] = useState(false);
 
   function showToast(msg, type = "success") {
     setToast({ msg, type });
@@ -371,11 +373,24 @@ export default function BOChatLayout() {
   // Scroll to bottom when initial load completes (covers conversation open & switch)
   useEffect(() => {
     if (chatLoading) return;
-    const raf = requestAnimationFrame(() => {
+    // Double-rAF: gives the chat panel time to finish rendering before scrolling
+    let raf2;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    });
+    // Fallback: on mobile the panel may still be transitioning — scroll again after a short delay
+    const tid = setTimeout(() => {
       const el = scrollContainerRef.current;
       if (el) el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
+    }, 150);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(tid);
+    };
   }, [chatLoading]);
 
   // Follow new realtime messages only if user is already near the bottom
@@ -457,7 +472,7 @@ export default function BOChatLayout() {
       message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
     });
     await supabase.from("notifications").insert({
-      user_id: currentConv?.supplier?.user_id, notification_type: "Contract Signed",
+      user_id: currentConv?.supplier?.user_id, notification_type: "Proposal Accepted",
       message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated — check the chat to review and sign.`,
       related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
     });
@@ -473,6 +488,8 @@ export default function BOChatLayout() {
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
+    // Rejection ends the negotiation — mark conversation Terminated
+    await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Proposal declined: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
@@ -562,7 +579,7 @@ export default function BOChatLayout() {
   );
 
   return (
-    <div className="flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px] xl:flex-row xl:overflow-hidden">
+    <div className="-mx-3 -mb-5 sm:-mx-6 sm:-mb-6 flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 h-[calc(100dvh-76px)] overflow-hidden xl:mx-0 xl:mb-0 xl:h-[calc(100vh-104px)] xl:min-h-[620px] xl:flex-row">
 
       {/* ── LEFT PANEL — Conversations list ──────────────────────────────── */}
       <div className={`${conversationId ? "hidden xl:flex" : "flex"} h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:h-full xl:w-[280px]`}>
@@ -628,7 +645,7 @@ export default function BOChatLayout() {
       </div>
 
       {/* ── MIDDLE PANEL — Chat ──────────────────────────────────────────── */}
-      <div className={`${conversationId ? "flex" : "hidden xl:flex"} relative h-[70vh] min-h-[560px] min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:h-full`}>
+      <div className={`${conversationId ? "flex" : "hidden xl:flex"} relative min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm`}>
         {!conversationId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
             <div className="w-16 h-16 bg-[#e8f0e5] rounded-2xl flex items-center justify-center mb-4">
@@ -643,8 +660,11 @@ export default function BOChatLayout() {
           </div>
         ) : (
           <>
-            {/* Chat header */}
-            <div className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 pr-24 sm:px-7 sm:pr-28">
+            {/* Chat header — click to view supplier profile */}
+            <button
+              type="button"
+              onClick={() => setProfileOpen(true)}
+              className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 pr-24 sm:px-7 sm:pr-28 w-full text-left hover:bg-[#FAF7EF] transition-colors">
               <div className="relative shrink-0">
                 <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white ${isSupplierOnline ? "bg-[#35AB50]" : "bg-[#9CA3AF]"}`}>
                   {initials(currentConv?.supplier?.first_name, currentConv?.supplier?.last_name)}
@@ -662,10 +682,10 @@ export default function BOChatLayout() {
                   </p>
                 </div>
               </div>
-            </div>
+            </button>
 
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 space-y-1 overflow-y-auto bg-[#FFFEFB] px-0 py-4">
+            <div ref={scrollContainerRef} className="flex-1 min-h-0 space-y-1 overflow-y-auto bg-[#FFFEFB] px-0 py-4">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
                   <p>No messages yet. Waiting for the supplier to start.</p>
@@ -789,8 +809,8 @@ export default function BOChatLayout() {
               </div>
             )}
 
-            {/* Message input */}
-            {currentConv?.status === "Open" && (
+            {/* Message input — always available when a conversation exists */}
+            {currentConv && (
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full border border-[#E0D5C1] bg-[#EDE3D1] px-4 py-2.5">
                 <input
                   type="text" value={text} onChange={e => setText(e.target.value)}
@@ -807,8 +827,8 @@ export default function BOChatLayout() {
         )}
       </div>
 
-      {/* ── RIGHT PANEL — Supplier info ───────────────────────────────────── */}
-      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:w-[280px]`}>
+      {/* ── RIGHT PANEL — Supplier info (desktop only) ───────────────────── */}
+      <div className="hidden xl:flex w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:w-[280px]">
         {!conversationId || !supplierData ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see supplier details</p>
@@ -956,6 +976,117 @@ export default function BOChatLayout() {
           documentPath={viewContract.documentPath}
           onClose={() => setViewContract(null)}
         />
+      )}
+
+      {/* Supplier profile sheet — slides up from bottom on mobile */}
+      {profileOpen && supplierData && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/30 backdrop-blur-sm"
+          onClick={() => setProfileOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-[28px] bg-[#FAF6EE] max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="h-1 w-10 rounded-full bg-[#d4c9b8]" />
+            </div>
+
+            {/* Close */}
+            <div className="flex justify-end px-5 pt-1">
+              <button onClick={() => setProfileOpen(false)} className="text-[#8b7355] hover:text-[#3d2b1f]">
+                <LuX className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Avatar + name + address + rating */}
+            <div className="flex flex-col items-center px-6 pb-6 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#35AB50] text-lg font-bold text-white mb-4">
+                {initials(supplierData.first_name, supplierData.last_name)}
+              </div>
+              <p className="text-xl font-extrabold text-[#3d2b1f] leading-snug">
+                {supplierData.first_name} {supplierData.last_name}
+              </p>
+              {supplierData.address && (
+                <p className="text-sm text-[#8b7355] mt-1">{supplierData.address}</p>
+              )}
+              <p className="text-sm text-[#b09a7a] mt-1.5">
+                {supplierData.rating != null
+                  ? `${Number(supplierData.rating).toFixed(1)} / 5.0 ★`
+                  : "No rating yet"}
+              </p>
+            </div>
+
+            <div className="border-t border-[#e4d5bd] mx-5" />
+
+            {/* Negotiation Summary */}
+            <div className="px-5 py-5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8b7355] mb-3">Negotiation Summary</p>
+              <div className="rounded-2xl bg-white border border-[#e4d5bd] divide-y divide-[#e4d5bd] overflow-hidden">
+                {(() => {
+                  const firstProp = proposals.find(p => p.proposal_status !== "Rejected");
+                  const activeContract = contracts.find(c => c.status === "Active" || c.status === "Completed");
+                  const agreedPrice = activeContract?.negotiated_price_per_kg
+                    ?? proposals.find(p => p.proposal_status === "Accepted")?.proposed_price_per_kg;
+                  return (
+                    <>
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <span className="text-sm text-[#5c4a32]">Proposed volume</span>
+                        <span className="text-sm font-bold text-[#3d2b1f]">
+                          {firstProp ? `${firstProp.proposed_volume_tons} tons` : "—"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <span className="text-sm text-[#5c4a32]">Agreed price</span>
+                        <span className="text-sm font-bold text-[#3d2b1f]">
+                          {agreedPrice != null ? `₱${Number(agreedPrice).toFixed(2)}` : "—"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <span className="text-sm text-[#5c4a32]">Contracts sent</span>
+                        <span className="text-sm font-bold text-[#3d2b1f]">{contracts.length}</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Signed Contracts */}
+            {contracts.filter(c => c.status !== "Pending" || c.contract_hash).length > 0 && (
+              <div className="px-5 pb-8">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#8b7355] mb-3">Signed Contracts</p>
+                <div className="space-y-2">
+                  {contracts.filter(c => c.status !== "Pending" || c.contract_hash).map(c => (
+                    <div key={c.contract_id} className="flex items-center justify-between rounded-2xl bg-white border border-[#e4d5bd] px-4 py-3">
+                      <div>
+                        <p className="text-sm font-bold text-[#3d2b1f]">{c.contract_number}</p>
+                        <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mt-1 ${
+                          c.status === "Active" ? "bg-[#e8f5e9] text-[#2d5a27]"
+                          : c.status === "Completed" ? "bg-blue-50 text-blue-700"
+                          : c.status === "Breached" ? "bg-red-50 text-red-600"
+                          : "bg-[#f5f0e8] text-[#8b7355]"
+                        }`}>{c.status}</span>
+                      </div>
+                      {c.contract_document_url && (
+                        <button
+                          onClick={() => {
+                            setViewContract({ contractId: c.contract_id, contractNumber: c.contract_number, documentPath: c.contract_document_url });
+                            setProfileOpen(false);
+                          }}
+                          className="text-[11px] font-semibold text-[#2d5a27] hover:underline">
+                          View
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -18,11 +18,13 @@ function extractPaymentIdFromReference(referenceId: string | undefined): string 
 
 Deno.serve(async (req) => {
   // Xendit sends the webhook verification token in this header.
-  // Log mismatches but do NOT reject — Xendit may omit the header in test mode
-  // or token config may differ. Rejecting with 401 causes Xendit to stop retrying.
+  // Reject mismatches when a token is configured — this prevents forged callbacks
+  // from altering payment status. Xendit WILL retry on non-200 responses (up to 25x),
+  // so a 401 here only affects genuinely forged requests.
   const callbackToken = req.headers.get("x-callback-token") ?? "";
   if (XENDIT_WEBHOOK_TOKEN && callbackToken !== XENDIT_WEBHOOK_TOKEN) {
-    console.warn(`[xendit-payout-webhook] Callback token mismatch (expected set, got "${callbackToken}") — proceeding anyway`);
+    console.warn(`[xendit-payout-webhook] Callback token mismatch — rejecting request`);
+    return new Response("Unauthorized", { status: 401 });
   }
 
   let body: Record<string, unknown>;
@@ -166,7 +168,7 @@ Deno.serve(async (req) => {
     await supabase.from("notifications").insert({
       user_id: supplierFailed?.user_id,
       message: `Payment of ₱${Number(payment.total_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} could not be processed (${failureCode}). The business owner will retry.`,
-      notification_type: "Payment Released",
+      notification_type: "Payment Failed",
       related_entity_type: "payments",
       related_entity_id: payment.payment_id,
     });

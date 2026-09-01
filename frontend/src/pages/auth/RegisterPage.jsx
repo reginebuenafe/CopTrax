@@ -534,6 +534,7 @@ export default function RegisterPage() {
       if (!form.firstName.trim()) { setError("First name is required."); return false; }
       if (!form.lastName.trim())  { setError("Last name is required."); return false; }
       if (!form.email.trim())     { setError("Email address is required."); return false; }
+      if (!form.phone.trim())     { setError("Contact number is required."); return false; }
       if (form.password.length < 8) { setError("Password must be at least 8 characters."); return false; }
       if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return false; }
     }
@@ -662,12 +663,16 @@ export default function RegisterPage() {
           } catch { /* response body couldn't be parsed */ }
           if (!errMsg) errMsg = fnErr.message || "";
         }
-        setError(errMsg || "Document upload failed. Please try again.");
+        // Sign out so the partially-created auth user doesn't block a retry with the same email
+        await supabase.auth.signOut();
+        setError(errMsg || "Document upload failed. Please try again with the same email.");
         setLoading(false);
         return;
       }
     } catch (uploadErr) {
       console.error("[register] unexpected upload error:", uploadErr);
+      // Sign out so the partially-created auth user doesn't block a retry with the same email
+      await supabase.auth.signOut();
       setError(uploadErr?.message || "An error occurred uploading your documents. Please try again.");
       setLoading(false);
       return;

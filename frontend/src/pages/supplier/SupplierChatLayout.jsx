@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSend, LuCoins, LuCheck, LuX, LuPencil,
@@ -198,6 +199,7 @@ export default function SupplierChatLayout() {
 
   // Right panel
   const [contracts, setContracts] = useState([]);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return undefined;
@@ -336,11 +338,24 @@ export default function SupplierChatLayout() {
   // Scroll to bottom when initial load completes (covers conversation open & switch)
   useEffect(() => {
     if (chatLoading) return;
-    const raf = requestAnimationFrame(() => {
+    // Double-rAF: gives the chat panel time to finish rendering before scrolling
+    let raf2;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    });
+    // Fallback: on mobile the panel may still be transitioning — scroll again after a short delay
+    const tid = setTimeout(() => {
       const el = scrollContainerRef.current;
       if (el) el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
+    }, 150);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(tid);
+    };
   }, [chatLoading]);
 
   // Follow new realtime messages only if user is already near the bottom
@@ -423,6 +438,8 @@ export default function SupplierChatLayout() {
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
     await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
+    // Rejection ends the negotiation — mark conversation Terminated
+    await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Counteroffer declined.`,
@@ -470,17 +487,17 @@ export default function SupplierChatLayout() {
   );
 
   return (
-    <div className="flex flex-col gap-2 xl:h-[calc(100vh-104px)] xl:min-h-[620px]">
+    <div className="-mx-3 -mb-5 sm:-mx-6 sm:-mb-6 flex flex-col gap-2 h-[calc(100dvh-76px)] overflow-hidden xl:mx-0 xl:mb-0 xl:h-[calc(100vh-104px)] xl:min-h-[620px]">
       <button type="button" onClick={() => navigate("/dashboard/supplier")}
         className="group flex w-fit shrink-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-[#5D4037] transition-colors hover:text-[#17682D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17682D]/40">
         <LuArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
         <span>Return to Home</span>
       </button>
 
-      <div className="flex flex-col gap-4 overflow-visible rounded-[22px] bg-[#FAF7EF] p-2 xl:min-h-0 xl:flex-1 xl:flex-row xl:overflow-hidden">
+      <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden rounded-[22px] bg-[#FAF7EF] p-2 xl:flex-row">
 
       {/* ── MIDDLE PANEL ──────────────────────────────────────────────────── */}
-      <div className="flex h-[70vh] min-h-[560px] min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:h-full">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:h-full">
         {resolvingConversation ? (
           <div className="flex flex-1 items-center justify-center">
             <div className="h-7 w-7 animate-spin rounded-full border-3 border-[#2d5a27] border-t-transparent" />
@@ -499,8 +516,11 @@ export default function SupplierChatLayout() {
           </div>
         ) : (
           <>
-            {/* Header */}
-            <div className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7">
+            {/* Header — click to view negotiation profile */}
+            <button
+              type="button"
+              onClick={() => setProfileOpen(true)}
+              className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7 w-full text-left hover:bg-[#FAF7EF] transition-colors">
               <div className="relative shrink-0">
                 <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white ${isBusinessOwnerOnline ? "bg-[#35AB50]" : "bg-[#9CA3AF]"}`}>N</div>
                 <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#FFFEFB] ${isBusinessOwnerOnline ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
@@ -511,23 +531,19 @@ export default function SupplierChatLayout() {
                   <p className="text-[#8b7355] text-xs">{isBusinessOwnerOnline ? "Online" : "Offline"}</p>
                 </div>
               </div>
-              {currentConv?.status === "Open" && (
+              {currentConv && canPropose && (
                 <button
-                  onClick={() => { if (canPropose) openPropose(); }}
-                  disabled={!canPropose}
-                  title={!canPropose ? "You already have 3 Active contracts — complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all
-                    ${canPropose
-                      ? "bg-[#2d5a27] text-white hover:bg-[#234820] cursor-pointer"
-                      : "bg-[#e8e0d0] text-[#b09a7a] cursor-not-allowed"
-                    }`}>
+                  type="button"
+                  onClick={e => { e.stopPropagation(); openPropose(); }}
+                  title="Submit a price proposal to NERC Copra Trading"
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all bg-[#2d5a27] text-white hover:bg-[#234820] cursor-pointer">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
                 </button>
               )}
-            </div>
+            </button>
 
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 space-y-1 overflow-y-auto bg-[#FFFEFB] px-3 py-3">
+            <div ref={scrollContainerRef} className="flex-1 min-h-0 space-y-1 overflow-y-auto bg-[#FFFEFB] px-3 py-3">
               {messages.length === 0 && (
                 <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-4 text-center">
                   <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5E9]">
@@ -664,8 +680,8 @@ export default function SupplierChatLayout() {
               </div>
             )}
 
-            {/* Message input */}
-            {currentConv?.status === "Open" && (
+            {/* Message input — always available when a conversation exists */}
+            {currentConv && (
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
                 <input type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder="Message NERC Copra Trading…"
@@ -680,8 +696,8 @@ export default function SupplierChatLayout() {
         )}
       </div>
 
-      {/* ── RIGHT PANEL ─────────────────────────────────────────────────── */}
-      <div className={`${conversationId ? "flex" : "hidden xl:flex"} w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[300px]`}>
+      {/* ── RIGHT PANEL (desktop only) ────────────────────────────────────── */}
+      <div className="hidden xl:flex w-full shrink-0 flex-col overflow-y-auto rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-[0_1px_2px_rgba(93,64,55,0.04)] xl:w-[300px]">
         {!conversationId ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#c5b9a8] text-xs text-center px-4">Select a conversation to see details</p>
@@ -801,6 +817,10 @@ export default function SupplierChatLayout() {
           onClose={clearProposalModal}
           onSubmitted={async (msg) => {
             clearProposalModal();
+            // If conversation was Terminated, re-open it for the new negotiation round
+            if (currentConv.status === "Terminated") {
+              await supabase.from("conversations").update({ status: "Open" }).eq("conversation_id", conversationId);
+            }
             await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify BO
             await supabase.from("notifications").insert({
@@ -865,6 +885,134 @@ export default function SupplierChatLayout() {
           documentPath={viewContract.documentPath}
           onClose={() => setViewContract(null)}
         />
+      )}
+
+      {/* NERC profile sheet — mirrors the desktop right panel */}
+      {profileOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/30 backdrop-blur-sm"
+          onClick={() => setProfileOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-[28px] bg-[#FAF6EE] max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="h-1 w-10 rounded-full bg-[#d4c9b8]" />
+            </div>
+            {/* Close */}
+            <div className="flex justify-end px-5 pt-1">
+              <button onClick={() => setProfileOpen(false)} className="text-[#8b7355] hover:text-[#3d2b1f]">
+                <LuX className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* NERC avatar + name + address */}
+            <div className="flex flex-col items-center px-6 pb-6 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#35AB50] text-lg font-bold text-white mb-4">N</div>
+              <p className="text-xl font-extrabold text-[#3d2b1f] leading-snug">NERC Copra Trading</p>
+              <p className="text-sm text-[#8b7355] mt-1">Kumalarang, Zamboanga del Sur</p>
+            </div>
+
+            {/* Review & Sign shortcut */}
+            {pendingContractRow && (
+              <div className="px-5 pb-4">
+                <button
+                  onClick={() => {
+                    setSignContract({
+                      contract_id:     pendingContractRow.contract_id,
+                      contract_number: pendingContractRow.contract_number,
+                      price_per_kg:    pendingContractRow.negotiated_price_per_kg,
+                      contracted_tons: pendingContractRow.contracted_tons,
+                      due_date:        pendingContractRow.due_date,
+                      document_path:   pendingContractRow.contract_document_url,
+                      contract_hash:   pendingContractRow.contract_hash,
+                    });
+                    setProfileOpen(false);
+                  }}
+                  className="w-full rounded-[9px] bg-[#17682D] py-2.5 text-center text-xs font-bold text-white transition-all hover:bg-[#105523]"
+                >
+                  Review & Sign Contract
+                </button>
+              </div>
+            )}
+
+            <div className="border-t border-[#e4d5bd] mx-5" />
+
+            {/* Negotiation Summary */}
+            <div className="px-5 py-5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8b7355] mb-3">Negotiation Summary</p>
+              <div className="rounded-2xl bg-white border border-[#e4d5bd] divide-y divide-[#e4d5bd] overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm text-[#5c4a32]">Proposed volume</span>
+                  <span className="text-sm font-bold text-[#3d2b1f]">
+                    {acceptedProposal ? `${acceptedProposal.proposed_volume_tons} tons` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm text-[#5c4a32]">Agreed price</span>
+                  <span className="text-sm font-bold text-[#3d2b1f]">
+                    {acceptedProposal ? `₱${Number(acceptedProposal.proposed_price_per_kg).toFixed(2)}` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="text-sm text-[#5c4a32]">Contracts sent</span>
+                  <span className="text-sm font-bold text-[#3d2b1f]">{contracts.length}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Signed Contracts */}
+            <div className="px-5 pb-8">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8b7355] mb-3">Signed Contracts</p>
+              {contracts.length === 0 ? (
+                <div className="rounded-xl bg-white border border-[#e4d5bd] p-3 text-[11px] text-[#8b7355]">
+                  No contracts yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {contracts.map(c => (
+                    <div key={c.contract_id} className="flex items-center justify-between rounded-xl bg-white border border-[#e4d5bd] px-4 py-3">
+                      <div>
+                        <p className="text-sm font-bold text-[#3d2b1f]">{c.contract_number}</p>
+                        <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mt-1 ${
+                          c.status === "Active" ? "bg-[#e8f0e5] text-[#2d5a27]"
+                          : c.status === "Completed" ? "bg-emerald-50 text-emerald-700"
+                          : c.status === "Breached" ? "bg-red-50 text-red-600"
+                          : "bg-amber-50 text-amber-700"
+                        }`}>{c.status}</span>
+                      </div>
+                      {c.status === "Pending" && c.contract_hash && (
+                        <button
+                          onClick={() => {
+                            setSignContract({
+                              contract_id: c.contract_id, contract_number: c.contract_number,
+                              price_per_kg: c.negotiated_price_per_kg, contracted_tons: c.contracted_tons,
+                              due_date: c.due_date, document_path: c.contract_document_url, contract_hash: c.contract_hash,
+                            });
+                            setProfileOpen(false);
+                          }}
+                          className="text-[11px] font-semibold text-[#2d5a27] hover:underline"
+                        >Review & Sign</button>
+                      )}
+                      {c.contract_document_url && c.status !== "Pending" && (
+                        <button
+                          onClick={() => {
+                            setViewContract({ contractId: c.contract_id, contractNumber: c.contract_number, documentPath: c.contract_document_url });
+                            setProfileOpen(false);
+                          }}
+                          className="text-[11px] font-semibold text-[#2d5a27] hover:underline"
+                        >View</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

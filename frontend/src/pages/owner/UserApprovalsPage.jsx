@@ -81,14 +81,14 @@ function DocumentsModal({ targetUser, onClose, onApprove, onReject, processing }
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center px-4 py-8">
-      <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-beige-dark/20">
-          <div>
+        <div className="flex items-start justify-between gap-3 px-4 py-5 border-b border-beige-dark/20 sm:px-6 sm:items-center">
+          <div className="min-w-0">
             <h3 className="text-lg font-bold text-brown-dark">
               {targetUser.first_name} {targetUser.last_name}
             </h3>
-            <p className="text-brown-light text-xs">{targetUser.email}</p>
+            <p className="text-brown-light text-xs break-words">{targetUser.email}</p>
           </div>
           <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
             <LuX className="w-5 h-5" />
@@ -96,7 +96,7 @@ function DocumentsModal({ targetUser, onClose, onApprove, onReject, processing }
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+        <div className="overflow-y-auto flex-1 px-4 py-5 space-y-6 sm:px-6">
           {loadingDocs ? (
             <div className="flex items-center justify-center py-16">
               <LuLoader className="w-7 h-7 animate-spin text-green-dark" />
@@ -152,7 +152,7 @@ function DocumentsModal({ targetUser, onClose, onApprove, onReject, processing }
             Reject
           </button>
           <button onClick={onApprove} disabled={processing}
-            className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            className="flex-1 py-2.5 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
             {processing ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuCheck className="w-4 h-4" />}
             Approve
           </button>
@@ -189,9 +189,9 @@ function DocSection({ icon, title, subtitle, url }) {
 function DeleteConfirmModal({ targetUser, onClose, onConfirm, processing }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-3xl shadow-card-hover w-full max-w-md p-6">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-md p-6">
         <div className="flex items-start gap-4 mb-5">
-          <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center shrink-0">
             <LuTriangleAlert className="w-5 h-5 text-red-500" />
           </div>
           <div>
@@ -275,6 +275,19 @@ export default function UserApprovalsPage() {
 
     if (error) { showToast("error", "Something went wrong. Please try again."); return; }
 
+    // Insert in-app notification so the supplier sees it in their notifications panel
+    if (!error && targetUser.roles?.role_name === "Supplier") {
+      await supabase.from("notifications").insert({
+        user_id:              targetUser.user_id,
+        notification_type:    action === "approve" ? "Account Approved" : "Account Rejected",
+        message:              action === "approve"
+          ? "Your CopTrax supplier account has been approved. You can now log in and start negotiating."
+          : "Your CopTrax supplier account application has been rejected. Please contact support for more information.",
+        related_entity_type: "users",
+        related_entity_id:   targetUser.user_id,
+      });
+    }
+
     showToast(
       "success",
       action === "approve"
@@ -351,21 +364,16 @@ export default function UserApprovalsPage() {
   const pendingCount = tab === "Pending" ? filtered.length : null;
 
   return (
-    <div>
+    <div className="pt-6">
       {/* Header */}
-      <div className="flex items-start sm:items-center justify-between gap-3 mb-6">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
-            <LuUsers className="w-5 h-5 text-green-dark" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-brown-dark">User Management</h1>
-            <p className="text-brown-light text-sm hidden sm:block">Review Supplier registrations and manage staff accounts</p>
-            <p className="text-brown-light text-sm sm:hidden">Manage accounts</p>
-          </div>
+      <div className="flex flex-col items-stretch gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-brown-dark">User Management</h1>
+          <p className="text-brown-light text-sm hidden sm:block mt-0.5">Review Supplier registrations and manage staff accounts</p>
+          <p className="text-brown-light text-sm sm:hidden mt-0.5">Manage accounts</p>
         </div>
         <button onClick={() => setCreateModal(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm px-3 sm:px-4 py-2.5 rounded-xl hover:shadow-glow-green transition-all shrink-0">
+          className="flex items-center justify-center gap-2 bg-green-dark text-white font-semibold text-sm px-3 sm:px-4 py-2.5 rounded-xl hover:bg-green-dark/90 transition-colors sm:shrink-0">
           <LuUserPlus className="w-4 h-4" />
           <span className="hidden sm:inline">Create Staff Account</span>
           <span className="sm:hidden">Add Staff</span>
@@ -373,35 +381,37 @@ export default function UserApprovalsPage() {
       </div>
 
       {/* Tabs + search */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
-        <div className="flex gap-1 bg-beige rounded-xl p-1">
+      <div className="mb-6">
+        <div className="flex gap-6 border-b border-beige-dark/40 mb-4 overflow-x-auto">
           {STATUS_TABS.map(t => (
             <button key={t} onClick={() => { setTab(t); setSearch(""); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                tab === t ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-dark"
+              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                tab === t ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"
               }`}>
               {t}
             </button>
           ))}
         </div>
 
-        <div className="relative flex-1 max-w-xs">
-          <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-          <input type="text" placeholder="Search by name, email, role…" value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
-              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all" />
-        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="relative w-full flex-1 sm:max-w-xs">
+            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+            <input type="text" placeholder="Search by name, email, role…" value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
+                placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all" />
+          </div>
 
-        {tab === "Pending" && pendingCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-amber-200">
-            <LuClock className="w-3.5 h-3.5" /> {pendingCount} awaiting review
-          </span>
-        )}
+          {tab === "Pending" && pendingCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-amber-200">
+              <LuClock className="w-3.5 h-3.5" /> {pendingCount} awaiting review
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Table card */}
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+      <div className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
@@ -438,7 +448,7 @@ export default function UserApprovalsPage() {
                     {/* Name */}
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white text-xs font-bold shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-green-dark flex items-center justify-center text-white text-xs font-bold shrink-0">
                           {[u.first_name?.[0], u.last_name?.[0]].filter(Boolean).join("").toUpperCase() || "?"}
                         </div>
                         <div>
@@ -559,7 +569,7 @@ export default function UserApprovalsPage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-card-hover text-sm font-medium animate-fade-in-up
+        <div className={`fixed bottom-5 left-3 right-3 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-card-hover text-sm font-medium animate-fade-in-up sm:left-auto sm:right-6 sm:max-w-sm
           ${toast.type === "success" ? "bg-white border border-green-pale text-green-dark" : "bg-white border border-red-100 text-red-600"}`}>
           {toast.type === "success"
             ? <LuCheck className="w-4 h-4 shrink-0" />

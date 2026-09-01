@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LuFileText, LuArrowLeft, LuScale, LuCircleAlert,
+  LuArrowLeft, LuScale, LuCircleAlert,
   LuCheck, LuCalendar, LuTruck, LuSearch, LuUser,
   LuCoins, LuPackage,
 } from "react-icons/lu";
@@ -99,7 +99,7 @@ export default function ContractualDeliveryForm() {
         .eq("supplier_id", supplierId)
         .eq("status", "Active")
         .order("due_date", { ascending: true }),
-      supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+      supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle(),
     ]);
 
     const contracts = contractsRes.data ?? [];
@@ -194,53 +194,38 @@ export default function ContractualDeliveryForm() {
 
     setSubmitting(true);
 
-    const primaryContractId = allocationPreview.find(a => a.contract_id)?.contract_id ?? null;
-
-    // 1. Create delivery
-    const { data: delivery, error: dErr } = await supabase
-      .from("deliveries")
-      .insert({
-        delivery_source: "Contract-based",
-        contract_id:     primaryContractId,
-        supplier_id:     selectedSupplier.user_id,
-        delivery_date:   form.deliveryDate,
-        truck_plate_number: form.truckPlate.trim() || null,
-        weigher_id:      user.id,
-        delivery_status: "Weighed",
-      })
-      .select("delivery_id")
-      .single();
-
-    if (dErr) { setError("Failed to create delivery record."); setSubmitting(false); return; }
-
-    // 2. Create weighing record
-    const { error: wrErr } = await supabase.from("weighing_records").insert({
-      delivery_id:     delivery.delivery_id,
-      weigher_id:      user.id,
-      gross_weight_kg: gross,
-      tare_weight_kg:  tare,
-      net_weight_kg:   net,
+    // Single atomic RPC call — locks contracts on the server, recomputes allocation
+    // from fresh DB state, and inserts delivery + weighing_record + allocations in
+    // one transaction. This prevents concurrent weighers from over-allocating the
+    // same contract (race condition fix for R8).
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("record_contractual_delivery", {
+      p_supplier_id:   selectedSupplier.user_id,
+      p_weigher_id:    user.id,
+      p_delivery_date: form.deliveryDate,
+      p_truck_plate:   form.truckPlate.trim() || "",
+      p_gross_kg:      gross,
+      p_tare_kg:       tare,
     });
 
-    if (wrErr) { setError("Delivery saved but weighing record failed."); setSubmitting(false); return; }
-
-    // 3. Create delivery_allocations (cascade result)
-    const allocRows = allocationPreview.map(a => ({
-      delivery_id:         delivery.delivery_id,
-      contract_id:         a.contract_id,
-      allocated_weight_kg: a.allocated_weight_kg,
-      price_type:          a.price_type,
-      sequence_order:      a.sequence_order,
-    }));
-
-    const { error: aErr } = await supabase.from("delivery_allocations").insert(allocRows);
-    if (aErr) { setError("Delivery recorded but allocation details failed."); setSubmitting(false); return; }
+    if (rpcErr) {
+      setError("Failed to record delivery. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+    if (rpcData?.error) {
+      setError(rpcData.error);
+      setSubmitting(false);
+      return;
+    }
 
     setSubmitting(false);
     setSuccess({
       supplierName: `${selectedSupplier.first_name} ${selectedSupplier.last_name}`,
-      netWeight: net,
-      allocations: allocationPreview,
+      netWeight:    rpcData.net_kg ?? net,
+      // Use the server-computed allocation (authoritative); fall back to preview for display
+      allocations:  Array.isArray(rpcData.allocations) && rpcData.allocations.length > 0
+        ? rpcData.allocations
+        : allocationPreview,
     });
   }
 
@@ -263,7 +248,7 @@ export default function ContractualDeliveryForm() {
     const hasSpot = success.allocations.some(a => !a.contract_id);
     return (
       <div className="max-w-lg mx-auto">
-        <div className="bg-white rounded-3xl shadow-card border border-beige-dark/20 p-8 text-center">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-8 text-center">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 bg-green-pale">
             <LuCheck className="w-8 h-8 text-green-dark" />
           </div>
@@ -313,7 +298,7 @@ export default function ContractualDeliveryForm() {
               Record Another
             </button>
             <button onClick={() => navigate("/dashboard/weigher/history")}
-              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm hover:shadow-glow-green transition-all">
+              className="flex-1 py-2.5 rounded-xl bg-green-dark text-white font-semibold text-sm hover:bg-green-dark/90 transition-all">
               View History
             </button>
           </div>
@@ -329,12 +314,9 @@ export default function ContractualDeliveryForm() {
         <button onClick={() => navigate("/dashboard/weigher")} className="text-brown-light hover:text-brown-dark transition-colors">
           <LuArrowLeft className="w-5 h-5" />
         </button>
-        <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
-          <LuFileText className="w-5 h-5 text-green-dark" />
-        </div>
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Contractual Delivery</h1>
-          <p className="text-brown-light text-sm">System auto-allocates to the supplier's active contracts</p>
+          <p className="text-brown-light text-sm mt-0.5">System auto-allocates to the supplier's active contracts</p>
         </div>
       </div>
 
@@ -347,8 +329,8 @@ export default function ContractualDeliveryForm() {
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {/* Supplier search */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuUser className="w-4 h-4 text-brown-light" /> Search Supplier
           </h3>
           <div className="relative" ref={searchRef}>
@@ -426,8 +408,8 @@ export default function ContractualDeliveryForm() {
         </div>
 
         {/* Delivery details */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -445,8 +427,8 @@ export default function ContractualDeliveryForm() {
         </div>
 
         {/* Weighing */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuScale className="w-4 h-4 text-brown-light" /> Weighing Record
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -474,8 +456,8 @@ export default function ContractualDeliveryForm() {
 
         {/* Allocation preview */}
         {selectedSupplier && net > 0 && allocationPreview.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-            <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
               <LuPackage className="w-4 h-4 text-brown-light" /> Allocation Preview
             </h3>
             <div className="space-y-3">
@@ -517,8 +499,8 @@ export default function ContractualDeliveryForm() {
             Cancel
           </button>
           <button type="submit" disabled={submitting || !selectedSupplier}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm
-              hover:shadow-glow-green transition-all disabled:opacity-60">
+            className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm
+              hover:bg-green-dark/90 transition-all disabled:opacity-60">
             {submitting ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

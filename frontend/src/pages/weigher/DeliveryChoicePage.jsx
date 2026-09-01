@@ -19,8 +19,8 @@ export default function DeliveryChoicePage() {
         {/* Walk-in */}
         <button
           onClick={() => navigate("/dashboard/weigher/walkin")}
-          className="group bg-white rounded-3xl shadow-card border border-beige-dark/20 p-8 text-left
-            hover:shadow-card-hover hover:-translate-y-1 transition-all duration-300"
+          className="group bg-white border border-beige-dark/40 rounded-xl p-8 text-left
+            hover:border-green-mid/50 hover:-translate-y-0.5 transition-all duration-300"
         >
           <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center mb-6
             group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
@@ -35,8 +35,8 @@ export default function DeliveryChoicePage() {
         {/* Contractual */}
         <button
           onClick={() => navigate("/dashboard/weigher/contractual")}
-          className="group bg-white rounded-3xl shadow-card border border-beige-dark/20 p-8 text-left
-            hover:shadow-card-hover hover:-translate-y-1 transition-all duration-300"
+          className="group bg-white border border-beige-dark/40 rounded-xl p-8 text-left
+            hover:border-green-mid/50 hover:-translate-y-0.5 transition-all duration-300"
         >
           <div className="w-16 h-16 bg-green-pale rounded-2xl flex items-center justify-center mb-6
             group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">

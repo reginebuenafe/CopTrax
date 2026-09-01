@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LuFileText, LuCheck, LuX, LuClock, LuArrowRight,
+  LuFileText, LuCheck, LuX,
   LuCircleAlert, LuLoader, LuMessageSquare, LuPenLine,
   LuSearch, LuArrowUpDown, LuTruck, LuPackage,
 } from "react-icons/lu";
@@ -58,7 +58,7 @@ export default function BOContractsPage() {
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
-        signing_date, due_date, status, created_at,
+        signing_date, activation_date, due_date, status, created_at,
         contract_hash, contract_document_url,
         supplier:supplier_id(user_id, first_name, last_name, email)
       `)
@@ -110,7 +110,7 @@ export default function BOContractsPage() {
       .from("contracts")
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
-        signing_date, due_date, status, created_at,
+        signing_date, activation_date, due_date, status, created_at,
         contract_hash, contract_document_url,
         supplier:supplier_id(user_id, first_name, last_name, email)
       `)
@@ -240,29 +240,26 @@ export default function BOContractsPage() {
   return (
     <div className="pt-6">
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-card text-sm font-semibold
+        <div className={`fixed left-3 right-3 top-5 z-50 flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold sm:left-auto sm:right-5 sm:max-w-sm
           ${toast.type === "error" ? "bg-red-50 border border-red-200 text-red-700" : "bg-green-pale border border-green-mid/30 text-green-dark"}`}>
           {toast.type === "error" ? <LuCircleAlert className="w-4 h-4" /> : <LuCheck className="w-4 h-4" />}
           {toast.msg}
         </div>
       )}
 
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-          <LuFileText className="w-5 h-5 text-blue-600" />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold text-brown-dark">Contracts</h1>
-          <p className="text-brown-light text-sm">Manage all supplier contracts</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-brown-dark">Contracts</h1>
+          <p className="text-brown-light text-sm mt-0.5">Manage all supplier contracts</p>
         </div>
         {!loading && (
-          <span className="ml-auto text-xs text-brown-light">{contracts.length} total</span>
+          <span className="text-xs text-brown-light shrink-0">{contracts.length} total</span>
         )}
       </div>
 
       {/* Search + Sort row */}
-      <div className="flex gap-3 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[180px]">
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
+        <div className="relative min-w-0 flex-1 sm:min-w-[180px]">
           <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
           <input
             type="text"
@@ -278,12 +275,12 @@ export default function BOContractsPage() {
             </button>
           )}
         </div>
-        <div className="relative shrink-0">
+        <div className="relative w-full sm:w-auto sm:shrink-0">
           <LuArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
           <select
             value={sort}
             onChange={e => setSort(e.target.value)}
-            className="pl-8 pr-8 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+            className="w-full pl-8 pr-8 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm sm:w-auto
               focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
           >
             <option value="newest">Newest First</option>
@@ -297,11 +294,11 @@ export default function BOContractsPage() {
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 flex-wrap">
+      <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
         {FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200 whitespace-nowrap
-              ${filter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
             {f}
             {f === "Pending" && contracts.filter(c => c.status === "Pending").length > 0 && (
               <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
@@ -317,7 +314,7 @@ export default function BOContractsPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuFileText className="w-7 h-7 text-brown-light" />
           </div>
@@ -341,21 +338,21 @@ export default function BOContractsPage() {
               : 0;
 
             return (
-              <div key={c.contract_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
+              <div key={c.contract_id} className="bg-white border border-beige-dark/40 rounded-xl p-4 sm:p-5">
                 {/* Header */}
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div>
+                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="font-bold text-brown-dark">{c.contract_number}</p>
+                      <p className="font-bold text-brown-dark break-words">{c.contract_number}</p>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${meta.color}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                         {meta.label}
                       </span>
                     </div>
                     <p className="text-brown-dark font-medium text-sm">{c.supplier?.first_name} {c.supplier?.last_name}</p>
-                    <p className="text-brown-light text-xs">{c.supplier?.email}</p>
+                    <p className="text-brown-light text-xs break-words">{c.supplier?.email}</p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
                     {conversationId && (
                       <button onClick={() => navigate(`/dashboard/owner/conversations/${conversationId}`)}
                         className="flex items-center gap-1.5 text-xs text-brown-light hover:text-green-dark font-semibold transition-colors px-2.5 py-1.5 rounded-lg hover:bg-green-pale">
@@ -376,20 +373,20 @@ export default function BOContractsPage() {
                 </div>
 
                 {/* Contract details grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3 text-sm">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3 text-sm">
+                  <div className="min-w-0">
                     <p className="text-brown-light text-xs mb-0.5">Agreed Price</p>
                     <p className="font-semibold text-brown-dark">{peso(c.negotiated_price_per_kg)}<span className="text-xs text-brown-light font-normal">/kg</span></p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-brown-light text-xs mb-0.5">Agreed Quantity</p>
                     <p className="font-semibold text-brown-dark">{Number(c.contracted_tons).toLocaleString()} tons</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-brown-light text-xs mb-0.5">Activation Date</p>
-                    <p className="font-semibold text-brown-dark">{fmtDate(c.signing_date)}</p>
+                    <p className="font-semibold text-brown-dark">{fmtDate(c.activation_date)}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-brown-light text-xs mb-0.5">Delivery Deadline</p>
                     <p className="font-semibold text-brown-dark">{fmtDate(c.due_date)}</p>
                     {days !== null && c.status === "Active" && (
@@ -430,13 +427,13 @@ export default function BOContractsPage() {
                 <div className="flex gap-2 pt-1 border-t border-beige-dark/20 mt-1 flex-wrap">
                   {c.status === "Pending" && !c.contract_hash && (
                     <button onClick={() => setReviewModal(c)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all">
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-colors">
                       <LuPenLine className="w-3.5 h-3.5" /> Review & Generate Contract
                     </button>
                   )}
                   {c.status === "Pending" && c.contract_hash && !c.contract_document_url && (
                     <button onClick={() => setActionModal({ contract: c, action: "activate" })}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all">
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-colors">
                       <LuCheck className="w-3.5 h-3.5" /> Activate Contract
                     </button>
                   )}
@@ -453,7 +450,7 @@ export default function BOContractsPage() {
       {/* Confirm modal */}
       {actionModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-card w-full max-w-md p-6 relative">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-md p-6 relative">
             <button onClick={() => setActionModal(null)} className="absolute top-4 right-4 text-brown-light hover:text-brown-dark">
               <LuX className="w-5 h-5" />
             </button>
@@ -483,7 +480,7 @@ export default function BOContractsPage() {
                 Cancel
               </button>
               <button onClick={handleAction} disabled={processing}
-                className="flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60 flex items-center justify-center gap-2 bg-gradient-to-r from-green-dark to-green-mid hover:shadow-glow-green">
+                className="flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60 flex items-center justify-center gap-2 bg-green-dark hover:bg-green-dark/90">
                 {processing && <LuLoader className="w-4 h-4 animate-spin" />}
                 Confirm
               </button>
@@ -509,7 +506,7 @@ export default function BOContractsPage() {
       {/* Success overlay */}
       {successMsg && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-card w-full max-w-md p-6 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-md p-6 text-center">
             <div className="w-14 h-14 bg-green-pale rounded-2xl flex items-center justify-center mx-auto mb-4">
               <LuCheck className="w-7 h-7 text-green-dark" />
             </div>
@@ -527,7 +524,7 @@ export default function BOContractsPage() {
       {/* PDF Contract Viewer Modal */}
       {pdfModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-card w-full max-w-3xl flex flex-col" style={{ height: "90vh" }}>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-3xl flex flex-col" style={{ height: "90vh" }}>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-beige-dark/20 shrink-0">
               <div className="flex items-center gap-3">
@@ -576,7 +573,7 @@ function DeliveryBatchesModal({ contract, onClose }) {
           allocated_weight_kg, price_type, sequence_order,
           delivery:delivery_id(
             delivery_id, batch_number, delivery_date, delivery_status,
-            weighing_records(net_weight_kg, gross_weight_kg, copra_condition),
+            weighing_records(net_weight_kg, gross_weight_kg),
             quality_results(result)
           )
         `)
@@ -595,11 +592,11 @@ function DeliveryBatchesModal({ contract, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-2xl flex flex-col max-h-[88vh]">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-2xl flex flex-col max-h-[88vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-7 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b border-beige-dark/20 shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="w-11 h-11 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
               <LuTruck className="w-6 h-6 text-amber-600" />
             </div>
             <div className="min-w-0">
@@ -642,7 +639,6 @@ function DeliveryBatchesModal({ contract, onClose }) {
                       )}
                       <span className="text-sm text-brown-light break-words">
                         {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                        {wr?.copra_condition && ` · ${wr.copra_condition}`}
                         {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toFixed(0)}kg N:${Number(wr.net_weight_kg ?? 0).toFixed(0)}kg`}
                       </span>
                     </div>

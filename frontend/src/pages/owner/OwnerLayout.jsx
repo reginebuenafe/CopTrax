@@ -4,6 +4,7 @@ import {
   LuUsers, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
   LuWallet, LuPackage, LuStar, LuMessageSquare, LuFileChartColumn, LuSettings,
+  LuBot,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -126,6 +127,55 @@ export default function OwnerLayout() {
     navigate("/login");
   }
 
+  // ── AI Features dropdown ─────────────────────────────────────────────────
+  const [aiAutoGlobal, setAiAutoGlobal] = useState(false);
+  const [aiSaving, setAiSaving]         = useState(false);
+  const [aiFaqGlobal, setAiFaqGlobal]   = useState(false);
+  const [aiFaqSaving, setAiFaqSaving]   = useState(false);
+  const [aiMenuOpen, setAiMenuOpen]     = useState(false);
+  const aiMenuRef = useRef(null);
+
+  useEffect(() => {
+    async function loadAiConfig() {
+      const [autoRes, faqRes] = await Promise.all([
+        supabase.from("app_config").select("value").eq("key", "ai_auto_negotiate_global").maybeSingle(),
+        supabase.from("app_config").select("value").eq("key", "ai_faq_global").maybeSingle(),
+      ]);
+      setAiAutoGlobal(autoRes.data?.value === "true");
+      setAiFaqGlobal(faqRes.data?.value === "true");
+    }
+    loadAiConfig();
+  }, []);
+
+  useEffect(() => {
+    if (!aiMenuOpen) return;
+    function handleClickOutside(e) {
+      if (aiMenuRef.current && !aiMenuRef.current.contains(e.target)) {
+        setAiMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [aiMenuOpen]);
+
+  async function toggleAiAutoGlobal() {
+    setAiSaving(true);
+    const next = !aiAutoGlobal;
+    setAiAutoGlobal(next);
+    await supabase.from("app_config")
+      .upsert({ key: "ai_auto_negotiate_global", value: String(next) }, { onConflict: "key" });
+    setAiSaving(false);
+  }
+
+  async function toggleAiFaqGlobal() {
+    setAiFaqSaving(true);
+    const next = !aiFaqGlobal;
+    setAiFaqGlobal(next);
+    await supabase.from("app_config")
+      .upsert({ key: "ai_faq_global", value: String(next) }, { onConflict: "key" });
+    setAiFaqSaving(false);
+  }
+
   const initials = [profile?.first_name?.[0], profile?.last_name?.[0]]
     .filter(Boolean).join("").toUpperCase() || "BO";
 
@@ -152,7 +202,7 @@ export default function OwnerLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[#E7DCC9] shrink-0">
-          <div className="w-9 h-9 shrink-0 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm p-1.5">
+          <div className="w-9 h-9 shrink-0 bg-green-dark rounded-xl flex items-center justify-center shadow-sm p-1.5">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap
@@ -265,7 +315,7 @@ export default function OwnerLayout() {
       >
         <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-w)] z-20
           bg-white/80 backdrop-blur-md border-b border-beige-dark/30
-          px-5 py-3.5 flex items-center gap-3
+          px-3 py-3.5 sm:px-5 flex items-center gap-3
           transition-[left] duration-300 ease-in-out">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -274,14 +324,89 @@ export default function OwnerLayout() {
             <LuMenu className="w-5 h-5" />
           </button>
           <div className="flex-1" />
+
+          {/* ── AI Features button + dropdown ── */}
+          <div className="relative" ref={aiMenuRef}>
+            <button
+              onClick={() => setAiMenuOpen(o => !o)}
+              title="AI Features"
+              className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all border
+                ${aiMenuOpen
+                  ? "bg-green-pale border-green-mid/40 text-green-dark"
+                  : "bg-beige border-beige-dark/50 text-brown-mid hover:bg-beige-dark/40 hover:text-brown-dark"
+                }`}
+            >
+              <LuBot className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">AI</span>
+              {(aiAutoGlobal || aiFaqGlobal) && (
+                <span className="h-1.5 w-1.5 rounded-full bg-green-mid" />
+              )}
+            </button>
+
+            {aiMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border border-beige-dark/30 bg-white shadow-card-hover overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-beige-dark/20">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-md bg-green-pale">
+                    <LuBot className="h-3 w-3 text-green-dark" />
+                  </div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brown-light">AI Features</p>
+                  <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-green-pale px-2 py-0.5 text-[9px] font-bold text-green-dark">
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-mid" />
+                    {(aiAutoGlobal || aiFaqGlobal) ? "Running" : "Idle"}
+                  </span>
+                </div>
+
+                {/* Toggle rows */}
+                <div className="px-4 py-2.5 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold text-brown-dark leading-none">Auto-Negotiate</p>
+                      <p className={`text-[10px] mt-0.5 font-medium ${aiAutoGlobal ? "text-green-dark" : "text-brown-light"}`}>
+                        {aiAutoGlobal ? "● Active" : "○ Off"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={toggleAiAutoGlobal}
+                      disabled={aiSaving}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
+                        aiAutoGlobal ? "bg-green-mid" : "bg-beige-dark"
+                      }`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiAutoGlobal ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold text-brown-dark leading-none">FAQ Assistant</p>
+                      <p className={`text-[10px] mt-0.5 font-medium ${aiFaqGlobal ? "text-green-dark" : "text-brown-light"}`}>
+                        {aiFaqGlobal ? "● Active" : "○ Off"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={toggleAiFaqGlobal}
+                      disabled={aiFaqSaving}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
+                        aiFaqGlobal ? "bg-green-mid" : "bg-beige-dark"
+                      }`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiFaqGlobal ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <NotificationBell />
           {/* User info card */}
-          <div className="flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-full border-2 border-[#E8DCC8] hover:bg-[#FAF6EE] transition-colors">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-green-dark to-green-mid
+          <div className="flex min-w-0 items-center gap-2.5 pl-2.5 pr-2.5 sm:pl-3 sm:pr-3 py-1.5 rounded-full border-2 border-[#E8DCC8] hover:bg-[#FAF6EE] transition-colors">
+            <div className="w-7 h-7 rounded-full bg-green-dark
               flex items-center justify-center text-white text-[11px] font-bold shrink-0">
               {initials}
             </div>
-            <div className="hidden sm:flex items-center gap-2">
+            <div className="hidden sm:flex min-w-0 items-center gap-2">
               <div className="min-w-0">
                 <p className="text-brown-dark text-sm font-semibold leading-none truncate">
                   {profile?.first_name} {profile?.last_name}
@@ -297,7 +422,7 @@ export default function OwnerLayout() {
             </div>
           </div>
         </header>
-        <main className="flex-1 px-5 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">
+        <main className="min-w-0 flex-1 px-3 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">
           <Outlet />
         </main>
       </div>

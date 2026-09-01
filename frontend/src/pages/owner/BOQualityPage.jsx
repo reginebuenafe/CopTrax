@@ -66,28 +66,26 @@ export default function BOQualityPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-          <LuFlaskConical className="w-5 h-5 text-purple-600" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-brown-dark">Quality Results</h1>
-          <p className="text-brown-light text-sm">All laboratory inspection records</p>
+          <h1 className="text-2xl font-black text-brown-dark">Quality Results</h1>
+          <p className="text-brown-light text-sm mt-0.5">All laboratory inspection records</p>
         </div>
+        <span className="text-xs text-brown-light">{inspections.length} total</span>
       </div>
 
       {/* Summary */}
       {!loading && inspections.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-white rounded-xl border border-beige-dark/40 px-5 py-4">
             <p className="text-xs text-brown-light mb-1">Total Inspections</p>
             <p className="text-2xl font-extrabold text-brown-dark">{inspections.length}</p>
           </div>
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
+          <div className="bg-white rounded-xl border border-beige-dark/40 px-5 py-4">
             <p className="text-xs text-brown-light mb-1">Accepted</p>
             <p className="text-2xl font-extrabold text-green-dark">{acceptedCount}</p>
           </div>
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
+          <div className="bg-white rounded-xl border border-beige-dark/40 px-5 py-4">
             <p className="text-xs text-brown-light mb-1">Rejected</p>
             <p className="text-2xl font-extrabold text-red-600">{rejectedCount}</p>
           </div>
@@ -95,8 +93,8 @@ export default function BOQualityPage() {
       )}
 
       {/* Search + Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <div className="relative flex-1">
+      <div className="mb-6 space-y-4">
+        <div className="relative min-w-0">
           <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
           <input
             type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -105,11 +103,11 @@ export default function BOQualityPage() {
               placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
           />
         </div>
-        <div className="flex gap-1 bg-beige rounded-xl p-1">
+        <div className="flex gap-6 border-b border-beige-dark/40 overflow-x-auto">
           {["All", "Accepted", "Rejected"].map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all
-                ${filter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+                ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
               {f}
             </button>
           ))}
@@ -121,15 +119,15 @@ export default function BOQualityPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
-          <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+        <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-20 text-center px-4">
+          <div className="w-14 h-14 bg-beige rounded-xl flex items-center justify-center mb-4">
             <LuFlaskConical className="w-7 h-7 text-brown-light" />
           </div>
           <p className="text-brown-dark font-semibold">No quality records found</p>
           <p className="text-brown-light text-sm mt-1">Lab inspections will appear here after Laboratory Staff records moisture content.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+        <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
           {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
@@ -190,9 +188,9 @@ export default function BOQualityPage() {
               const netKg = i.delivery?.weighing_records?.[0]?.net_weight_kg ?? 0;
               const finalKg = Number(netKg) * (1 - discountPct / 100);
               return (
-                <div key={i.inspection_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+                <div key={i.inspection_id} className="bg-white rounded-xl border border-beige-dark/40 p-4 space-y-2 text-sm">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="font-semibold text-brown-dark">{getSupplierName(i.delivery)}</p>
+                    <p className="font-semibold text-brown-dark break-words">{getSupplierName(i.delivery)}</p>
                     <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
                       result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
                     }`}>

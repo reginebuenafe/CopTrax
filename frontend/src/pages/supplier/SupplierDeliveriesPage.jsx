@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LuTruck, LuFlaskConical, LuCheck, LuX, LuClock,
-  LuChevronDown, LuChevronUp,
+  LuChevronDown, LuChevronUp, LuSearch,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -11,6 +11,9 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
 function fmt3(n) { return Number(n ?? 0).toFixed(2); }
+function peso(n) {
+  return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function contractLabel(d) {
   const allocs = (d.delivery_allocations ?? []).filter(a => a.contract_id);
@@ -28,12 +31,13 @@ const STATUS_META = {
   Rejected:  { color: "bg-red-50 text-red-600",          label: "Rejected",  icon: LuX },
 };
 
-const FILTERS = ["All", "Pending", "Weighed", "Accepted", "Rejected"];
+const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
 
 export default function SupplierDeliveriesPage() {
   const { user } = useAuth();
   const [deliveries, setDeliveries] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,18 +47,19 @@ export default function SupplierDeliveriesPage() {
         .from("deliveries")
         .select(`
           delivery_id, delivery_status, delivery_date, delivery_source,
-          truck_plate_number, batch_number,
-          contract:contract_id(contract_number, due_date, negotiated_price_per_kg),
-          delivery_allocations(contract_id, allocated_weight_kg, price_type, sequence_order,
-            contract:contract_id(contract_number)),
+          truck_plate_number, batch_number, created_at,
+          contract:contract_id(contract_number),
+          weigher:weigher_id(first_name, last_name),
+          delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+            contract:contract_id(contract_number, negotiated_price_per_kg)),
           weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg, weighed_at),
-          laboratory_inspections(moisture_content_pct, inspected_at),
-          quality_results(result, remarks),
-          payments(payment_id, payment_status, total_amount)
+          laboratory_inspections(moisture_content_pct, inspected_at,
+            lab_staff:lab_staff_id(first_name, last_name)),
+          quality_results(result, remarks)
         `)
         .eq("supplier_id", user.id)
         .eq("delivery_source", "Contract-based")
-        .order("delivery_date", { ascending: false });
+        .order("created_at", { ascending: false });
 
       setDeliveries(data ?? []);
       setLoading(false);
@@ -62,29 +67,49 @@ export default function SupplierDeliveriesPage() {
     fetchDeliveries();
   }, [user.id]);
 
-  const filtered = filter === "All" ? deliveries : deliveries.filter(d => d.delivery_status === filter);
+  const filtered = deliveries.filter(d => {
+    if (filter !== "All" && d.delivery_status !== filter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return d.contract?.contract_number?.toLowerCase().includes(q) ||
+        d.batch_number?.toLowerCase().includes(q);
+    }
+    return true;
+  });
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mt-5 mb-6">
-        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-          <LuTruck className="w-5 h-5 text-blue-600" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-brown-dark">Deliveries</h1>
-          <p className="text-brown-light text-sm">All your contractual delivery records</p>
+          <h1 className="text-2xl font-black text-brown-dark">Deliveries</h1>
+          <p className="text-brown-light text-sm mt-0.5">All your contractual delivery records</p>
         </div>
-        {!loading && (
-          <span className="ml-auto text-xs text-brown-light">{deliveries.length} total</span>
-        )}
+        {!loading && <span className="text-xs text-brown-light shrink-0">{deliveries.length} total</span>}
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 flex-wrap">
+      {/* Search + Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search contract number or batch…"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
+              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
+          />
+        </div>
+        <select value={filter} onChange={e => setFilter(e.target.value)}
+          className="sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
+          {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </div>
+
+      {/* Desktop: underline tabs */}
+      <div className="hidden sm:flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
         {FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200
-              ${filter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
             {f}
           </button>
         ))}
@@ -95,7 +120,7 @@ export default function SupplierDeliveriesPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuTruck className="w-7 h-7 text-brown-light" />
           </div>
@@ -111,123 +136,110 @@ export default function SupplierDeliveriesPage() {
             const wr = d.weighing_records?.[0];
             const li = d.laboratory_inspections?.[0];
             const qr = d.quality_results?.[0];
-            const payment = d.payments;
-            const allocs = (d.delivery_allocations ?? [])
-              .slice()
-              .sort((a, b) => a.sequence_order - b.sequence_order);
-            const label = contractLabel(d);
-
-            // Compute discount from remarks
             const remarkMatch = qr?.remarks?.match(/Discount:\s*([\d.]+)%/);
             const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
             const finalKg = wr ? Number(wr.net_weight_kg) * (1 - discountPct / 100) : null;
-
-            // Derive overall price type from allocations
-            const hasSpot = allocs.some(a => a.price_type === "Spot");
-            const hasNeg  = allocs.some(a => a.price_type === "Negotiated");
-            const priceTypeLabel = hasSpot && hasNeg ? "Mixed (Negotiated + Spot)"
-              : hasSpot ? "Spot" : hasNeg ? "Negotiated" : null;
+            const contractRef = contractLabel(d);
+            const allocs = (d.delivery_allocations ?? [])
+              .slice()
+              .sort((a, b) => a.sequence_order - b.sequence_order);
+            const weigherName = `${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—";
+            const labName = `${li?.lab_staff?.first_name ?? ""} ${li?.lab_staff?.last_name ?? ""}`.trim() || "—";
 
             return (
-              <div key={d.delivery_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
-                {/* Summary row */}
+              <div key={d.delivery_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
                 <button
                   onClick={() => setExpanded(isOpen ? null : d.delivery_id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/20 transition-colors text-left"
+                  className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/30 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${meta.color.split(" ")[0]}`}>
-                    <StatusIcon className={`w-5 h-5 ${meta.color.split(" ")[1]}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-brown-dark">{label ?? "—"}</p>
+                  <div className="flex min-w-0 items-start gap-3 sm:flex-1">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-brown-dark text-sm break-words">{contractRef ?? "—"}</p>
+                      </div>
+                      <p className="text-brown-light text-xs break-words">
+                        {fmtDate(d.delivery_date)}
+                        {d.batch_number ? ` · ${d.batch_number}` : ""}
+                        {wr ? ` · ${fmt3(wr.net_weight_kg)} kg net` : ""}
+                      </p>
                     </div>
-                    <p className="text-brown-light text-xs">{fmtDate(d.delivery_date)}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${meta.color}`}>
-                      {meta.label}
+                  <div className="flex items-center justify-between gap-3 sm:justify-end">
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${meta.color}`}>
+                      <StatusIcon className="w-3 h-3" />{meta.label}
                     </span>
-                    {wr && (
-                      <p className="text-xs text-brown-light mt-1">{fmt3(wr.net_weight_kg)} kg net</p>
-                    )}
+                    {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
                   </div>
-                  {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
                 </button>
 
-                {/* Expanded detail */}
                 {isOpen && (
-                  <div className="border-t border-beige-dark/20 px-5 py-4 space-y-4">
-                    {/* Weighing */}
-                    {wr && (
-                      <Section title="Weighing" icon={LuTruck}>
-                        <Grid items={[
-                          { label: "Gross Weight", value: `${fmt3(wr.gross_weight_kg)} kg` },
-                          { label: "Tare Weight",  value: `${fmt3(wr.tare_weight_kg)} kg` },
-                          { label: "Net Weight",   value: `${fmt3(wr.net_weight_kg)} kg` },
-                          { label: "Weighed At",   value: fmtDate(wr.weighed_at) },
-                        ]} />
-                      </Section>
+                  <div className="border-t border-beige-dark/20 px-5 py-4">
+                    {/* Weighing + Quality grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-3">
+                      {wr && <>
+                        <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
+                        <InfoItem label="Tare Weight"  value={`${fmt3(wr.tare_weight_kg)} kg`} />
+                        <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
+                        <InfoItem label="Weigher"      value={weigherName} />
+                      </>}
+                      {li ? <>
+                        <InfoItem label="Moisture (cc)" value={`${li.moisture_content_pct}cc`} />
+                        <InfoItem label="PCA Discount"  value={`${discountPct}%`} />
+                        <InfoItem label="Final Weight"  value={finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—"} />
+                        <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
+                      </> : (
+                        <InfoItem label="Quality Result" value="Pending" />
+                      )}
+                    </div>
+
+                    {/* Lab staff + inspected date + remarks */}
+                    {li && (
+                      <div className="flex flex-wrap gap-4 text-xs text-brown-light mb-3">
+                        <span>Lab Staff: <span className="font-semibold text-brown-mid">{labName}</span></span>
+                        {li.inspected_at && (
+                          <span>Inspected: <span className="font-semibold text-brown-mid">{fmtDate(li.inspected_at)}</span></span>
+                        )}
+                        {qr?.remarks && (
+                          <span>Remarks: <span className="font-semibold text-brown-mid">{qr.remarks}</span></span>
+                        )}
+                      </div>
                     )}
 
-                    {/* Quality */}
-                    {li && (
-                      <Section title="Quality Inspection" icon={LuFlaskConical}>
-                        <Grid items={[
-                          { label: "Moisture Content", value: `${li.moisture_content_pct}cc` },
-                          { label: "PCA Discount",     value: `${discountPct}%` },
-                          { label: "Final Weight",     value: finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—" },
-                          { label: "Result",           value: qr?.result ?? "—", highlight: qr?.result },
-                        ]} />
-                      </Section>
+                    {/* Batch + Plate */}
+                    {(d.truck_plate_number || d.batch_number) && (
+                      <div className="flex gap-4 text-xs text-brown-light mb-3">
+                        {d.batch_number && <span>Batch: <span className="font-semibold text-brown-mid">{d.batch_number}</span></span>}
+                        {d.truck_plate_number && <span>Plate: <span className="font-semibold text-brown-mid">{d.truck_plate_number}</span></span>}
+                      </div>
                     )}
 
                     {/* Allocation breakdown */}
                     {allocs.length > 0 && (
-                      <Section title="Allocation" icon={LuCheck}>
+                      <div className="bg-beige rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-brown-light uppercase tracking-wide mb-2">Allocation Breakdown</p>
                         <div className="space-y-1.5">
                           {allocs.map((a, i) => (
-                            <div key={i} className="flex items-center justify-between text-xs bg-beige rounded-lg px-3 py-2">
-                              <div className="flex items-center gap-2">
+                            <div key={i} className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
-                                  a.price_type === "Spot"
-                                    ? "bg-amber-50 text-amber-700"
-                                    : "bg-green-pale text-green-dark"
+                                  a.price_type === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
                                 }`}>
                                   {a.price_type}
                                 </span>
                                 <span className="font-semibold text-brown-dark">
-                                  {a.contract_id
-                                    ? (a.contract?.contract_number ?? "Contract")
-                                    : "Spot Price"
-                                  }
+                                  {a.contract_id ? (a.contract?.contract_number ?? "Contract") : "Spot Price"}
                                 </span>
                               </div>
-                              <span className="font-semibold text-brown-dark">{fmt3(a.allocated_weight_kg)} kg</span>
+                              <div className="text-left text-brown-mid sm:text-right">
+                                <span className="font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
+                                {a.contract_id && a.contract?.negotiated_price_per_kg && (
+                                  <span className="text-brown-light ml-2">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
-                      </Section>
-                    )}
-
-                    {/* Payment */}
-                    {payment && (
-                      <Section title="Payment" icon={LuCheck}>
-                        <Grid items={[
-                          { label: "Status",     value: payment.payment_status },
-                          priceTypeLabel && { label: "Price Type", value: priceTypeLabel },
-                        ].filter(Boolean)} />
-                      </Section>
-                    )}
-
-                    {/* Truck info */}
-                    {(d.truck_plate_number || d.batch_number) && (
-                      <Section title="Delivery Info" icon={LuTruck}>
-                        <Grid items={[
-                          d.batch_number    && { label: "Batch #",    value: d.batch_number },
-                          d.truck_plate_number && { label: "Plate #", value: d.truck_plate_number },
-                        ].filter(Boolean)} />
-                      </Section>
+                      </div>
                     )}
                   </div>
                 )}
@@ -240,32 +252,17 @@ export default function SupplierDeliveriesPage() {
   );
 }
 
-function Section({ title, icon: Icon, children }) {
+function InfoItem({ label, value, highlight }) {
   return (
-    <div>
-      <p className="text-xs text-brown-light font-semibold uppercase tracking-wide flex items-center gap-1.5 mb-2">
-        <Icon className="w-3.5 h-3.5" /> {title}
+    <div className="bg-beige rounded-xl px-3 py-2.5 min-w-0">
+      <p className="text-brown-light text-xs mb-0.5">{label}</p>
+      <p className={`font-semibold text-sm break-words ${
+        highlight === "Accepted" ? "text-green-dark" :
+        highlight === "Rejected" ? "text-red-600" :
+        "text-brown-dark"
+      }`}>
+        {value}
       </p>
-      {children}
-    </div>
-  );
-}
-
-function Grid({ items }) {
-  return (
-    <div className="bg-beige rounded-xl grid grid-cols-2 sm:grid-cols-4 gap-3 px-4 py-3">
-      {items.map((item, i) => (
-        <div key={i}>
-          <p className="text-brown-light text-xs">{item.label}</p>
-          <p className={`font-semibold text-sm mt-0.5 ${
-            item.highlight === "Accepted" ? "text-green-dark" :
-            item.highlight === "Rejected" ? "text-red-600" :
-            "text-brown-dark"
-          }`}>
-            {item.value}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }

@@ -41,17 +41,14 @@ export default function LabHistoryPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-beige rounded-xl flex items-center justify-center">
-          <LuClipboardList className="w-5 h-5 text-brown-mid" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Inspection History</h1>
-          <p className="text-brown-light text-sm">Your completed quality inspections</p>
+          <p className="text-brown-light text-sm mt-0.5">Your completed quality inspections</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+      <div className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
@@ -144,7 +141,7 @@ export default function LabHistoryPage() {
                 const finalKg = netKg * (1 - discountPct / 100);
 
                 return (
-                  <div key={r.inspection_id} className="bg-white rounded-2xl border border-beige-dark/20 p-4 space-y-2 text-sm shadow-sm">
+                  <div key={r.inspection_id} className="bg-white rounded-xl border border-beige-dark/40 p-4 space-y-2 text-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">

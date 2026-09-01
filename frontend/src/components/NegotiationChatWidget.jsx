@@ -582,13 +582,14 @@ export default function NegotiationChatWidget() {
     await supabase.from("proposal_forms")
       .update({ proposal_status: "Rejected" })
       .eq("proposal_id", proposal.proposal_id);
-    await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      sender_id: user.id,
-      message_type: "Text",
-      message_text: `❌ Counteroffer declined.`,
-    });
     if (conversationId) {
+      await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        message_type: "Text",
+        message_text: `❌ Counteroffer declined.`,
+      });
       await fetchMessages(conversationId);
       await fetchProposals(conversationId);
     }

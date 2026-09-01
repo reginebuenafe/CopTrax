@@ -25,12 +25,12 @@ export default function WalkinDeliveryForm() {
 
   useEffect(() => {
     async function fetchSpotPrice() {
-      const { data, error: spotError } = await supabase
+      const { data } = await supabase
         .from("spot_price")
         .select("price_per_kg")
         .limit(1)
-        .single();
-      if (!spotError) setSpotPrice(Number(data.price_per_kg));
+        .maybeSingle();
+      if (data?.price_per_kg != null) setSpotPrice(Number(data.price_per_kg));
     }
     fetchSpotPrice();
   }, []);
@@ -160,7 +160,7 @@ export default function WalkinDeliveryForm() {
   if (success) {
     return (
       <div className="max-w-lg mx-auto">
-        <div className="bg-white rounded-3xl shadow-card border border-beige-dark/20 p-8 text-center">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-8 text-center">
           <div className="w-16 h-16 bg-green-pale rounded-2xl flex items-center justify-center mx-auto mb-5">
             <LuCheck className="w-8 h-8 text-green-dark" />
           </div>
@@ -190,7 +190,7 @@ export default function WalkinDeliveryForm() {
               Record Another
             </button>
             <button onClick={() => navigate("/dashboard/weigher/history")}
-              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm hover:shadow-glow-green transition-all">
+              className="flex-1 py-2.5 rounded-xl bg-green-dark text-white font-semibold text-sm hover:bg-green-dark/90 transition-all">
               View History
             </button>
           </div>
@@ -209,12 +209,9 @@ export default function WalkinDeliveryForm() {
         <button onClick={() => navigate("/dashboard/weigher")} className="text-brown-light hover:text-brown-dark transition-colors">
           <LuArrowLeft className="w-5 h-5" />
         </button>
-        <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center">
-          <LuTruck className="w-5 h-5 text-orange-500" />
-        </div>
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Walk-in Delivery</h1>
-          <p className="text-brown-light text-sm">Record a cash delivery with no contract</p>
+          <p className="text-brown-light text-sm mt-0.5">Record a cash delivery with no contract</p>
         </div>
       </div>
 
@@ -226,8 +223,8 @@ export default function WalkinDeliveryForm() {
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Supplier details */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuUser className="w-4 h-4 text-brown-light" /> Supplier Information
           </h3>
           <div>
@@ -237,8 +234,8 @@ export default function WalkinDeliveryForm() {
         </div>
 
         {/* Delivery details */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details
           </h3>
           <div>
@@ -250,8 +247,8 @@ export default function WalkinDeliveryForm() {
         </div>
 
         {/* Weighing */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
-          <h3 className="text-sm font-bold text-brown-dark mb-4 flex items-center gap-2">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuScale className="w-4 h-4 text-brown-light" /> Weighing Record
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -287,9 +284,6 @@ export default function WalkinDeliveryForm() {
                 <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
                   {netWeight > 0 ? netWeight.toFixed(2) : "—"}
                 </div>
-                {numSacks > 0 && grossWeight > 0 && (
-                  <p className="text-[11px] text-brown-light mt-1">{numSacks} ÷ 2 = <span className="text-red-500 font-semibold">−{sacksDeduction.toFixed(2)} kg</span> sacks deduction</p>
-                )}
               </div>
             </div>
 
@@ -299,9 +293,6 @@ export default function WalkinDeliveryForm() {
               <div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>
                 {finalWeight > 0 ? finalWeight.toFixed(2) : "—"}
               </div>
-              {form.condition === "Wet" && grossWeight > 0 && (
-                <p className="text-[11px] text-brown-light mt-1">10% of gross = <span className="text-red-500 font-semibold">−{wetDeduction.toFixed(2)} kg</span> wet deduction</p>
-              )}
             </div>
           </div>
         </div>
@@ -312,8 +303,8 @@ export default function WalkinDeliveryForm() {
             Cancel
           </button>
           <button type="submit" disabled={submitting}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm
-              hover:shadow-glow-green transition-all disabled:opacity-60">
+            className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm
+              hover:bg-green-dark/90 transition-all disabled:opacity-60">
             {submitting ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
-  LuWallet, LuCheck, LuClock, LuCircleAlert, LuChevronDown, LuChevronUp,
+  LuWallet, LuCheck, LuClock, LuCircleAlert, LuChevronDown,
   LuReceipt, LuX, LuLoader, LuPackage, LuBanknote, LuTruck,
-  LuChevronLeft, LuChevronRight, LuDownload,
+  LuChevronLeft, LuChevronRight, LuDownload, LuPrinter,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -80,7 +80,7 @@ export default function PaymentsPage() {
         e_receipts(receipt_number)
       `).order("created_at", { ascending: false }),
 
-      supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+      supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle(),
 
       supabase.from("deliveries").select(`
         delivery_id, delivery_date, created_at, walkin_paid_at,
@@ -287,7 +287,7 @@ export default function PaymentsPage() {
     <div className="pt-6">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-card text-sm font-semibold
+        <div className={`fixed left-3 right-3 top-5 z-50 flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm font-semibold sm:left-auto sm:right-5 sm:max-w-sm
           ${toast.type === "error" ? "bg-red-50 border border-red-200 text-red-700" : "bg-green-pale border border-green-mid/30 text-green-dark"}`}>
           {toast.type === "error" ? <LuCircleAlert className="w-4 h-4" /> : <LuCheck className="w-4 h-4" />}
           {toast.msg}
@@ -296,29 +296,23 @@ export default function PaymentsPage() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-            <LuWallet className="w-5 h-5 text-amber-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-brown-dark">Payments</h1>
-            <p className="text-brown-light text-sm">Manage supplier disbursements</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-black text-brown-dark">Payments</h1>
+          <p className="text-brown-light text-sm mt-0.5">Manage supplier disbursements</p>
         </div>
         {spotPrice !== null && (
-          <div className="text-right">
-            <p className="text-xs text-brown-light">Current Spot Price</p>
-            <p className="text-lg font-bold text-brown-dark">{peso(spotPrice)}<span className="text-brown-light text-sm font-normal">/kg</span></p>
-          </div>
+          <span className="text-xs text-brown-light text-right">
+            Spot price <span className="font-semibold text-brown-dark">{peso(spotPrice)}/kg</span>
+          </span>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 w-fit">
+      <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
-            className={`px-3 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200
-              ${tab === i ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px inline-flex items-center
+              ${tab === i ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
             {/* Shorter label on mobile */}
             <span className="sm:hidden">
               {t === "Ready to Pay" ? "Ready" : t === "Payment Batches" ? "Batches" : "Walk-In"}
@@ -424,7 +418,7 @@ export default function PaymentsPage() {
               Cancel
             </button>
             <button onClick={createBatch} disabled={processing}
-              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+              className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
               {processing && <LuLoader className="w-4 h-4 animate-spin" />}
               Create Batch
             </button>
@@ -472,7 +466,7 @@ export default function PaymentsPage() {
               Cancel
             </button>
             <button onClick={releasePayment} disabled={processing}
-              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+              className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
               {processing && <LuLoader className="w-4 h-4 animate-spin" />}
               Release ₱{Number(releaseModal.payment.total_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}
             </button>
@@ -494,8 +488,8 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
 
   if (groupKeys.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
-        <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+      <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="w-14 h-14 bg-beige rounded-xl flex items-center justify-center mb-4">
           <LuWallet className="w-7 h-7 text-brown-light" />
         </div>
         <p className="text-brown-dark font-semibold">No deliveries awaiting payment</p>
@@ -519,14 +513,14 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
             <button
               key={key}
               onClick={() => setSelectedKey(key)}
-              className={`w-full text-left rounded-2xl border transition-all px-4 py-3 flex items-center gap-3
+              className={`w-full text-left rounded-xl border transition-all px-4 py-3 flex items-center gap-3
                 ${isSelected
-                  ? "bg-green-pale border-green-mid/40 shadow-sm"
-                  : "bg-white border-beige-dark/20 hover:bg-beige/30 shadow-card"}`}
+                  ? "bg-green-pale border-green-mid/40"
+                  : "bg-white border-beige-dark/40 hover:bg-beige/30"}`}
             >
               {/* Avatar */}
               <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0
-                ${isSelected ? "bg-gradient-to-br from-green-dark to-green-mid" : "bg-gradient-to-br from-brown-mid to-brown-dark"}`}>
+                ${isSelected ? "bg-green-dark" : "bg-brown-mid"}`}>
                 {supplier.first_name?.[0]}{supplier.last_name?.[0]}
               </div>
 
@@ -564,115 +558,144 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
 
 function PaymentPreviewPanel({ group, onCreateBatch }) {
   const { supplier, paymentWeek, deliveries } = group;
+  const [currentIdx, setCurrentIdx] = useState(0);
 
-  const allLines = deliveries.flatMap(d => (d._computed?.allocLines ?? []));
-  const totalNetKg  = allLines.reduce((s, l) => s + l.allocNetKg, 0);
-  const netPayable  = allLines.reduce((s, l) => s + l.lineAmount, 0);
+  // Reset to first delivery whenever the selected group changes
+  useEffect(() => { setCurrentIdx(0); }, [group]);
 
-  // Tare — per delivery to avoid double-counting with multi-allocation deliveries
-  const totalGrossKg = deliveries.reduce((s, d) => s + parseFloat(d.weighing_records?.[0]?.gross_weight_kg ?? 0), 0);
-  const totalTareKg  = deliveries.reduce((s, d) => s + parseFloat(d.weighing_records?.[0]?.tare_weight_kg ?? 0), 0);
+  const total = deliveries.length;
+  const delivery = deliveries[Math.min(currentIdx, total - 1)];
 
-  // Weight deduction flow (all in kg; price applied only at the very end)
-  const moistDedKg   = allLines.reduce((s, l) => s + l.deductedKg, 0);
-  const totalFinalKg = allLines.reduce((s, l) => s + l.allocFinalKg, 0);
-  const discountPct  = totalNetKg > 0 ? (moistDedKg / totalNetKg * 100).toFixed(2) : "0.00";
+  // Per-delivery computed lines
+  const deliveryLines = delivery?._computed?.allocLines ?? [];
+  const deliveryGrossKg = parseFloat(delivery?.weighing_records?.[0]?.gross_weight_kg ?? 0);
+  const deliveryTareKg  = parseFloat(delivery?.weighing_records?.[0]?.tare_weight_kg ?? 0);
+  const deliveryNetKg   = deliveryLines.reduce((s, l) => s + l.allocNetKg, 0);
+  const deliveryMoistKg = deliveryLines.reduce((s, l) => s + l.deductedKg, 0);
+  const deliveryFinalKg = deliveryLines.reduce((s, l) => s + l.allocFinalKg, 0);
+  const deliveryMc     = delivery?._computed?.mc ?? null;
+  const deliveryDiscPct = deliveryNetKg > 0 ? (deliveryMoistKg / deliveryNetKg * 100).toFixed(2) : "0.00";
+  const deliveryUniformPrice = deliveryLines.length > 0 && deliveryLines.every(l => l.pricePerKg === deliveryLines[0].pricePerKg);
+  const deliveryPriceType = deliveryLines.every(l => l.priceType === "Negotiated") ? "Negotiated"
+    : deliveryLines.every(l => l.priceType === "Spot") ? "Spot" : "Mixed";
 
-  // Price display: show single price if uniform, otherwise "see breakdown"
-  const uniformPrice = allLines.length > 0 && allLines.every(l => l.pricePerKg === allLines[0].pricePerKg);
-  const priceTypeLabel = allLines.every(l => l.priceType === "Negotiated") ? "Negotiated"
-    : allLines.every(l => l.priceType === "Spot") ? "Spot" : "Mixed";
+  // Overall totals (always shown at bottom)
+  const allLines     = deliveries.flatMap(d => (d._computed?.allocLines ?? []));
+  const netPayable   = allLines.reduce((s, l) => s + l.lineAmount, 0);
 
   return (
-    <div className="flex-1 bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden flex flex-col">
+    <div className="flex-1 bg-white rounded-xl border border-beige-dark/40 overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-beige-dark/20 bg-beige/40">
+      <div className="px-5 py-4 border-b border-beige-dark/40 bg-beige/40">
         <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Payment Preview</p>
         <p className="text-lg font-bold text-brown-dark mt-0.5">{supplier.first_name} {supplier.last_name}</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Info rows */}
-        <div className="px-5 py-3 space-y-2.5 border-b border-beige-dark/20">
-          <div className="flex justify-between text-sm">
-            <span className="text-brown-light">Total Deliveries</span>
-            <span className="font-semibold text-brown-dark">{deliveries.length} delivery(ies)</span>
+        {/* Delivery navigator */}
+        <div className="px-5 py-3 border-b border-beige-dark/40 flex items-center justify-between gap-3">
+          <button
+            onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
+            disabled={currentIdx === 0}
+            className="p-1.5 rounded-lg border border-beige-dark/60 text-brown-light hover:text-brown-dark hover:bg-beige transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <LuChevronLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1 text-center">
+            <p className="text-xs font-bold text-brown-dark">
+              Delivery {currentIdx + 1} <span className="text-brown-light font-normal">of {total}</span>
+            </p>
+            <p className="text-xs text-brown-light mt-0.5">{fmtDate(delivery?.delivery_date)}</p>
           </div>
-          <div className="flex justify-between text-sm">
+          <button
+            onClick={() => setCurrentIdx(i => Math.min(total - 1, i + 1))}
+            disabled={currentIdx === total - 1}
+            className="p-1.5 rounded-lg border border-beige-dark/60 text-brown-light hover:text-brown-dark hover:bg-beige transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <LuChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Per-delivery info */}
+        <div className="px-5 py-3 space-y-2.5 border-b border-beige-dark/40">
+          <div className="flex justify-between text-sm items-center">
             <span className="text-brown-light">Disbursement Date</span>
             <span className="font-semibold text-brown-dark">{fmtDate(paymentWeek)}</span>
           </div>
           <div className="flex justify-between text-sm items-center">
             <span className="text-brown-light">Price Type</span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-              priceTypeLabel === "Negotiated" ? "bg-green-pale text-green-dark"
-              : priceTypeLabel === "Spot" ? "bg-amber-50 text-amber-700"
+              deliveryPriceType === "Negotiated" ? "bg-green-pale text-green-dark"
+              : deliveryPriceType === "Spot" ? "bg-amber-50 text-amber-700"
               : "bg-blue-50 text-blue-600"
-            }`}>{priceTypeLabel}</span>
+            }`}>{deliveryPriceType}</span>
           </div>
           <div className="flex justify-between text-sm items-center">
             <span className="text-brown-light">Price per kg</span>
-            {uniformPrice
-              ? <span className="font-semibold text-brown-dark">{peso(allLines[0].pricePerKg)}<span className="text-brown-light font-normal">/kg</span></span>
+            {deliveryUniformPrice && deliveryLines.length > 0
+              ? <span className="font-semibold text-brown-dark">{peso(deliveryLines[0].pricePerKg)}<span className="text-brown-light font-normal">/kg</span></span>
               : <span className="text-xs text-brown-light italic">Multiple — see breakdown</span>
             }
           </div>
         </div>
 
-        {/* Weight breakdown */}
-        <div className="px-5 py-3 border-b border-beige-dark/20">
+        {/* Weight breakdown — per selected delivery */}
+        <div className="px-5 py-3 border-b border-beige-dark/40">
           <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-3">Weight Breakdown</p>
           <div className="bg-beige rounded-xl px-4 py-3 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-brown-light">Gross Weight</span>
-              <span className="font-semibold text-brown-dark">{fmt3(totalGrossKg)} kg</span>
+              <span className="font-semibold text-brown-dark">{fmt3(deliveryGrossKg)} kg</span>
             </div>
             <div className="flex justify-between text-xs pl-3 text-brown-light">
               <span>Tare Weight</span>
-              <span className="text-brown-mid">−{fmt3(totalTareKg)} kg</span>
+              <span className="text-brown-mid">−{fmt3(deliveryTareKg)} kg</span>
             </div>
             <div className="flex justify-between font-semibold pt-1 border-t border-beige-dark/40 text-sm">
               <span className="text-brown-dark">Net Weight</span>
-              <span className="text-brown-dark">{fmt3(totalNetKg)} kg</span>
+              <span className="text-brown-dark">{fmt3(deliveryNetKg)} kg</span>
             </div>
             <div className="flex justify-between text-xs pl-3 text-brown-light">
-              <span>Moisture/PCA Deduction <span className="text-red-400">({discountPct}%)</span></span>
-              <span className="text-red-500">−{fmt3(moistDedKg)} kg</span>
+              <span>Moisture/PCA Deduction <span className="text-red-400">({deliveryMc != null ? `${deliveryMc}cc / ` : ""}{deliveryDiscPct}%)</span></span>
+              <span className="text-red-500">−{fmt3(deliveryMoistKg)} kg</span>
             </div>
             <div className="flex justify-between font-semibold pt-1 border-t border-beige-dark/40 text-sm">
               <span className="text-brown-dark">Final Weight</span>
-              <span className="text-green-dark">{fmt3(totalFinalKg)} kg</span>
+              <span className="text-green-dark">{fmt3(deliveryFinalKg)} kg</span>
             </div>
           </div>
         </div>
 
-        {/* Allocation breakdown */}
-        <div className="px-5 py-3 border-b border-beige-dark/20">
+        {/* Allocation breakdown — per selected delivery */}
+        <div className="px-5 py-3 border-b border-beige-dark/40">
           <p className="text-xs font-bold text-brown-light uppercase tracking-wide mb-2">Allocation Breakdown</p>
-          <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 max-h-32 overflow-y-auto text-xs">
-            {deliveries.flatMap((d, di) =>
-              (d._computed?.allocLines ?? []).map((l, li) => (
-                <div key={`${di}-${li}`} className="px-3 py-2 flex justify-between gap-2">
-                  <div>
-                    <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
-                    <span className="text-brown-light ml-1.5">{fmtDate(d.delivery_date)}</span>
-                    <span className="text-brown-light ml-1.5">{peso(l.pricePerKg)}/kg</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
-                    <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
-                      l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
-                    }`}>{l.priceType}</span>
-                  </div>
+          <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 text-xs">
+            {deliveryLines.length === 0 ? (
+              <p className="px-3 py-2 text-brown-light italic">No allocation data</p>
+            ) : deliveryLines.map((l, li) => (
+              <div key={li} className="px-3 py-2 flex justify-between gap-2">
+                <div>
+                  <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
+                  <span className="text-brown-light ml-1.5">{fmtDate(delivery?.delivery_date)}</span>
+                  <span className="text-brown-light ml-1.5">{peso(l.pricePerKg)}/kg</span>
                 </div>
-              ))
-            )}
+                <div className="text-right shrink-0">
+                  <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
+                  <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
+                    l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
+                  }`}>{l.priceType}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Net Payable */}
+        {/* Net Payable — always total across ALL deliveries */}
         <div className="px-5 py-4 flex justify-between items-center">
-          <p className="font-bold text-brown-dark text-sm">Net Payable</p>
+          <div>
+            <p className="font-bold text-brown-dark text-sm">Net Payable</p>
+            <p className="text-xs text-brown-light mt-0.5">Total across all {total} delivery(ies)</p>
+          </div>
           <p className="text-2xl font-bold text-green-dark">{peso(netPayable)}</p>
         </div>
       </div>
@@ -686,7 +709,7 @@ function PaymentPreviewPanel({ group, onCreateBatch }) {
             deliveries,
             paymentWeek,
           })}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all"
         >
           <LuPackage className="w-4 h-4" /> Create Batch
         </button>
@@ -724,8 +747,8 @@ function BatchesTab({ batches, onRelease }) {
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
-        <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+      <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="w-14 h-14 bg-beige rounded-xl flex items-center justify-center mb-4">
           <LuReceipt className="w-7 h-7 text-brown-light" />
         </div>
         <p className="text-brown-dark font-semibold">No payment batches yet</p>
@@ -738,13 +761,13 @@ function BatchesTab({ batches, onRelease }) {
     <>
     <div className="space-y-3">
       {/* Filter tabs */}
-      <div className="flex gap-1 bg-beige rounded-xl p-1 w-fit flex-wrap">
+      <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
         {BATCH_FILTERS.map(f => {
           const count = batches.filter(f.match).length;
           return (
             <button key={f.label} onClick={() => setFilter(f.label)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                ${filter === f.label ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px inline-flex items-center
+                ${filter === f.label ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
               {f.label}
               {count > 0 && f.label !== "All" && (
                 <span className={`ml-1.5 font-bold px-1.5 py-0.5 rounded-full text-xs
@@ -761,7 +784,7 @@ function BatchesTab({ batches, onRelease }) {
       </div>
 
       {shown.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex items-center justify-center py-12">
+        <div className="bg-white rounded-xl border border-beige-dark/40 flex items-center justify-center py-12">
           <p className="text-brown-light text-sm">No {filter.toLowerCase()} batches.</p>
         </div>
       ) : (
@@ -780,17 +803,15 @@ function BatchesTab({ batches, onRelease }) {
             const StatusIcon  = isReleased ? LuCheck : isPending ? LuClock : isProcessing ? LuLoader : LuX;
 
             return (
-              <div key={b.payment_id} className={`bg-white rounded-2xl shadow-card border ${isReleased ? "border-green-mid/20" : "border-beige-dark/20"}`}>
+              <div key={b.payment_id} className={`bg-white rounded-xl border ${isReleased ? "border-green-mid/40" : "border-beige-dark/40"}`}>
                 {/* Main row */}
-                <div className="px-4 py-3 flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${statusColor.split(" ")[0]}`}>
-                    <StatusIcon className={`w-4 h-4 ${statusColor.split(" ")[1]} ${isProcessing ? "animate-spin" : ""}`} />
-                  </div>
-
+                <div className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-brown-dark text-sm">{b.supplier?.first_name} {b.supplier?.last_name}</span>
-                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${statusColor}`}>{b.payment_status}</span>
+                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full ${statusColor}`}>
+                        <StatusIcon className={`w-3 h-3 ${isProcessing ? "animate-spin" : ""}`} />{b.payment_status}
+                      </span>
                     </div>
                     <p className="text-brown-light text-xs mt-0.5">
                       Week of {fmtDate(b.payment_week)} · {b.payment_details?.length ?? 0} line(s)
@@ -801,12 +822,12 @@ function BatchesTab({ batches, onRelease }) {
                     )}
                   </div>
 
-                  <div className="flex flex-col items-end shrink-0">
+                  <div className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-end sm:shrink-0">
                     <p className="font-bold text-brown-dark text-base">{peso(b.total_amount)}</p>
                     {isPending && (
                       <button
                         onClick={() => onRelease({ payment: b })}
-                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all"
+                        className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-all"
                       >
                         <LuBanknote className="w-3 h-3" /> Release
                       </button>
@@ -956,9 +977,9 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-sm flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-xl border border-beige-dark/40 w-full max-w-sm flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20 shrink-0">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/40 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-green-pale rounded-xl flex items-center justify-center">
               <LuReceipt className="w-5 h-5 text-green-dark" />
@@ -975,7 +996,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
         {/* Pagination — only shown when multiple allocations */}
         {details.length > 1 && (
-          <div className="flex items-center justify-between px-6 py-2 border-b border-beige-dark/20 shrink-0 bg-beige/40">
+          <div className="flex items-center justify-between px-6 py-2 border-b border-beige-dark/40 shrink-0 bg-beige/40">
             <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
               className="p-1.5 rounded-lg hover:bg-beige disabled:opacity-30 transition-colors">
               <LuChevronLeft className="w-4 h-4 text-brown-mid" />
@@ -997,7 +1018,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
         {/* Scrollable receipt preview */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div ref={receiptRef} className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "320px" }}>
+          <div ref={receiptRef} className="bg-white border border-beige-dark rounded-xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "320px" }}>
             <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
             <p className="text-center text-brown-light">Electronic Payment Receipt</p>
             <div className="border-t border-dashed border-brown-light/40 my-2" />
@@ -1046,11 +1067,11 @@ function BatchReceiptModal({ batch: b, onClose }) {
         </div>
 
         {/* Download button */}
-        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
+        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/40 shrink-0">
           <button
             onClick={handleDownload}
             disabled={downloading}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60"
           >
             {downloading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
             {downloading ? "Generating…" : `Download Receipt${details.length > 1 ? ` (${page + 1}/${details.length})` : ""}`}
@@ -1102,8 +1123,8 @@ function WalkinPaymentsTab({ deliveries, spotPrice, user, profile, onRefresh, on
 
   if (deliveries.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
-        <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+      <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="w-14 h-14 bg-beige rounded-xl flex items-center justify-center mb-4">
           <LuTruck className="w-7 h-7 text-brown-light" />
         </div>
         <p className="text-brown-dark font-semibold">No walk-in payments</p>
@@ -1116,11 +1137,11 @@ function WalkinPaymentsTab({ deliveries, spotPrice, user, profile, onRefresh, on
     <>
       <div className="space-y-3">
         {/* Sub-filter tabs */}
-        <div className="flex gap-1 bg-beige rounded-xl p-1 w-fit">
+        <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
           {["Pending", "Completed"].map(f => (
             <button key={f} onClick={() => setWalkinFilter(f)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                ${walkinFilter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px inline-flex items-center
+                ${walkinFilter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
               {f}
               {f === "Pending" && pending.length > 0 && (
                 <span className="ml-1.5 bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">{pending.length}</span>
@@ -1133,7 +1154,7 @@ function WalkinPaymentsTab({ deliveries, spotPrice, user, profile, onRefresh, on
         </div>
 
         {shown.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-16 text-center px-4">
+          <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-16 text-center px-4">
             <p className="text-brown-dark font-semibold">No {walkinFilter.toLowerCase()} walk-in payments</p>
           </div>
         ) : (
@@ -1178,22 +1199,17 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
   const isPaid     = Boolean(d.walkin_paid_at);
 
   return (
-    <div className={`bg-white rounded-2xl shadow-card border ${isPaid ? "border-green-mid/30" : "border-beige-dark/20"}`}>
-      <div className="px-4 py-3 flex items-center gap-3">
-        {/* Icon */}
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isPaid ? "bg-green-pale" : "bg-orange-50"}`}>
-          {isPaid
-            ? <LuCheck className="w-4 h-4 text-green-dark" />
-            : <LuTruck className="w-4 h-4 text-orange-500" />}
-        </div>
-
+    <div className={`bg-white rounded-xl border ${isPaid ? "border-green-mid/30" : "border-beige-dark/40"}`}>
+      <div className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center">
         {/* Name + date + details */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-brown-dark text-sm">{sellerName}</span>
-            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
+            <span className="font-bold text-brown-dark text-sm break-words">{sellerName}</span>
+            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full ${
               isPaid ? "bg-green-pale text-green-dark" : "bg-amber-50 text-amber-700"
-            }`}>{isPaid ? "Paid" : "Pending"}</span>
+            }`}>
+              {isPaid ? <LuCheck className="w-3 h-3" /> : <LuTruck className="w-3 h-3" />}{isPaid ? "Paid" : "Pending"}
+            </span>
           </div>
           {/* Compact detail strip */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-brown-light">
@@ -1227,13 +1243,13 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
         </div>
 
         {/* Amount + action */}
-        <div className="flex flex-col items-end gap-2 shrink-0">
+        <div className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-end sm:shrink-0">
           <p className="font-bold text-brown-dark text-base leading-none">{peso(amountDue)}</p>
           {!isPaid ? (
             <button
               onClick={() => onMark(d)}
               disabled={marking === d.delivery_id}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-xs hover:shadow-glow-green transition-all disabled:opacity-60 whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-all disabled:opacity-60 whitespace-nowrap"
             >
               {marking === d.delivery_id
                 ? <LuLoader className="w-3 h-3 animate-spin" />
@@ -1256,7 +1272,6 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
 
 // ── Walk-In Receipt Modal ─────────────────────────────────────────────────────
 function WalkinReceiptModal({ d, spotPrice, onClose }) {
-  const [downloading, setDownloading] = useState(false);
   const receiptRef = useRef(null);
   const wr           = d.weighing_records?.[0];
   const sellerName   = `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim() || "Unknown";
@@ -1280,31 +1295,43 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
     ? `${d.paid_by.first_name} ${d.paid_by.last_name ?? ""}`.trim()
     : null;
 
-  async function handleDownload() {
-    if (!receiptRef.current) return;
-    setDownloading(true);
-    try {
-      const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 3,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-      });
-      const link = document.createElement("a");
-      link.download = `walkin_receipt_${sellerName.replace(/\s+/g, "_")}_${fmtDate(d.delivery_date).replace(/\s/g, "_")}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    } finally {
-      setDownloading(false);
-    }
+  function handlePrint() {
+    const styleId = "coptrax-walkin-print-style";
+    const existing = document.getElementById(styleId);
+    if (existing) existing.remove();
+
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      @media print {
+        body * { visibility: hidden !important; }
+        #walkin-receipt-content,
+        #walkin-receipt-content * { visibility: visible !important; }
+        #walkin-receipt-content {
+          position: fixed !important;
+          top: 0 !important;
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          width: 300px !important;
+          padding: 20px !important;
+          background: white !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    window.print();
+
+    window.addEventListener("afterprint", () => {
+      document.getElementById(styleId)?.remove();
+    }, { once: true });
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-sm flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-xl border border-beige-dark/40 w-full max-w-sm flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20 shrink-0">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/40 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-green-pale rounded-xl flex items-center justify-center">
               <LuReceipt className="w-5 h-5 text-green-dark" />
@@ -1321,7 +1348,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 
         {/* Scrollable receipt preview */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div ref={receiptRef} className="bg-white border border-beige-dark rounded-2xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "300px" }}>
+          <div ref={receiptRef} id="walkin-receipt-content" className="bg-white border border-beige-dark rounded-xl p-5 font-mono text-xs space-y-1 mx-auto" style={{ maxWidth: "300px" }}>
             <p className="text-center font-bold text-sm text-brown-dark">NERC COPRA TRADING</p>
             <p className="text-center text-brown-light text-xs">Walk-In Cash Payment Receipt</p>
             <div className="border-t border-dashed border-brown-light/40 my-2" />
@@ -1363,15 +1390,14 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
           </div>
         </div>
 
-        {/* Download button */}
-        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/20 shrink-0">
+        {/* Print button */}
+        <div className="px-6 pb-6 pt-4 border-t border-beige-dark/40 shrink-0">
           <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all disabled:opacity-60"
+            onClick={handlePrint}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all"
           >
-            {downloading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
-            {downloading ? "Generating…" : "Download Receipt"}
+            <LuPrinter className="w-4 h-4" />
+            Print Receipt
           </button>
         </div>
       </div>
@@ -1383,7 +1409,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 function Modal({ children, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-md max-h-[92vh] overflow-y-auto p-6 relative">
+      <div className="bg-white rounded-xl border border-beige-dark/40 w-full max-w-md max-h-[92vh] overflow-y-auto p-6 relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-brown-light hover:text-brown-dark transition-colors">
           <LuX className="w-5 h-5" />
         </button>

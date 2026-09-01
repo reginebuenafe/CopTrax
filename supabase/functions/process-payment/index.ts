@@ -62,7 +62,27 @@ Deno.serve(async (req) => {
     const { payment_id } = await req.json();
     if (!payment_id) return json({ error: "payment_id is required" }, 400);
 
+    // ── Auth check: only Business Owner may release payments ─────────────────
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const jwtMatch   = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!jwtMatch) return json({ error: "Unauthorized: missing authorization token." }, 401);
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(jwtMatch[1]);
+    if (authErr || !caller) return json({ error: "Unauthorized: invalid or expired token." }, 401);
+
+    const { data: callerProfile } = await supabase
+      .from("users")
+      .select("roles!inner(role_name)")
+      .eq("user_id", caller.id)
+      .single();
+
+    const callerRole = (callerProfile as { roles?: { role_name?: string } } | null)?.roles?.role_name ?? "";
+    if (callerRole !== "Business Owner") {
+      return json({ error: "Forbidden: only the Business Owner can release payments." }, 403);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Fetch payment + supplier info
     const { data: payment, error: pErr } = await supabase
