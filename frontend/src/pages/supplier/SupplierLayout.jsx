@@ -88,7 +88,7 @@ export default function SupplierLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[#E7DCC9] shrink-0">
-          <div className="w-9 h-9 shrink-0 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm p-1.5">
+          <div className="w-9 h-9 shrink-0 bg-green-dark rounded-xl flex items-center justify-center shadow-sm p-1.5">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap
@@ -192,7 +192,7 @@ export default function SupplierLayout() {
       >
         <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-w)] z-20
           bg-white/80 backdrop-blur-md border-b border-beige-dark/30
-          px-5 py-3.5 flex items-center gap-3
+          px-3 py-3.5 sm:px-5 flex items-center gap-3
           transition-[left] duration-300 ease-in-out">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -203,12 +203,12 @@ export default function SupplierLayout() {
           <div className="flex-1" />
           <NotificationBell />
           {/* User info card */}
-          <div className="flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-full border-2 border-[#E8DCC8] hover:bg-[#FAF6EE] transition-colors">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-green-dark to-green-mid
+          <div className="flex min-w-0 items-center gap-2.5 pl-2.5 pr-2.5 sm:pl-3 sm:pr-3 py-1.5 rounded-full border-2 border-[#E8DCC8] hover:bg-[#FAF6EE] transition-colors">
+            <div className="w-7 h-7 rounded-full bg-green-dark
               flex items-center justify-center text-white text-[11px] font-bold shrink-0">
               {initials}
             </div>
-            <div className="hidden sm:flex items-center gap-2">
+            <div className="hidden sm:flex min-w-0 items-center gap-2">
               <div className="min-w-0">
                 <p className="text-brown-dark text-sm font-semibold leading-none truncate">
                   {profile?.first_name} {profile?.last_name}
@@ -216,15 +216,14 @@ export default function SupplierLayout() {
                 <p className="text-brown-light text-[11px] mt-0.5 truncate">{profile?.email}</p>
               </div>
               {/* Verified badge */}
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full
-                bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-semibold whitespace-nowrap shrink-0">
+              <span className="flex items-center gap-1 text-brown-light text-[11px] font-semibold whitespace-nowrap shrink-0">
                 <LuBadgeCheck className="w-3.5 h-3.5" />
                 Verified
               </span>
             </div>
           </div>
         </header>
-        <main className="flex-1 px-5 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">
+        <main className="min-w-0 flex-1 px-3 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">
           <Outlet />
         </main>
       </div>

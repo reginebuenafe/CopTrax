@@ -61,7 +61,7 @@ export default function InspectionQueuePage() {
       setPreview({ result: "Rejected", discountValue: null });
       return;
     }
-    if (mc < 5.0) {
+    if (mc <= 5.0) {
       setPreview({ result: "Accepted", discountValue: 0.0 });
       return;
     }
@@ -212,7 +212,7 @@ export default function InspectionQueuePage() {
   if (success) {
     return (
       <div className="max-w-md mx-auto">
-        <div className="bg-white rounded-3xl shadow-card border border-beige-dark/20 p-8 text-center">
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-8 text-center">
           <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 ${
             success.result === "Accepted" ? "bg-green-pale" : "bg-red-50"
           }`}>
@@ -236,7 +236,7 @@ export default function InspectionQueuePage() {
           )}
 
           <button onClick={resetInspection}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
+            className="w-full py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
             Back to Queue
           </button>
         </div>
@@ -260,12 +260,9 @@ export default function InspectionQueuePage() {
             className="text-brown-light hover:text-brown-dark transition-colors">
             <LuArrowLeft className="w-5 h-5" />
           </button>
-          <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-            <LuFlaskConical className="w-5 h-5 text-purple-600" />
-          </div>
           <div>
             <h1 className="text-xl font-bold text-brown-dark">Quality Inspection</h1>
-            <p className="text-brown-light text-sm">{getSupplierName(selected)}</p>
+            <p className="text-brown-light text-sm mt-0.5">{getSupplierName(selected)}</p>
           </div>
         </div>
 
@@ -294,8 +291,8 @@ export default function InspectionQueuePage() {
 
         <form onSubmit={openConfirmModal} className="space-y-4">
           {/* Moisture input */}
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
-            <label className="block text-sm font-bold text-brown-dark mb-3 flex items-center gap-2">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+            <label className="block text-sm font-semibold text-brown-dark mb-3 flex items-center gap-2">
               <LuDroplets className="w-4 h-4 text-blue-400" /> Moisture Content (cc)
             </label>
             <div className="relative">
@@ -391,12 +388,9 @@ export default function InspectionQueuePage() {
   return (
     <div className="pt-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-          <LuFlaskConical className="w-5 h-5 text-purple-600" />
-        </div>
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Inspection Queue</h1>
-          <p className="text-brown-light text-sm">Deliveries awaiting quality inspection</p>
+          <p className="text-brown-light text-sm mt-0.5">Deliveries awaiting quality inspection</p>
         </div>
         {!loading && deliveries.length > 0 && (
           <span className="ml-auto text-xs bg-amber-50 text-amber-700 font-semibold px-3 py-1.5 rounded-full border border-amber-200">

@@ -316,16 +316,23 @@ function PaymentsTable({ rows }) {
       </thead>
       <tbody className="divide-y divide-beige-dark/10">
         {rows.map((r, i) => {
-          const d = r.detail?.[0];
+          const details = r.detail ?? [];
+          const totalNetWt    = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
+          const totalFinalWt  = details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
+          const totalPayable  = details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
+          const mcValues      = details.map(d => d.moisture_content_pct).filter(v => v != null);
+          const mcDisplay     = mcValues.length === 0 ? "—"
+            : mcValues.length === 1 ? `${mcValues[0]}cc`
+            : `${(mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1)}cc avg`;
           return (
             <tr key={i} className="hover:bg-beige/30">
               <td className="px-3 py-2.5 font-medium text-brown-dark">{r.reference_number ?? "—"}</td>
               <td className="px-3 py-2.5 text-brown-mid">{r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—"}</td>
               <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.payment_date)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(d?.net_weight_kg)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{d?.moisture_content_pct != null ? `${d.moisture_content_pct}cc` : "—"}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(d?.final_weight_kg)}</td>
-              <td className="px-3 py-2.5 font-semibold text-brown-dark">{d?.line_amount != null ? peso(d.line_amount) : "—"}</td>
+              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(totalNetWt || null)}</td>
+              <td className="px-3 py-2.5 text-brown-mid">{mcDisplay}</td>
+              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(totalFinalWt || null)}</td>
+              <td className="px-3 py-2.5 font-semibold text-brown-dark">{totalPayable > 0 ? peso(totalPayable) : "—"}</td>
               <td className="px-3 py-2.5">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                   r.payment_status === "Released" ? "bg-green-pale text-green-dark" :
@@ -385,7 +392,7 @@ function exportXLSX(reportId, rows) {
 
     if (reportId === "contracts") {
       wsData = [
-        ["Contract #", "Supplier", "Email", "Status", "Price/ton (₱)", "Contracted (tons)", "Signing Date", "Activation Date", "Due Date"],
+        ["Contract #", "Supplier", "Email", "Status", "Price/kg (₱)", "Contracted (tons)", "Signing Date", "Activation Date", "Due Date"],
         ...rows.map(r => [
           r.contract_number,
           r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
@@ -436,16 +443,23 @@ function exportXLSX(reportId, rows) {
       wsData = [
         ["Reference #", "Supplier", "Email", "Payment Date", "Net Wt (kg)", "Moisture (cc)", "Final Wt (kg)", "Payable (₱)", "Status", "Method"],
         ...rows.map(r => {
-          const d = r.detail?.[0];
+          const details = r.detail ?? [];
+          const totalNetWt   = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
+          const totalFinalWt = details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
+          const totalPayable = details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
+          const mcValues     = details.map(d => d.moisture_content_pct).filter(v => v != null);
+          const mcDisplay    = mcValues.length === 0 ? ""
+            : mcValues.length === 1 ? mcValues[0]
+            : (mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1);
           return [
             r.reference_number ?? "",
             r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
             r.supplier?.email ?? "",
             fmtDate(r.payment_date),
-            d?.net_weight_kg ?? "",
-            d?.moisture_content_pct ?? "",
-            d?.final_weight_kg ?? "",
-            d?.line_amount ?? "",
+            totalNetWt   || "",
+            mcDisplay,
+            totalFinalWt || "",
+            totalPayable || "",
             r.payment_status,
             r.payment_method,
           ];
@@ -494,7 +508,7 @@ function exportPDF(reportId, reportLabel, rows) {
       let head = [], body = [];
 
       if (reportId === "contracts") {
-        head = [["Contract #","Supplier","Status","Price/ton","Contracted (t)","Activation","Due Date"]];
+        head = [["Contract #","Supplier","Status","Price/kg","Contracted (t)","Activation","Due Date"]];
         body = rows.map(r => [
           r.contract_number, r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
           r.status, peso(r.negotiated_price_per_kg), r.contracted_tons,
@@ -516,16 +530,25 @@ function exportPDF(reportId, reportLabel, rows) {
           fmtWeight(r.weight_kg), r.batch_status, fmtDate(r.merge_eligible_date), r.review_decision ?? "—",
         ]);
       } else if (reportId === "payments") {
-        const d = rows.map(r => r.detail?.[0]);
         head = [["Reference #","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status"]];
-        body = rows.map((r, i) => [
-          r.reference_number ?? "—",
-          r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
-          fmtDate(r.payment_date), fmtWeight(d[i]?.net_weight_kg),
-          d[i]?.moisture_content_pct != null ? `${d[i].moisture_content_pct}cc` : "—",
-          fmtWeight(d[i]?.final_weight_kg), d[i]?.line_amount != null ? peso(d[i].line_amount) : "—",
-          r.payment_status,
-        ]);
+        body = rows.map(r => {
+          const details     = r.detail ?? [];
+          const totalNetWt  = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
+          const totalFinalWt= details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
+          const totalPayable= details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
+          const mcValues    = details.map(d => d.moisture_content_pct).filter(v => v != null);
+          const mcDisplay   = mcValues.length === 0 ? "—"
+            : mcValues.length === 1 ? `${mcValues[0]}cc`
+            : `${(mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1)}cc avg`;
+          return [
+            r.reference_number ?? "—",
+            r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
+            fmtDate(r.payment_date), fmtWeight(totalNetWt || null),
+            mcDisplay,
+            fmtWeight(totalFinalWt || null), totalPayable > 0 ? peso(totalPayable) : "—",
+            r.payment_status,
+          ];
+        });
       } else if (reportId === "ratings") {
         head = [["Supplier","Contract","Fulfillment","Volume","Quality","Score","Rating","Overall"]];
         body = rows.map(r => [
@@ -599,97 +622,113 @@ export default function BOReportsPage() {
     ? rows.filter(r => deliverySource === "Walk-in" ? r.delivery_source === "Walkin" : r.delivery_source !== "Walkin")
     : rows;
 
-  const inputCls = "px-3 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark " +
+  const inputCls = "w-full px-3 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark " +
     "focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all";
 
   return (
     <div className="pt-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
-          <LuFileChartColumn className="w-5 h-5 text-green-dark" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-brown-dark">Reports</h1>
-          <p className="text-brown-light text-sm">Generate and export procurement reports</p>
+          <h1 className="text-2xl font-black text-brown-dark">Reports</h1>
+          <p className="text-brown-light text-sm mt-0.5">Generate and export procurement reports</p>
         </div>
+        <span className="text-xs text-brown-light">{REPORTS.length} report types</span>
       </div>
 
       {/* Report type selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {REPORTS.map(r => {
           const Icon = r.icon;
           const isActive = selected === r.id;
           return (
-            <button key={r.id} onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); setDeliverySource("All"); }}
-              className={`bg-white rounded-2xl shadow-card border p-4 text-left transition-all duration-200
-                hover:shadow-card-hover hover:-translate-y-0.5 ${isActive ? "border-green-dark ring-2 ring-green-dark/20" : "border-beige-dark/20"}`}>
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${r.color.split(" ")[0]}`}>
-                <Icon className={`w-4.5 h-4.5 ${r.color.split(" ")[1]}`} />
-              </div>
-              <p className="text-sm font-semibold text-brown-dark mb-0.5">{r.label}</p>
-              <p className="text-xs text-brown-light">{r.description}</p>
+            <button
+              key={r.id}
+              onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); setDeliverySource("All"); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+                isActive ? "bg-green-dark text-white border-green-dark" : "bg-white text-brown-mid border-beige-dark/60 hover:border-brown-light hover:text-brown-dark"
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {r.label}
             </button>
           );
         })}
       </div>
 
       {/* Filters + generate */}
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-5">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex items-center gap-2">
-            <LuFilter className="w-4 h-4 text-brown-light" />
-            <span className="text-sm font-semibold text-brown-dark">Date Range</span>
+      <div className="bg-white border border-beige-dark/40 rounded-xl p-5 mb-5">
+
+        {/* ── Date Range heading ── */}
+        <div className="flex items-center gap-2 mb-4">
+          <LuFilter className="w-3.5 h-3.5 text-brown-light" />
+          <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Date Range</p>
+        </div>
+
+        {/* ── Filter row: From · To · Generate ── */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          {/* From */}
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-brown-dark mb-1.5">From</label>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div>
-              <label className="block text-xs text-brown-light mb-1">From</label>
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs text-brown-light mb-1">To</label>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
-            </div>
+
+          {/* To */}
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-brown-dark mb-1.5">To</label>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
           </div>
-          {/* Source filter — only for Delivery Report */}
+
+          {/* Delivery Type filter — only for Delivery Report */}
           {selected === "deliveries" && (
-            <div>
-              <label className="block text-xs text-brown-light mb-1">Delivery Type</label>
-              <div className="flex gap-1 bg-beige rounded-xl p-1">
+            <div className="flex-1 min-w-0">
+              <label className="block text-xs font-medium text-brown-dark mb-1.5">Delivery Type</label>
+              <div className="flex gap-3 border-b border-beige-dark/40 overflow-x-auto">
                 {["All", "Contractual", "Walk-in"].map(s => (
                   <button key={s} onClick={() => setDeliverySource(s)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                      ${deliverySource === s ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+                    className={`pb-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                      deliverySource === s ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"
+                    }`}>
                     {s}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <button
-            onClick={generate}
-            disabled={!selected || loading}
-            className="flex items-center gap-2 bg-gradient-to-r from-green-dark to-green-mid text-white font-semibold text-sm px-5 py-2.5 rounded-xl hover:shadow-glow-green transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-            {loading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuFileChartColumn className="w-4 h-4" />}
-            Generate Report
-          </button>
-          {generated && displayRows.length > 0 && (
-            <>
+
+          {/* Generate Report */}
+          <div className="sm:shrink-0">
+            <button
+              onClick={generate}
+              disabled={!selected || loading}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-dark text-white font-semibold text-sm px-5 py-2.5 rounded-xl hover:bg-green-dark/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+              {loading ? <LuLoader className="w-4 h-4 animate-spin" /> : <LuFileChartColumn className="w-4 h-4" />}
+              Generate Report
+            </button>
+          </div>
+        </div>
+
+        {!selected && (
+          <p className="text-xs text-brown-light mt-3">Select a report type above before generating.</p>
+        )}
+
+        {/* ── Export actions (only when data is ready) ── */}
+        {generated && displayRows.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-beige-dark/30 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Export Report</p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
               <button
                 onClick={() => exportXLSX(selected, displayRows)}
-                className="flex items-center gap-2 bg-green-pale text-green-dark font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-green-mid/20 transition-all border border-green-dark/20">
+                className="flex w-full items-center justify-center gap-2 bg-green-pale text-green-dark font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-green-mid/20 transition-all border border-green-dark/20 sm:w-auto">
                 <LuDownload className="w-4 h-4" /> Export .xlsx
               </button>
               <button
                 onClick={() => exportPDF(selected, reportMeta?.label ?? "Report", displayRows)}
-                className="flex items-center gap-2 bg-amber-50 text-amber-700 font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-amber-100 transition-all border border-amber-200">
+                className="flex w-full items-center justify-center gap-2 bg-amber-50 text-amber-700 font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-amber-100 transition-all border border-amber-200 sm:w-auto">
                 <LuDownload className="w-4 h-4" /> Export PDF
               </button>
-            </>
-          )}
-        </div>
-        {!selected && (
-          <p className="text-xs text-brown-light mt-3">Select a report type above before generating.</p>
+            </div>
+          </div>
         )}
       </div>
 
@@ -702,7 +741,7 @@ export default function BOReportsPage() {
 
       {/* Results table */}
       {generated && (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+        <div className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-beige-dark/20">
             <p className="font-bold text-brown-dark text-sm">{reportMeta?.label}</p>
             <span className="text-xs text-brown-light">{displayRows.length} records</span>

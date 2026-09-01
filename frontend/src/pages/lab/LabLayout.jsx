@@ -55,7 +55,7 @@ export default function LabLayout() {
 
         {/* Brand */}
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-[#E4D5BD] shrink-0 ${collapsed ? "justify-center lg:px-2" : ""}`}>
-          <div className="w-8 h-8 bg-gradient-to-br from-green-dark to-green-light rounded-xl flex items-center justify-center shadow-sm p-1.5 shrink-0">
+          <div className="w-8 h-8 bg-green-dark rounded-xl flex items-center justify-center shadow-sm p-1.5 shrink-0">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           {!collapsed && (
@@ -77,12 +77,12 @@ export default function LabLayout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-xl text-sm font-medium transition-all duration-200 group
                 ${collapsed ? "justify-center px-0 py-3" : "px-3.5 py-2.5"}
-                ${isActive ? "bg-green-pale text-green-dark font-semibold" : "text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E]"}`}>
+                ${isActive ? "bg-[#2E7D32] text-white font-semibold shadow-sm" : "text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E]"}`}>
               {({ isActive }) => (
                 <>
-                  <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-green-dark" : "text-[#9A8176] group-hover:text-[#765D52]"}`} />
+                  <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-white" : "text-[#9A8176] group-hover:text-[#765D52]"}`} />
                   {!collapsed && <span className="flex-1">{label}</span>}
-                  {!collapsed && isActive && <LuChevronRight className="w-3.5 h-3.5 text-green-mid" />}
+                  {!collapsed && isActive && <LuChevronRight className="w-3.5 h-3.5 text-white/70" />}
                 </>
               )}
             </NavLink>
@@ -93,7 +93,7 @@ export default function LabLayout() {
         {!collapsed ? (
           <div className="px-3 py-4 border-t border-[#E4D5BD] shrink-0">
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-beige">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="w-8 h-8 rounded-full bg-green-dark flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {initials}
               </div>
               <div className="flex-1 min-w-0">
@@ -109,7 +109,7 @@ export default function LabLayout() {
           </div>
         ) : (
           <div className="flex flex-col items-center py-4 border-t border-[#E4D5BD] gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-8 h-8 rounded-full bg-green-dark flex items-center justify-center text-white text-xs font-bold">
               {initials}
             </div>
             <button onClick={handleSignOut} title="Sign Out"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LuStar, LuChevronDown, LuChevronUp, LuTrendingUp } from "react-icons/lu";
+import { LuStar, LuChevronDown, LuChevronUp } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
 function StarRating({ rating, size = "sm" }) {
@@ -79,14 +79,12 @@ export default function SupplierRatingsPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-          <LuStar className="w-5 h-5 text-amber-500" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-brown-dark">Supplier Ratings</h1>
-          <p className="text-brown-light text-sm">Performance rankings across all completed/breached contracts</p>
+          <h1 className="text-2xl font-black text-brown-dark">Supplier Ratings</h1>
+          <p className="text-brown-light text-sm mt-0.5">Performance rankings across all completed/breached contracts</p>
         </div>
+        <span className="text-xs text-brown-light">{suppliers.length} total</span>
       </div>
 
       {loading ? (
@@ -94,8 +92,8 @@ export default function SupplierRatingsPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : suppliers.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
-          <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
+          <div className="w-14 h-14 bg-beige border border-beige-dark/40 rounded-xl flex items-center justify-center mb-4">
             <LuStar className="w-7 h-7 text-brown-light" />
           </div>
           <p className="text-brown-dark font-semibold">No ratings yet</p>
@@ -107,31 +105,27 @@ export default function SupplierRatingsPage() {
             const isOpen = expanded === s.supplier.user_id;
             const overall = Number(s.overall ?? 0);
             return (
-              <div key={s.supplier.user_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+              <div key={s.supplier.user_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
                 <button
                   onClick={() => setExpanded(isOpen ? null : s.supplier.user_id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/20 transition-colors text-left"
+                  className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/20 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
                 >
-                  {/* Rank */}
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-extrabold shrink-0 ${
-                    idx === 0 ? "bg-amber-100 text-amber-600" :
-                    idx === 1 ? "bg-gray-100 text-gray-500" :
-                    idx === 2 ? "bg-orange-100 text-orange-500" : "bg-beige text-brown-light"
-                  }`}>
-                    {idx + 1}
+                  <div className="flex min-w-0 items-center gap-3 sm:flex-1 sm:gap-4">
+                    {/* Rank */}
+                    <span className="text-sm font-bold text-brown-light shrink-0 w-8 text-center">#{idx + 1}</span>
+
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-full bg-beige border border-beige-dark/40 flex items-center justify-center text-brown-dark font-bold text-sm shrink-0">
+                      {s.supplier.first_name?.[0]}{s.supplier.last_name?.[0]}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-brown-dark break-words">{s.supplier.first_name} {s.supplier.last_name}</p>
+                      <p className="text-brown-light text-xs">{s.snapshots.length} contract{s.snapshots.length !== 1 ? "s" : ""} rated</p>
+                    </div>
                   </div>
 
-                  {/* Avatar */}
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-dark to-green-mid flex items-center justify-center text-white font-bold text-sm shrink-0">
-                    {s.supplier.first_name?.[0]}{s.supplier.last_name?.[0]}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-brown-dark">{s.supplier.first_name} {s.supplier.last_name}</p>
-                    <p className="text-brown-light text-xs">{s.snapshots.length} contract{s.snapshots.length !== 1 ? "s" : ""} rated</p>
-                  </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center justify-between gap-3 sm:shrink-0">
                     <div className="text-right">
                       <StarRating rating={overall} />
                       <p className="text-xs text-brown-light mt-0.5">{overall.toFixed(2)} / 5.00</p>
@@ -163,7 +157,7 @@ export default function SupplierRatingsPage() {
                               <p className="text-xs text-brown-light mt-0.5">Rating: {snap.supplier_rating}/5</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
                             <ScoreBar label="Fulfillment" value={snap.contract_fulfillment_score} weight="60%" />
                             <ScoreBar label="Volume" value={snap.delivered_volume_score} weight="20%" />
                             <ScoreBar label="Quality" value={snap.copra_quality_score} weight="20%" />

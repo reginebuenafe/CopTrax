@@ -64,13 +64,10 @@ export default function MyRatingPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mt-5 mb-6">
-        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-          <LuStar className="w-5 h-5 text-amber-500" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-brown-dark">My Rating</h1>
-          <p className="text-brown-light text-sm">Performance across your completed and breached contracts</p>
+          <p className="text-brown-light text-sm mt-0.5">Performance across your completed and breached contracts</p>
         </div>
       </div>
 
@@ -79,7 +76,7 @@ export default function MyRatingPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : snapshots.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuStar className="w-7 h-7 text-brown-light" />
           </div>
@@ -89,9 +86,9 @@ export default function MyRatingPage() {
       ) : (
         <div className="space-y-5">
           {/* Overall rating card */}
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-6">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-4 sm:p-6">
             <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-4">Overall Supplier Rating</p>
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
               <div className="text-center">
                 <p className="text-5xl font-extrabold text-amber-500 leading-none">{Number(overall).toFixed(1)}</p>
                 <p className="text-brown-light text-xs mt-1">out of 5.0</p>
@@ -111,11 +108,11 @@ export default function MyRatingPage() {
             <p className="text-sm font-bold text-brown-dark mb-3">Per-Contract Breakdown</p>
             <div className="space-y-4">
               {snapshots.map(snap => (
-                <div key={snap.snapshot_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
-                  <div className="flex items-start justify-between gap-4 mb-4">
-                    <div>
-                      <p className="font-bold text-brown-dark">{snap.contract?.contract_number ?? "—"}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                <div key={snap.snapshot_id} className="bg-white border border-beige-dark/40 rounded-xl p-5">
+                  <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <p className="font-bold text-brown-dark break-words">{snap.contract?.contract_number ?? "—"}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
                           snap.contract?.status === "Completed"
                             ? "bg-green-pale text-green-dark"
@@ -132,7 +129,7 @@ export default function MyRatingPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="shrink-0 sm:text-right">
                       <StarDisplay rating={snap.supplier_rating} />
                       <p className="text-xs text-brown-light mt-1">{snap.supplier_rating}/5 stars</p>
                     </div>
@@ -144,7 +141,7 @@ export default function MyRatingPage() {
                     <ScoreBar label="Copra Quality (Moisture)" value={snap.copra_quality_score} weight="20%" />
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-beige-dark/20 flex items-center justify-between">
+                  <div className="mt-4 pt-3 border-t border-beige-dark/20 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-1.5 text-xs text-brown-light">
                       <LuTrendingUp className="w-3.5 h-3.5" />
                       Performance Score

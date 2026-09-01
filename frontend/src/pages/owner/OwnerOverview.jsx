@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
-  LuUserPlus, LuTruck, LuStar, LuBot,
+  LuUserPlus, LuTruck, LuStar,
   LuFileText, LuWallet, LuActivity, LuChevronDown, LuChartLine,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -107,10 +107,11 @@ function AnalyticsChart({ data, maxVal }) {
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const n = data.length;
-  const xStep = n > 1 ? innerW / (n - 1) : innerW;
 
+  // When there is only 1 point, centre it horizontally so it's visible.
+  // With 2+ points, distribute evenly from left edge to right edge as before.
+  const xFor = i => n === 1 ? padL + innerW / 2 : padL + i * (innerW / (n - 1));
   const yFor = val => padT + innerH * (1 - (maxVal > 0 ? val / maxVal : 0));
-  const xFor = i => padL + (n > 1 ? i * xStep : innerW / 2);
 
   const pts = data.map((d, i) => [xFor(i), yFor(d.value)]);
   const linePts = pts.map(([x, y]) => `${x},${y}`).join(" ");
@@ -144,30 +145,33 @@ function AnalyticsChart({ data, maxVal }) {
         ))}
         <line x1={padL} y1={padT} x2={padL} y2={padT + innerH} stroke="#C9B99A" strokeWidth="1" />
         <path d={areaD} fill="url(#analyticsGrad)" />
-        <polyline points={linePts} fill="none" stroke="#2d5a27" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {/* Line only makes sense with 2+ points */}
+        {n > 1 && (
+          <polyline points={linePts} fill="none" stroke="#2d5a27" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        )}
         {pts.map(([x, y], i) => (
           <g key={i}>
             {i % labelStep === 0 && (
               <text x={x} y={H - 6} textAnchor="middle" fontSize="8.5" fill="#9A857A">{data[i].label}</text>
             )}
-            <circle cx={x} cy={y} r="4" fill="transparent"
+            {/* Always show a filled dot — visible without needing hover */}
+            <circle cx={x} cy={y} r="5" fill="#2d5a27" />
+            <circle cx={x} cy={y} r="10" fill="#2d5a27" fillOpacity="0.12" />
+            {/* Larger invisible hit area for tooltip */}
+            <circle cx={x} cy={y} r="14" fill="transparent"
               onMouseEnter={() => setTooltip({ x, y, ...data[i] })} />
-            {tooltip?.label === data[i].label && (
-              <circle cx={x} cy={y} r="4" fill="#2d5a27" />
-            )}
           </g>
         ))}
       </svg>
       {tooltip && (
-        <div className="absolute pointer-events-none z-10 bg-[#1a3d17] text-white text-xs rounded-xl px-3 py-2 shadow-lg"
+        <div className="absolute pointer-events-none z-10 bg-[#1a3d17] text-white text-xs rounded-xl px-3 py-2 shadow-lg whitespace-nowrap"
           style={{
-            left: `${(tooltip.x / W) * 100}%`,
+            left: `clamp(60px, ${(tooltip.x / W) * 100}%, calc(100% - 60px))`,
             top: `${(tooltip.y / H) * 100}%`,
             transform: "translate(-50%, -110%)",
           }}>
           <p className="font-bold">{tooltip.label}</p>
-          <p className="opacity-80">{(tooltip.value / 1000).toFixed(2)} t</p>
-          <p className="opacity-80">{Math.round(tooltip.value).toLocaleString()} kg</p>
+          <p className="opacity-80">{(tooltip.value / 1000).toFixed(2)} t · {Math.round(tooltip.value).toLocaleString()} kg</p>
         </div>
       )}
     </div>
@@ -316,12 +320,12 @@ function DeliveryAnalyticsModal({ onClose }) {
       <div className="bg-white rounded-3xl shadow-card w-full max-w-7xl min-h-[90vh] max-h-[95vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-7 pt-7 pb-5 border-b border-beige-dark/20">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between gap-3 px-4 pt-5 pb-4 border-b border-beige-dark/20 sm:px-7 sm:pt-7 sm:pb-5 sm:items-center">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
               <LuChartLine className="w-5 h-5 text-green-dark" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-base font-bold text-brown-dark">Delivery Analytics</p>
               <p className="text-xs text-brown-light">Accepted deliveries — net weight</p>
             </div>
@@ -331,11 +335,11 @@ function DeliveryAnalyticsModal({ onClose }) {
           </button>
         </div>
 
-        <div className="px-7 py-6 space-y-5">
+        <div className="px-4 py-5 space-y-5 sm:px-7 sm:py-6">
           {/* Filters row */}
-          <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
             {/* Date preset pills */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto sm:flex-wrap">
               {DATE_PRESETS.map(p => (
                 <button key={p.value} onClick={() => setPreset(p.value)}
                   className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
@@ -363,7 +367,7 @@ function DeliveryAnalyticsModal({ onClose }) {
             {suppliers.length > 1 && (
               <div className="relative">
                 <select value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)}
-                  className="text-sm font-semibold text-brown-dark bg-beige rounded-xl px-3.5 py-2 pr-8 appearance-none focus:outline-none cursor-pointer max-w-[200px]">
+                  className="w-full text-sm font-semibold text-brown-dark bg-beige rounded-xl px-3.5 py-2 pr-8 appearance-none focus:outline-none cursor-pointer sm:max-w-[200px]">
                   <option value="all">All Suppliers</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
@@ -374,16 +378,16 @@ function DeliveryAnalyticsModal({ onClose }) {
 
           {/* Custom date range */}
           {preset === "custom" && (
-            <div className="flex gap-3 items-center flex-wrap">
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
                 <label className="text-sm text-brown-light font-medium">From</label>
                 <input type="date" value={customFrom} onChange={e => setFrom(e.target.value)}
-                  className="text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
+                  className="mt-1 w-full text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="min-w-0">
                 <label className="text-sm text-brown-light font-medium">To</label>
                 <input type="date" value={customTo} onChange={e => setTo(e.target.value)}
-                  className="text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
+                  className="mt-1 w-full text-sm border border-beige-dark rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-dark/30" />
               </div>
             </div>
           )}
@@ -395,7 +399,7 @@ function DeliveryAnalyticsModal({ onClose }) {
           ) : (
             <>
               {/* KPI cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="bg-beige rounded-2xl px-4 py-4">
                   <p className="text-xs text-brown-light uppercase tracking-wide mb-1.5">Total Volume</p>
                   <p className="text-xl font-extrabold text-brown-dark leading-none">{(totalKg / 1000).toFixed(2)}<span className="text-sm font-normal text-brown-light ml-1">t</span></p>
@@ -461,12 +465,12 @@ function AllRankingsModal({ suppliers, onClose }) {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-white rounded-3xl shadow-card w-full max-w-md max-h-[80vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-beige-dark/20">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between gap-3 px-4 pt-5 pb-4 border-b border-beige-dark/20 sm:px-6 sm:pt-6 sm:items-center">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
               <LuStar className="w-4 h-4 text-amber-500" />
             </div>
-            <p className="text-sm font-bold text-brown-dark">Supplier Rankings</p>
+            <p className="min-w-0 text-sm font-bold text-brown-dark break-words">Supplier Rankings</p>
           </div>
           <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
             <LuX className="w-5 h-5" />
@@ -532,16 +536,10 @@ function ProgressBar({ pct, color = "bg-green-dark" }) {
 }
 
 // ── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ title, icon, children, iconColor = "text-green-dark", iconBg = "bg-green-pale" }) {
-  const Icon = icon;
+function Section({ title, children }) {
   return (
-    <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 h-full">
-      <div className="flex items-center gap-2 mb-4">
-        <div className={`w-8 h-8 ${iconBg} rounded-xl flex items-center justify-center shrink-0`}>
-          <Icon className={`w-4 h-4 ${iconColor}`} />
-        </div>
-        <p className="text-sm font-bold text-brown-dark">{title}</p>
-      </div>
+    <div className="bg-white border border-beige-dark/40 rounded-xl p-5 h-full">
+      <p className="text-sm font-bold text-brown-dark mb-4">{title}</p>
       {children}
     </div>
   );
@@ -559,10 +557,6 @@ export default function OwnerOverview() {
   const [stats, setStats]           = useState(null);
   const [createModal, setCreateModal] = useState(false);
   const [toast, setToast]           = useState(null);
-  const [aiAutoGlobal, setAiAutoGlobal] = useState(false);
-  const [aiSaving, setAiSaving]     = useState(false);
-  const [aiFaqGlobal, setAiFaqGlobal] = useState(false);
-  const [aiFaqSaving, setAiFaqSaving] = useState(false);
 
   // ── analytics state ─────────────────────────────────────────────────────
   const [deliveryVolume, setDeliveryVolume] = useState([]);   // [{label, value, tooltip}] last 6 months
@@ -578,18 +572,14 @@ export default function OwnerOverview() {
   useEffect(() => {
     async function loadAll() {
       // ── summary stats (existing) ─────────────────────────────────────
-      const [spotRes, pendingRes, contractRes, deliveryRes, payRes, aiRes, faqRes] = await Promise.all([
-        supabase.from("spot_price").select("price_per_kg").limit(1).single(),
+      const [spotRes, pendingRes, contractRes, deliveryRes, payRes] = await Promise.all([
+        supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle(),
         supabase.from("users").select("user_id", { count: "exact", head: true }).eq("account_status", "Pending"),
         supabase.from("contracts").select("contract_id", { count: "exact", head: true }).eq("status", "Active"),
         supabase.from("deliveries").select("delivery_id", { count: "exact", head: true }).eq("delivery_status", "Weighed"),
         supabase.from("payments").select("payment_id", { count: "exact", head: true }).eq("payment_status", "Pending"),
-        supabase.from("app_config").select("value").eq("key", "ai_auto_negotiate_global").maybeSingle(),
-        supabase.from("app_config").select("value").eq("key", "ai_faq_global").maybeSingle(),
       ]);
       setSpotPrice(spotRes.data?.price_per_kg ?? 0);
-      setAiAutoGlobal(aiRes.data?.value === "true");
-      setAiFaqGlobal(faqRes.data?.value === "true");
       setStats({
         pendingApprovals:   pendingRes.count ?? 0,
         activeContracts:    contractRes.count ?? 0,
@@ -735,29 +725,10 @@ export default function OwnerOverview() {
     setSpotPrice(val); setEditing(false); setNewPrice("");
   }
 
+
   function showToast(message) {
     setToast(message);
     setTimeout(() => setToast(null), 4000);
-  }
-
-  async function toggleAiAutoGlobal() {
-    setAiSaving(true);
-    const next = !aiAutoGlobal;
-    setAiAutoGlobal(next);
-    await supabase.from("app_config")
-      .upsert({ key: "ai_auto_negotiate_global", value: String(next) }, { onConflict: "key" });
-    setAiSaving(false);
-    showToast(next ? "AI Auto-Negotiate enabled for all suppliers." : "AI Auto-Negotiate disabled.");
-  }
-
-  async function toggleAiFaqGlobal() {
-    setAiFaqSaving(true);
-    const next = !aiFaqGlobal;
-    setAiFaqGlobal(next);
-    await supabase.from("app_config")
-      .upsert({ key: "ai_faq_global", value: String(next) }, { onConflict: "key" });
-    setAiFaqSaving(false);
-    showToast(next ? "AI FAQ Assistant enabled." : "AI FAQ Assistant disabled.");
   }
 
 
@@ -794,8 +765,10 @@ export default function OwnerOverview() {
 
   return (
     <div className="space-y-5 pt-6">
-      {/* ── Header (greeting only) ── */}
-      <section>
+      {/* ── Header: greeting (left) + spot price + AI features (right) ── */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+
+        {/* Greeting */}
         <div className="min-w-0">
           <p className="text-[11px] font-semibold">
             <span className="text-[#60463D]">{weekday}, </span>
@@ -808,65 +781,9 @@ export default function OwnerOverview() {
             Here&apos;s what&apos;s moving through your trading operation today.
           </p>
         </div>
-      </section>
 
-      {/* ── Quick-action row: AI Toggle (left) + Spot Price (right) ── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* AI Auto-Negotiate toggle */}
-          <div className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-sm transition-colors duration-200 ${
-            aiAutoGlobal ? "border-[#2E7D32] bg-[#024023]" : "border-[#c5b9a8] bg-[#f5f0e8]"
-          }`}>
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${aiAutoGlobal ? "bg-white/10" : "bg-[#e0d9cc]"}`}>
-              <LuBot className={`h-4 w-4 ${aiAutoGlobal ? "text-emerald-300" : "text-brown-mid"}`} />
-            </div>
-            <div className="min-w-0">
-              <p className={`text-[9px] font-medium uppercase tracking-wider ${aiAutoGlobal ? "text-white/80" : "text-brown-light"}`}>AI Auto-Negotiate</p>
-              <p className={`text-[11px] font-semibold mt-0.5 ${aiAutoGlobal ? "text-emerald-200" : "text-brown-mid"}`}>
-                {aiAutoGlobal ? "Active" : "Off"}
-              </p>
-            </div>
-            <button
-              onClick={toggleAiAutoGlobal}
-              disabled={aiSaving}
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
-                aiAutoGlobal ? "bg-emerald-400" : "bg-[#c5b9a8]"
-              }`}
-              title={aiAutoGlobal ? "Disable AI auto-negotiate" : "Enable AI auto-negotiate"}
-            >
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiAutoGlobal ? "translate-x-4" : "translate-x-0.5"}`} />
-            </button>
-          </div>
-
-          {/* AI FAQ Assistant toggle */}
-          <div className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-sm transition-colors duration-200 ${
-            aiFaqGlobal ? "border-[#2E7D32] bg-[#024023]" : "border-[#c5b9a8] bg-[#f5f0e8]"
-          }`}>
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${aiFaqGlobal ? "bg-white/10" : "bg-[#e0d9cc]"}`}>
-              <LuBot className={`h-4 w-4 ${aiFaqGlobal ? "text-emerald-300" : "text-brown-mid"}`} />
-            </div>
-            <div className="min-w-0">
-              <p className={`text-[9px] font-medium uppercase tracking-wider ${aiFaqGlobal ? "text-white/80" : "text-brown-light"}`}>AI FAQ Assistant</p>
-              <p className={`text-[11px] font-semibold mt-0.5 ${aiFaqGlobal ? "text-emerald-200" : "text-brown-mid"}`}>
-                {aiFaqGlobal ? "Active" : "Off"}
-              </p>
-            </div>
-            <button
-              onClick={toggleAiFaqGlobal}
-              disabled={aiFaqSaving}
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
-                aiFaqGlobal ? "bg-emerald-400" : "bg-[#c5b9a8]"
-              }`}
-              title={aiFaqGlobal ? "Disable AI FAQ assistant" : "Enable AI FAQ assistant"}
-            >
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${aiFaqGlobal ? "translate-x-4" : "translate-x-0.5"}`} />
-            </button>
-          </div>
-        </div>
-
-        {/* Spot Price — pinned to the right */}
-        <div className={`transition-[width] shrink-0 ${editing ? "w-full sm:w-auto" : ""}`}>
+        {/* Right: Spot Price card */}
+        <div className="shrink-0">
           <div className="flex items-center gap-3.5 rounded-2xl border-2 border-[#2E7D32] bg-[#024023] px-4 py-3 text-white shadow-sm">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10">
               <LuTrendingUp className="h-4 w-4 text-emerald-300" />
@@ -874,7 +791,7 @@ export default function OwnerOverview() {
             <div className="min-w-0 flex-1">
               <p className="text-[9px] font-medium uppercase tracking-wider text-white/80">Current Spot Price</p>
               {editing ? (
-                <div className="mt-1 flex items-center gap-1.5">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <span className="font-bold">₱</span>
                   <input type="number" step="0.01" min="0" autoFocus value={newPrice}
                     onChange={e => { setNewPrice(e.target.value); setError(""); }}
@@ -909,8 +826,8 @@ export default function OwnerOverview() {
             </div>
           </div>
           {error && (
-            <p className="mt-1 flex items-center gap-1 text-xs text-red-600 justify-end">
-              <LuCircleAlert className="h-3.5 w-3.5" /> {error}
+            <p className="mt-1 flex items-center justify-end gap-1 text-xs text-red-600">
+              <LuCircleAlert className="h-3.5 w-3.5 shrink-0" /> {error}
             </p>
           )}
         </div>
@@ -918,13 +835,12 @@ export default function OwnerOverview() {
 
       {/* ── Summary stat cards ── */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {STAT_CARDS.map(s => (
-            <div key={s.label} className="bg-white rounded-xl shadow-card border border-beige-dark/20 px-4 py-3 flex items-center gap-3">
-              <div className={`inline-flex items-center justify-center shrink-0 rounded-lg px-2 py-1.5 ${s.small ? "min-w-8" : "w-8 h-8"} ${s.color.split(" ")[0]}`}>
-                <span className={`font-extrabold ${s.small ? "text-xs leading-tight" : "text-base"} ${s.color.split(" ")[1]}`}>{s.value}</span>
-              </div>
-              <p className="text-brown-light text-xs font-medium leading-tight">{s.label}</p>
+            <div key={s.label}
+              className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4 hover:border-green-dark/30 transition-colors">
+              <p className="text-2xl font-bold text-brown-dark leading-none">{s.value}</p>
+              <p className="text-xs text-brown-light mt-1.5 leading-snug">{s.label}</p>
             </div>
           ))}
         </div>
@@ -934,16 +850,11 @@ export default function OwnerOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
         {/* Delivery Volume Trend */}
         <div className="lg:col-span-2 flex flex-col">
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 flex-1">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-5 flex-1">
             <div className="flex items-start justify-between gap-4 mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
-                  <LuTruck className="w-4 h-4 text-green-dark" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-brown-dark">Delivery Volume Trend</p>
-                  <p className="text-[10px] text-brown-light">Last 6 months · accepted net weight</p>
-                </div>
+              <div>
+                <p className="text-sm font-bold text-brown-dark">Delivery Volume Trend</p>
+                <p className="text-[10px] text-brown-light">Last 6 months · accepted net weight</p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <div className="text-right">
@@ -970,12 +881,9 @@ export default function OwnerOverview() {
 
         {/* Top Suppliers */}
         <div className="lg:col-span-1 flex flex-col">
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 flex-1 flex flex-col">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-5 flex-1 flex flex-col">
             {/* Header */}
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
-                <LuStar className="w-4 h-4 text-amber-500" />
-              </div>
               <p className="text-sm font-bold text-brown-dark">Top Suppliers</p>
             </div>
             {/* Content — flex-1 so it fills space */}
@@ -1030,7 +938,7 @@ export default function OwnerOverview() {
 
       {/* ── Row 4: Contract Progress ── */}
       <div>
-        <Section title="Active Contract Progress" icon={LuFileText} iconColor="text-blue-600" iconBg="bg-blue-50">
+        <Section title="Active Contract Progress">
           {contracts.length === 0 ? (
             <p className="text-xs text-brown-light py-4 text-center">No active contracts</p>
           ) : (
@@ -1059,22 +967,22 @@ export default function OwnerOverview() {
 
       {/* ── Row 5: Payment Summary (1/2) + Recent Activity (1/2) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <Section title="Payment Summary" icon={LuWallet} iconColor="text-amber-600" iconBg="bg-amber-50">
+        <Section title="Payment Summary">
           {paymentSummary ? (
             <div className="space-y-2.5">
-              <div className="flex items-center justify-between bg-beige rounded-xl px-4 py-3">
+              <div className="flex flex-col items-start gap-1 bg-beige rounded-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-brown-light">Total Paid (Released)</p>
                 <p className="text-sm font-extrabold text-green-dark">{peso(paymentSummary.paidTotal)}</p>
               </div>
-              <div className="flex items-center justify-between bg-beige rounded-xl px-4 py-3">
-                <div>
+              <div className="flex flex-col items-start gap-1 bg-beige rounded-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-xs text-brown-light">Pending Batches</p>
                   <p className="text-[10px] text-brown-light">{paymentSummary.pendingBatches} batch(es) awaiting release</p>
                 </div>
                 <p className="text-sm font-extrabold text-amber-600">{peso(paymentSummary.pendingTotal)}</p>
               </div>
-              <div className="flex items-center justify-between bg-beige rounded-xl px-4 py-3">
-                <div>
+              <div className="flex flex-col items-start gap-1 bg-beige rounded-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-xs text-brown-light">Ready to Batch</p>
                   <p className="text-[10px] text-brown-light">accepted delivery(ies) unbatched</p>
                 </div>
@@ -1088,7 +996,7 @@ export default function OwnerOverview() {
           )}
         </Section>
 
-        <Section title="Recent Activity" icon={LuActivity} iconColor="text-indigo-600" iconBg="bg-indigo-50">
+        <Section title="Recent Activity">
           {recentActivity.length === 0 ? (
             <p className="text-xs text-brown-light py-4 text-center">No recent activity</p>
           ) : (
@@ -1133,8 +1041,8 @@ export default function OwnerOverview() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-card-hover
-          bg-white border border-green-pale text-green-dark text-sm font-medium animate-fade-in-up">
+        <div className="fixed bottom-5 left-3 right-3 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-card-hover
+          bg-white border border-green-pale text-green-dark text-sm font-medium animate-fade-in-up sm:left-auto sm:right-6 sm:max-w-sm">
           <LuCheck className="w-4 h-4 shrink-0" />
           {toast}
         </div>

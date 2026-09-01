@@ -129,22 +129,20 @@ export default function MyContractsPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mt-5 mb-6">
-        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-          <LuFileText className="w-5 h-5 text-blue-600" />
-        </div>
-        <div>
+      <div className="flex items-center justify-between mb-6">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-brown-dark">My Contracts</h1>
-          <p className="text-brown-light text-sm">All negotiated contracts with NERC Copra Trading</p>
+          <p className="text-brown-light text-sm mt-0.5">All negotiated contracts with NERC Copra Trading</p>
         </div>
+        {!loading && <span className="text-xs text-brown-light shrink-0">{contracts.length} total</span>}
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 bg-beige rounded-xl p-1 mb-6 flex-wrap">
+      <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
         {FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 whitespace-nowrap
-              ${filter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
+            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
             {f}
             {f === "All" && contracts.length > 0 && (
               <span className="ml-1 opacity-60">({contracts.length})</span>
@@ -158,7 +156,7 @@ export default function MyContractsPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuFileText className="w-7 h-7 text-brown-light" />
           </div>
@@ -168,7 +166,7 @@ export default function MyContractsPage() {
           </p>
           {filter === "All" && (
             <button onClick={() => navigate("/dashboard/supplier/conversations")}
-              className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
+              className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-colors">
               <LuMessageSquare className="w-4 h-4" /> Start a Negotiation
             </button>
           )}
@@ -184,12 +182,12 @@ export default function MyContractsPage() {
             const fulfillment = contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0;
 
             return (
-              <div key={c.contract_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
+              <div key={c.contract_id} className="bg-white border border-beige-dark/40 rounded-xl p-4 sm:p-5">
                 {/* Header row */}
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-bold text-brown-dark">{c.contract_number}</p>
+                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <p className="font-bold text-brown-dark break-words">{c.contract_number}</p>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${meta.color}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                         {meta.label}
@@ -197,7 +195,7 @@ export default function MyContractsPage() {
                     </div>
                     <p className="text-brown-light text-xs">Created {fmtDate(c.created_at)}</p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
                     {c.contract_document_url && (
                       <button
                         onClick={() => setViewContract({
@@ -226,7 +224,7 @@ export default function MyContractsPage() {
                 </div>
 
                 {/* Details grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                   <Detail label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
                   <Detail label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
                   <Detail label="Activation Date" value={fmtDate(c.activation_date)} />
@@ -243,10 +241,10 @@ export default function MyContractsPage() {
                 </div>
 
                 {/* Delivery + fulfillment row */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                   <Detail label="Delivered Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} />
                   <Detail label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(2)} tons`} />
-                  <div className="col-span-2">
+                  <div className="sm:col-span-2">
                     <p className="text-brown-light text-xs mb-1">Fulfillment</p>
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-2.5 bg-beige rounded-full overflow-hidden">
@@ -289,9 +287,9 @@ export default function MyContractsPage() {
 
 function Detail({ label, value, children }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-brown-light text-xs mb-0.5">{label}</p>
-      {children ?? <p className="font-semibold text-brown-dark text-sm">{value}</p>}
+      {children ?? <p className="font-semibold text-brown-dark text-sm break-words">{value}</p>}
     </div>
   );
 }
@@ -328,10 +326,10 @@ function SupplierBatchesModal({ contract, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-2xl flex flex-col max-h-[88vh]">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-2xl flex flex-col max-h-[88vh]">
         <div className="flex items-center justify-between px-4 sm:px-7 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b border-beige-dark/20 shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="w-11 h-11 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
               <LuTruck className="w-6 h-6 text-amber-600" />
             </div>
             <div className="min-w-0">

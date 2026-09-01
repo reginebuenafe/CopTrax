@@ -41,17 +41,14 @@ export default function LabHistoryPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-beige rounded-xl flex items-center justify-center">
-          <LuClipboardList className="w-5 h-5 text-brown-mid" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Inspection History</h1>
-          <p className="text-brown-light text-sm">Your completed quality inspections</p>
+          <p className="text-brown-light text-sm mt-0.5">Your completed quality inspections</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+      <div className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />

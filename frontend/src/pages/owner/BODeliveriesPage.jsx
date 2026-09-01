@@ -83,19 +83,16 @@ export default function BODeliveriesPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-          <LuTruck className="w-5 h-5 text-blue-600" />
-        </div>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-brown-dark">Deliveries</h1>
-          <p className="text-brown-light text-sm">All delivery records — contractual and walk-in</p>
+          <h1 className="text-2xl font-black text-brown-dark">Deliveries</h1>
+          <p className="text-brown-light text-sm mt-0.5">All delivery records — contractual and walk-in</p>
         </div>
-        {!loading && <span className="ml-auto text-xs text-brown-light">{deliveries.length} total</span>}
+        {!loading && <span className="text-xs text-brown-light shrink-0">{deliveries.length} total</span>}
       </div>
 
       {/* Search + Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
           <input
@@ -110,16 +107,17 @@ export default function BODeliveriesPage() {
           className="sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
           {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
-        {/* Desktop: pill buttons */}
-        <div className="hidden sm:flex gap-1 bg-beige rounded-xl p-1">
-          {FILTERS.map(f => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap
-                ${filter === f ? "bg-white text-brown-dark shadow-sm" : "text-brown-light hover:text-brown-mid"}`}>
-              {f}
-            </button>
-          ))}
-        </div>
+      </div>
+
+      {/* Desktop: underline tabs */}
+      <div className="hidden sm:flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
+        {FILTERS.map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+            {f}
+          </button>
+        ))}
       </div>
 
       {loading ? (
@@ -127,7 +125,7 @@ export default function BODeliveriesPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuTruck className="w-7 h-7 text-brown-light" />
           </div>
@@ -152,39 +150,40 @@ export default function BODeliveriesPage() {
               .sort((a, b) => a.sequence_order - b.sequence_order);
 
             return (
-              <div key={d.delivery_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+              <div key={d.delivery_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
                 <button
                   onClick={() => setExpanded(isOpen ? null : d.delivery_id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/20 transition-colors text-left"
+                  className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/30 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${meta.color.split(" ")[0]}`}>
-                    <StatusIcon className={`w-5 h-5 ${meta.color.split(" ")[1]}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-brown-dark text-sm">{getSupplierName(d)}</p>
-                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
-                        d.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
-                      }`}>
-                        {d.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
-                      </span>
+                  <div className="flex min-w-0 items-start gap-3 sm:flex-1">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-brown-dark text-sm break-words">{getSupplierName(d)}</p>
+                        <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
+                          d.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
+                        }`}>
+                          {d.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
+                        </span>
+                      </div>
+                      <p className="text-brown-light text-xs break-words">
+                        {fmtDate(d.delivery_date)}
+                        {contractRef ? ` · ${contractRef}` : ""}
+                        {wr ? ` · ${fmt3(wr.net_weight_kg)} kg net` : ""}
+                      </p>
                     </div>
-                    <p className="text-brown-light text-xs">
-                      {fmtDate(d.delivery_date)}
-                      {contractRef ? ` · ${contractRef}` : ""}
-                      {wr ? ` · ${fmt3(wr.net_weight_kg)} kg net` : ""}
-                    </p>
                   </div>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${meta.color}`}>
-                    {meta.label}
-                  </span>
-                  {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
+                  <div className="flex items-center justify-between gap-3 sm:justify-end">
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${meta.color}`}>
+                      <StatusIcon className="w-3 h-3" />{meta.label}
+                    </span>
+                    {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
+                  </div>
                 </button>
 
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-5 py-4">
                     {/* Weighing + Quality grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-3">
                       {wr && d.delivery_source === "Walkin" ? <>
                         {/* Walk-in: show only Gross Weight, Quality, Net Weight, Weigher */}
                         <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
@@ -249,8 +248,8 @@ export default function BODeliveriesPage() {
                         </p>
                         <div className="space-y-1.5">
                           {allocs.map((a, i) => (
-                            <div key={i} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2">
+                            <div key={i} className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
                                   a.price_type === "Spot"
                                     ? "bg-amber-50 text-amber-700"
@@ -265,7 +264,7 @@ export default function BODeliveriesPage() {
                                   }
                                 </span>
                               </div>
-                              <div className="text-right text-brown-mid">
+                              <div className="text-left text-brown-mid sm:text-right">
                                 <span className="font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
                                 {a.contract_id && a.contract?.negotiated_price_per_kg && (
                                   <span className="text-brown-light ml-2">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
@@ -289,12 +288,12 @@ export default function BODeliveriesPage() {
 
 function InfoItem({ label, value, highlight }) {
   return (
-    <div className="bg-beige rounded-xl px-3 py-2.5">
+    <div className="bg-beige rounded-xl px-3 py-2.5 min-w-0">
       <p className="text-brown-light text-xs mb-0.5">{label}</p>
       <p className={`font-semibold text-sm ${
         highlight === "Accepted" ? "text-green-dark" :
         highlight === "Rejected" ? "text-red-600" : "text-brown-dark"
-      }`}>{value}</p>
+      } break-words`}>{value}</p>
     </div>
   );
 }

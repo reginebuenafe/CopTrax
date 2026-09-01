@@ -59,26 +59,26 @@ export default function SupplierPaymentsPage() {
 
   return (
     <div className="pt-6">
-      <div className="flex items-center gap-3 mt-5 mb-6">
-        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-          <LuWallet className="w-5 h-5 text-amber-600" />
-        </div>
-        <div>
+      <div className="flex items-center justify-between mb-6">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-brown-dark">Payments</h1>
-          <p className="text-brown-light text-sm">Your disbursement history from NERC Copra Trading</p>
+          <p className="text-brown-light text-sm mt-0.5">Your disbursement history from NERC Copra Trading</p>
         </div>
+        {!loading && payments.length > 0 && (
+          <span className="text-xs text-brown-light shrink-0">{payments.length} total</span>
+        )}
       </div>
 
       {/* Summary */}
       {!loading && payments.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
-            <p className="text-xs text-brown-light mb-1">Total Received</p>
-            <p className="text-xl font-extrabold text-green-dark">{peso(totalReleased)}</p>
+          <div className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4">
+            <p className="text-2xl font-bold text-green-dark leading-none">{peso(totalReleased)}</p>
+            <p className="text-xs text-brown-light mt-1.5 leading-snug">Total Received</p>
           </div>
-          <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 px-5 py-4">
-            <p className="text-xs text-brown-light mb-1">Pending</p>
-            <p className="text-xl font-extrabold text-amber-600">{peso(totalPending)}</p>
+          <div className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4">
+            <p className="text-2xl font-bold text-amber-600 leading-none">{peso(totalPending)}</p>
+            <p className="text-xs text-brown-light mt-1.5 leading-snug">Pending</p>
           </div>
         </div>
       )}
@@ -88,7 +88,7 @@ export default function SupplierPaymentsPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : payments.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 flex flex-col items-center justify-center py-20 text-center px-4">
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
           <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
             <LuWallet className="w-7 h-7 text-brown-light" />
           </div>
@@ -104,29 +104,29 @@ export default function SupplierPaymentsPage() {
             const receipt = p.e_receipts?.[0];
 
             return (
-              <div key={p.payment_id} className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
+              <div key={p.payment_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
                 {/* Summary row */}
                 <button
                   onClick={() => setExpanded(isOpen ? null : p.payment_id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/20 transition-colors text-left"
+                  className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/30 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${meta.color.split(" ")[0]}`}>
-                    <StatusIcon className={`w-5 h-5 ${meta.color.split(" ")[1]}`} />
+                  <div className="flex min-w-0 items-start gap-3 sm:flex-1">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-brown-dark">Week of {fmtDate(p.payment_week)}</p>
+                      <p className="text-brown-light text-xs break-words">
+                        {p.payment_details?.length ?? 0} delivery(ies)
+                        {p.payment_date ? ` · Paid ${fmtDate(p.payment_date)}` : ""}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-brown-dark">Week of {fmtDate(p.payment_week)}</p>
-                    <p className="text-brown-light text-xs">
-                      {p.payment_details?.length ?? 0} delivery(ies)
-                      {p.payment_date ? ` · Paid ${fmtDate(p.payment_date)}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
+                  <div className="flex items-center justify-between gap-3 sm:block sm:text-right sm:shrink-0">
                     <p className="text-xl font-extrabold text-brown-dark">{peso(p.total_amount)}</p>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${meta.color}`}>
-                      {meta.label}
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${meta.color}`}>
+                      <StatusIcon className="w-3 h-3" />{meta.label}
                     </span>
+                    {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0 sm:hidden" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0 sm:hidden" />}
                   </div>
-                  {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
+                  {isOpen ? <LuChevronUp className="hidden w-4 h-4 text-brown-light shrink-0 sm:block" /> : <LuChevronDown className="hidden w-4 h-4 text-brown-light shrink-0 sm:block" />}
                 </button>
 
                 {/* Expanded detail */}
@@ -161,8 +161,8 @@ export default function SupplierPaymentsPage() {
                         <div className="bg-beige rounded-xl divide-y divide-beige-dark/30">
                           {p.payment_details.map((pd, i) => (
                             <div key={pd.payment_detail_id} className="px-4 py-3">
-                              <div className="flex justify-between items-start gap-3">
-                                <div className="text-sm">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                <div className="min-w-0 text-sm">
                                   <p className="text-brown-light text-xs">Delivery {i + 1}</p>
                                   <p className="text-brown-mid">
                                     {fmt3(pd.net_weight_kg)} kg net
@@ -178,7 +178,7 @@ export default function SupplierPaymentsPage() {
                                     </span>
                                   </p>
                                 </div>
-                                <p className="font-bold text-brown-dark shrink-0">{peso(pd.line_amount)}</p>
+                                <p className="font-bold text-brown-dark shrink-0 sm:text-right">{peso(pd.line_amount)}</p>
                               </div>
                             </div>
                           ))}
@@ -190,7 +190,7 @@ export default function SupplierPaymentsPage() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <div className="bg-beige rounded-xl px-3 py-2.5">
                         <p className="text-xs text-brown-light">Method</p>
                         <p className="font-semibold text-brown-dark">{p.payment_method}</p>
