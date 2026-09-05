@@ -186,9 +186,6 @@ export default function AccountSettingsPage() {
     <div className="mx-auto w-full max-w-3xl mt-5">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center">
-          <LuUser className="w-5 h-5 text-green-dark" />
-        </div>
         <div>
           <h1 className="text-xl font-bold text-brown-dark">Account Settings</h1>
           <p className="text-brown-light text-sm">Manage your account details and security</p>
