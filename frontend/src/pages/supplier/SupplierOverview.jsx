@@ -116,7 +116,7 @@ export default function SupplierOverview() {
             <span className="text-[#17682D]">{calendarDate}</span>
           </p>
           <h1 className="text-2xl font-bold text-brown-dark">
-            Welcome Back, {profile?.first_name} 👋
+            Welcome Back, {profile?.first_name}!
           </h1>
           <p className="text-brown-light text-sm mt-0.5">Here's a summary of your account activity</p>
         </div>
