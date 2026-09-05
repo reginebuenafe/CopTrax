@@ -86,7 +86,7 @@ export default function BODeliveriesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-black text-brown-dark">Deliveries</h1>
-          <p className="text-brown-light text-sm mt-0.5">All delivery records — contractual and walk-in</p>
+          <p className="text-brown-light text-sm mt-0.5">All delivery records, contractual and walk-in</p>
         </div>
         {!loading && <span className="text-xs text-brown-light shrink-0">{deliveries.length} total</span>}
       </div>
@@ -192,7 +192,7 @@ export default function BODeliveriesPage() {
                         <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
                       </> : !wr && d.delivery_source === "Walkin" ? (
                         <div className="col-span-4 text-center py-2 text-brown-light text-xs italic">
-                          Weighing record unavailable — this delivery was recorded before the condition tracking update. Please delete and re-record it.
+                          Weighing record unavailable. This delivery was recorded before the condition tracking update. Please delete and re-record it.
                         </div>
                       ) : wr ? <>
                         <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />

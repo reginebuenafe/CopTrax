@@ -11,6 +11,7 @@ import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
+import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
 
 function getDateLabel(dateInput) {
@@ -866,7 +867,7 @@ export default function NegotiationChatWidget() {
                           : "bg-[#FDF7E7] text-brown-dark border border-[#E8DCC8] rounded-tl-none"
                           }`}
                       >
-                        {m.message_text}
+                        {formatMessageText(m.message_text)}
                         <div
                           className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMe ? "text-emerald-200/80" : "text-brown-light"
                             }`}
@@ -994,7 +995,7 @@ export default function NegotiationChatWidget() {
           {/* Prominent Submit Price Proposal Button */}
           <button
             disabled={!canPropose}
-            title={!canPropose ? "You already have 3 Active contracts — complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
+            title={!canPropose ? "You already have 3 Active contracts. Complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
             onClick={async () => {
               if (!canPropose) return;
               const conv = await ensureConversationExists();
@@ -1008,7 +1009,7 @@ export default function NegotiationChatWidget() {
               rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <LuFileText className="w-4.5 h-4.5 text-white" />
-            {!canPropose ? "3 Active Contracts — Limit Reached" : "Submit Price Proposal"}
+            {!canPropose ? "3 Active Contracts (Limit Reached)" : "Submit Price Proposal"}
           </button>
 
           {/* Rounded Input Bar */}

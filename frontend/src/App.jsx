@@ -9,6 +9,9 @@ import WhatIsCopra from "./WhatIsCopra";
 import WhySellToUs from "./WhySellToUs";
 import Gallery from "./Gallery";
 import Contact from "./Contact";
+import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
+import TermsConditionsPage from "./pages/legal/TermsConditionsPage";
+import HelpSupportPage from "./pages/help/HelpSupportPage";
 
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
@@ -94,6 +97,9 @@ function App() {
         <Route path="/why-sell-to-us" element={<><Navbar /><main className="min-h-screen"><WhySellToUs /></main><Footer /></>} />
         <Route path="/gallery" element={<><Navbar /><main className="min-h-screen"><Gallery /></main><Footer /></>} />
         <Route path="/contact" element={<><Navbar /><main className="min-h-screen"><Contact /></main><Footer /></>} />
+        <Route path="/privacy-policy" element={<><Navbar /><main className="min-h-screen"><PrivacyPolicyPage /></main><Footer /></>} />
+        <Route path="/terms" element={<><Navbar /><main className="min-h-screen"><TermsConditionsPage /></main><Footer /></>} />
+        <Route path="/help" element={<><Navbar /><main className="min-h-screen"><HelpSupportPage /></main><Footer /></>} />
 
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />

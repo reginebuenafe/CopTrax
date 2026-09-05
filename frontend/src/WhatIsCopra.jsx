@@ -58,7 +58,7 @@ export default function WhatIsCopra() {
             What is Copra?
           </h1>
           <p className="text-lg sm:text-xl opacity-90 max-w-lg mx-auto animate-fade-in-up" style={{ animationDelay: "300ms" }}>
-            The dried meat of the coconut — the backbone of the Philippine coconut industry
+            The dried meat of the coconut, the backbone of the Philippine coconut industry
           </p>
         </div>
       </section>
@@ -83,7 +83,7 @@ export default function WhatIsCopra() {
                     <div key={j} className="flex items-start gap-3 group">
                       <span className="w-2 h-2 bg-green-light rounded-full mt-2 flex-shrink-0 group-hover:scale-150 transition-transform" />
                       <p className="text-gray-500 text-sm leading-relaxed">
-                        <strong className="text-brown-dark">{item.bold}</strong> — {item.desc}
+                        <strong className="text-brown-dark">{item.bold}</strong>: {item.desc}
                       </p>
                     </div>
                   ))}

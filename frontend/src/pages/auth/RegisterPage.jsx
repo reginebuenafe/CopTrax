@@ -610,7 +610,7 @@ export default function RegisterPage() {
     }
     const userId = data?.user?.id;
     if (!userId) {
-      setError("Account creation failed — this email may already be registered, or email confirmation may be pending. Try logging in or use a different email.");
+      setError("Account creation failed. This email may already be registered, or email confirmation may be pending. Try logging in or use a different email.");
       setLoading(false);
       return;
     }
@@ -785,7 +785,7 @@ export default function RegisterPage() {
           {govIdPhoto && !idExtracting && idScanSucceeded && (
             <div className="flex items-center gap-2 text-xs text-green-dark">
               <LuCheck className="w-3.5 h-3.5" />
-              ID scanned — your information will be pre-filled in the next step
+              ID scanned. Your information will be pre-filled in the next step
             </div>
           )}
         </div>
@@ -917,7 +917,7 @@ export default function RegisterPage() {
               <li>Write your <strong>full signature</strong> using a black or blue pen.</li>
               <li>Make sure your signature is clearly written and not cut off.</li>
               <li>Place the paper on a flat, well-lit surface.</li>
-              <li>Take a clear, straight-on photo — avoid shadows and blurriness.</li>
+              <li>Take a clear, straight-on photo. Avoid shadows and blurriness.</li>
             </ol>
             <div className="mt-3 border border-beige-dark rounded-xl px-4 py-3 bg-white text-xs text-brown-light text-center italic">
               Your handwritten signature will be used on all contracts you sign in CopTrax
@@ -1004,7 +1004,7 @@ export default function RegisterPage() {
     "Bank Account",
   ];
   const stepSubtitles = [
-    "Upload your ID — we'll read and fill in your details automatically",
+    "Upload your ID, we'll read and fill in your details automatically",
     "Review and complete your personal details",
     "Take a selfie holding your government ID",
     "Provide a photo of your handwritten signature",
@@ -1040,7 +1040,7 @@ export default function RegisterPage() {
               <BrandLogo className="w-full h-full" size="100%" />
             </div>
             <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
-            <p className="text-brown-light text-sm mt-1">Supplier Registration — NERC Copra Trading</p>
+            <p className="text-brown-light text-sm mt-1">Supplier Registration · NERC Copra Trading</p>
           </div>
 
           {/* Card */}
@@ -1088,7 +1088,7 @@ export default function RegisterPage() {
                 ) : (
                   <button type="submit"
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
-                    <LuCheck className="w-4 h-4" /> Submit Registration
+                    <LuCheck className="w-4 h-4" /> Create Account
                   </button>
                 )}
               </div>

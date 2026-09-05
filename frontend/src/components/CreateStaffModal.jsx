@@ -79,7 +79,7 @@ export default function CreateStaffModal({ onClose, onCreated, defaultRole = "We
             </div>
             <div>
               <h3 className="text-base font-bold text-brown-dark">Create Staff Account</h3>
-              <p className="text-brown-light text-xs">Account is Active immediately — no approval step</p>
+              <p className="text-brown-light text-xs">Account is Active immediately, no approval step</p>
             </div>
           </div>
           <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">

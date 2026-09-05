@@ -1,5 +1,5 @@
-import { createElement, useState, useEffect } from "react";
-import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
+import { createElement, useState, useEffect, useRef } from "react";
+import { Link, NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
@@ -15,9 +15,8 @@ const NAV_ITEMS = [
   { to: "/dashboard/supplier", label: "Overview", icon: LuLayoutDashboard, end: true },
   { to: "/dashboard/supplier/contracts", label: "My Contracts", icon: LuFileText },
   { to: "/dashboard/supplier/deliveries", label: "Deliveries", icon: LuTruck },
-  { to: "/dashboard/supplier/payments", label: "Payments", icon: LuWallet },
+  { to: "/dashboard/supplier/payments", label: "My Payments", icon: LuWallet },
   { to: "/dashboard/supplier/rating", label: "My Rating", icon: LuStar },
-  { to: "/dashboard/supplier/settings", label: "Settings", icon: LuSettings },
 ];
 
 const SIDEBAR_FULL = 256;
@@ -63,6 +62,21 @@ export default function SupplierLayout() {
 
   const initials = [profile?.first_name?.[0], profile?.last_name?.[0]]
     .filter(Boolean).join("").toUpperCase() || "SP";
+
+  // ── Profile dropdown (Settings + Sign Out) ───────────────────────────────
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    function handleClickOutside(e) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileMenuOpen]);
 
   return (
     <div
@@ -144,26 +158,6 @@ export default function SupplierLayout() {
             </NavLink>
           ))}
         </nav>
-
-        {/* Sidebar footer — sign out only */}
-        <div className="border-t border-[#E7DCC9] shrink-0 px-2 py-3 overflow-hidden">
-          <button
-            onClick={handleSignOut}
-            title={collapsed ? "Sign Out" : undefined}
-            className={`flex items-center rounded-xl text-sm font-medium
-              text-[#765D52] hover:bg-red-50 hover:text-red-600 transition-all duration-200
-              ${collapsed
-                ? "w-full gap-2.5 px-3.5 py-2.5 lg:w-11 lg:h-11 lg:mx-auto lg:gap-0 lg:p-0 lg:justify-center"
-                : "w-full gap-2.5 px-3.5 py-2.5"
-              }`}
-          >
-            <LuLogOut className={`shrink-0 transition-all duration-200 ${collapsed ? "lg:w-5.5 lg:h-5.5 w-4 h-4" : "w-4 h-4"}`} />
-            <span className={`whitespace-nowrap transition-[opacity,max-width] duration-300 ease-in-out overflow-hidden
-              ${collapsed ? "lg:opacity-0 lg:max-w-0" : "opacity-100 max-w-[160px]"}`}>
-              Sign Out
-            </span>
-          </button>
-        </div>
       </aside>
 
       {/* ── Collapse toggle — floats on the sidebar/content boundary (desktop only) ── */}
@@ -202,25 +196,95 @@ export default function SupplierLayout() {
           </button>
           <div className="flex-1" />
           <NotificationBell />
-          {/* User info card */}
-          <div className="flex min-w-0 items-center gap-2.5 pl-2.5 pr-2.5 sm:pl-3 sm:pr-3 py-1.5 rounded-full border-2 border-[#E8DCC8] hover:bg-[#FAF6EE] transition-colors">
-            <div className="w-7 h-7 rounded-full bg-green-dark
-              flex items-center justify-center text-white text-[11px] font-bold shrink-0">
-              {initials}
-            </div>
-            <div className="hidden sm:flex min-w-0 items-center gap-2">
-              <div className="min-w-0">
-                <p className="text-brown-dark text-sm font-semibold leading-none truncate">
-                  {profile?.first_name} {profile?.last_name}
-                </p>
-                <p className="text-brown-light text-[11px] mt-0.5 truncate">{profile?.email}</p>
+          {/* User info card — click to reveal Settings / Sign Out */}
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              onClick={() => setProfileMenuOpen(o => !o)}
+              className={`flex min-w-0 items-center gap-2.5 pl-2.5 pr-2.5 sm:pl-3 sm:pr-3 py-1.5 rounded-full border-2 transition-colors
+                ${profileMenuOpen ? "bg-[#FAF6EE] border-[#D9C7A3]" : "border-[#E8DCC8] hover:bg-[#FAF6EE]"}`}
+            >
+              <div className="w-7 h-7 rounded-full bg-green-dark
+                flex items-center justify-center text-white text-[11px] font-bold shrink-0">
+                {initials}
               </div>
-              {/* Verified badge */}
-              <span className="flex items-center gap-1 text-brown-light text-[11px] font-semibold whitespace-nowrap shrink-0">
-                <LuBadgeCheck className="w-3.5 h-3.5" />
-                Verified
-              </span>
-            </div>
+              <div className="hidden sm:flex min-w-0 items-center gap-2">
+                <div className="min-w-0 text-left">
+                  <p className="text-brown-dark text-sm font-semibold leading-none truncate">
+                    {profile?.first_name} {profile?.last_name}
+                  </p>
+                  <p className="text-brown-light text-[11px] mt-0.5 truncate">{profile?.email}</p>
+                </div>
+                {/* Verified badge */}
+                <span className="flex items-center gap-1 text-brown-light text-[11px] font-semibold whitespace-nowrap shrink-0">
+                  <LuBadgeCheck className="w-3.5 h-3.5" />
+                  Verified
+                </span>
+              </div>
+            </button>
+
+            {profileMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 z-50 w-56 max-w-[calc(100vw-1.5rem)] rounded-xl border border-beige-dark/30 bg-white shadow-card-hover overflow-hidden">
+                {/* Profile summary — shown here so it's visible even on mobile where the header hides it */}
+                <div className="sm:hidden px-4 pt-3 pb-2 border-b border-beige-dark/20">
+                  <p className="text-brown-dark text-sm font-semibold leading-none truncate">
+                    {profile?.first_name} {profile?.last_name}
+                  </p>
+                  <p className="text-brown-light text-[11px] mt-1 truncate">{profile?.email}</p>
+                  <span className="mt-1.5 inline-flex items-center gap-1 text-brown-light text-[11px] font-semibold">
+                    <LuBadgeCheck className="w-3.5 h-3.5" />
+                    Verified
+                  </span>
+                </div>
+                <NavLink
+                  to="/dashboard/supplier/settings"
+                  onClick={() => setProfileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E] transition-colors"
+                >
+                  <LuSettings className="w-4 h-4 shrink-0" />
+                  Settings
+                </NavLink>
+                <button
+                  onClick={() => { setProfileMenuOpen(false); handleSignOut(); }}
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-[#765D52] hover:bg-red-50 hover:text-red-600 transition-colors border-t border-beige-dark/20"
+                >
+                  <LuLogOut className="w-4 h-4 shrink-0" />
+                  Sign Out
+                </button>
+
+                {/* Legal / support footer */}
+                <div className="flex flex-nowrap items-center justify-center gap-x-2 px-4 py-2.5 border-t border-beige-dark/20 bg-[#FBF7EF]">
+                  <Link
+                    to="/help"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
+                  >
+                    Help
+                  </Link>
+                  <span className="text-[11px] text-brown-light/50">&middot;</span>
+                  <Link
+                    to="/privacy-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
+                  >
+                    Privacy
+                  </Link>
+                  <span className="text-[11px] text-brown-light/50">&middot;</span>
+                  <Link
+                    to="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
+                  >
+                    Terms
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
         </header>
         <main className="min-w-0 flex-1 px-3 pb-5 pt-[76px] sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 lg:pt-[84px]">

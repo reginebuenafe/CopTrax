@@ -380,7 +380,7 @@ export default function ContractualDeliveryForm() {
               {activeContracts.length === 0 ? (
                 <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
                   <LuCircleAlert className="w-4 h-4 shrink-0" />
-                  No active contracts — this delivery will be priced at spot price.
+                  No active contracts. This delivery will be priced at spot price.
                 </div>
               ) : (
                 <div className="bg-green-pale rounded-xl px-4 py-3">

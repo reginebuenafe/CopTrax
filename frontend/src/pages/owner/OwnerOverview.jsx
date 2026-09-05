@@ -327,7 +327,7 @@ function DeliveryAnalyticsModal({ onClose }) {
             </div>
             <div className="min-w-0">
               <p className="text-base font-bold text-brown-dark">Delivery Analytics</p>
-              <p className="text-xs text-brown-light">Accepted deliveries — net weight</p>
+              <p className="text-xs text-brown-light">Accepted deliveries, net weight</p>
             </div>
           </div>
           <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">

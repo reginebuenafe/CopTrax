@@ -105,7 +105,7 @@ export default function InspectionQueuePage() {
       inspection_id: inspection.inspection_id,
       result: preview.result,
       remarks: preview.result === "Rejected"
-        ? `Moisture content ${mc}cc exceeds 20.2cc — automatic rejection.`
+        ? `Moisture content ${mc}cc exceeds 20.2cc. Automatic rejection.`
         : `Moisture content ${mc}cc. Discount: ${preview.discountValue ?? 0}%.`,
     });
 
@@ -225,7 +225,7 @@ export default function InspectionQueuePage() {
             </div>
           ) : (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
-              Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected — no payment will be processed.
+              Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected. No payment will be processed.
             </div>
           )}
 
@@ -334,7 +334,7 @@ export default function InspectionQueuePage() {
                   : <LuX className="w-5 h-5 text-red-500" />
                 }
                 <p className={`font-bold text-base ${preview.result === "Accepted" ? "text-green-dark" : "text-red-600"}`}>
-                  {preview.result === "Accepted" ? "Accepted" : "Rejected — Automatic"}
+                  {preview.result === "Accepted" ? "Accepted" : "Rejected (Automatic)"}
                 </p>
               </div>
 

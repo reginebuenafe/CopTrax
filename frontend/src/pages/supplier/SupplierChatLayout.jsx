@@ -11,6 +11,7 @@ import ProposePriceModal from "../../components/ProposePriceModal";
 import SupplierContractReviewModal from "../../components/SupplierContractReviewModal";
 import ContractDocumentModal from "../../components/ContractDocumentModal";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
+import { formatMessageText } from "../../utils/formatMessageText";
 
 const SUPPLIER_QUICK_SUGGESTIONS = [
   "I'll review the contract shortly.",
@@ -622,7 +623,7 @@ export default function SupplierChatLayout() {
                           ? "bg-[#2d5a27] text-white rounded-br-sm"
                           : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"
                       }`}>
-                        {msg.message_text}
+                        {formatMessageText(msg.message_text)}
                         <p className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMine ? "text-white/60" : "text-[#b09a7a]"}`}>
                           {new Date(msg.sent_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
                           {isMine && <LuCheckCheck className="w-3 h-3" />}

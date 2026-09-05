@@ -44,7 +44,7 @@ const REPORTS = [
     label: "Inventory Report",
     icon: LuPackage,
     color: "bg-purple-50 text-purple-600",
-    description: "Inventory batches — Walk-in Holding, Ready to Merge, and Resecada pool.",
+    description: "Inventory batches: Walk-in Holding, Ready to Merge, and Resecada pool.",
   },
   {
     id: "payments",
@@ -499,7 +499,7 @@ function exportPDF(reportId, reportLabel, rows) {
 
       doc.setFontSize(14);
       doc.setFont("helvetica", "bold");
-      doc.text("CopTrax — NERC Copra Trading", 14, 16);
+      doc.text("CopTrax · NERC Copra Trading", 14, 16);
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.text(reportLabel, 14, 22);

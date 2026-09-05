@@ -52,7 +52,7 @@ export default function HomePage() {
           </div>
           <div className="p-6 sm:p-10 text-center">
             <p className="text-gray-500 leading-relaxed mb-4 text-base">
-              Copra is the dried kernel of the coconut — the primary product used to extract coconut oil. The Philippines is one of the world's top producers, and copra remains a vital part of the agricultural economy.
+              Copra is the dried kernel of the coconut, the primary product used to extract coconut oil. The Philippines is one of the world's top producers, and copra remains a vital part of the agricultural economy.
             </p>
             <Link to="/what-is-copra" className="inline-flex items-center gap-1 text-green-dark font-semibold text-sm hover:gap-2 transition-all duration-300">
               Learn more about copra <LuArrowRight className="w-4 h-4" />
@@ -76,14 +76,14 @@ export default function HomePage() {
             Your Reliable Copra Buying Partner
           </h2>
           <p className="reveal text-gray-500 max-w-xl mx-auto text-base delay-200">
-            We make it easy to sell your copra — no hassle, fair deals, every time.
+            We make it easy to sell your copra: no hassle, fair deals, every time.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6" data-reveal>
           {[
             { icon: <LuCoins className="w-7 h-7" />, title: "Competitive Prices", desc: "We offer rates based on current market value so you always get the best deal.", color: "from-yellow-400 to-yellow-500" },
             { icon: <LuScale className="w-7 h-7" />, title: "Honest Weighing", desc: "Accurate and transparent weighing using certified scales you can trust.", color: "from-green-light to-green-mid" },
-            { icon: <LuZap className="w-7 h-7" />, title: "Fast Payment", desc: "Get paid on the spot — no delays, no waiting.", color: "from-orange-400 to-orange-500" },
+            { icon: <LuZap className="w-7 h-7" />, title: "Fast Payment", desc: "Get paid on the spot, no delays, no waiting.", color: "from-orange-400 to-orange-500" },
             { icon: <LuPackage className="w-7 h-7" />, title: "Any Quantity", desc: "We accept small and bulk quantities. Every farmer is welcome.", color: "from-brown-light to-brown-mid" },
           ].map((item, i) => (
             <div
@@ -113,7 +113,7 @@ export default function HomePage() {
               How to Sell Your Copra
             </h2>
             <p className="reveal text-gray-500 max-w-xl mx-auto text-base delay-200">
-              Selling your copra is quick and easy — follow these three simple steps.
+              Selling your copra is quick and easy. Follow these three simple steps.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 sm:gap-10 max-w-4xl mx-auto" data-reveal>

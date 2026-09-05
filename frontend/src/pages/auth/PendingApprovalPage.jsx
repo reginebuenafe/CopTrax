@@ -17,7 +17,7 @@ export default function PendingApprovalPage() {
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
-          <p className="text-brown-light text-sm mt-1">NERC Copra Trading — Staff Portal</p>
+          <p className="text-brown-light text-sm mt-1">NERC Copra Trading · Staff Portal</p>
         </div>
 
         {/* Card */}

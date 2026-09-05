@@ -115,7 +115,7 @@ export default function Contact() {
               Contact us to inquire about the current copra buying price.
             </p>
             <p className="reveal opacity-90 max-w-lg mx-auto mb-8 text-base delay-200">
-              Visit our buying station — we pay on the spot!
+              Visit our buying station, we pay on the spot!
             </p>
             <a
               href="./Contact"
