@@ -19,7 +19,7 @@ export default function Gallery() {
     { src: "https://images.unsplash.com/photo-1566109964132-ec243417ca2d?w=800&h=600&fit=crop", caption: "Fresh coconuts ready for processing", category: "Coconuts" },
     { src: "https://images.unsplash.com/photo-1546662608-aec5228e9a74?w=800&h=600&fit=crop", caption: "Coconut farm harvest", category: "Farm" },
     { src: "https://images.unsplash.com/photo-1554444510-592779e6e009?w=800&h=600&fit=crop", caption: "Split coconut showing the white meat used for copra", category: "Drying" },
-    { src: "https://images.unsplash.com/photo-1596663097529-c65b32a1f506?w=800&h=600&fit=crop", caption: "Coconut oil — the main product of copra", category: "Products" },
+    { src: "https://images.unsplash.com/photo-1596663097529-c65b32a1f506?w=800&h=600&fit=crop", caption: "Coconut oil, the main product of copra", category: "Products" },
     { src: "https://images.unsplash.com/photo-1509278159101-02103f49328f?w=800&h=600&fit=crop", caption: "Handling coconut husk during processing", category: "Processing" },
     { src: "https://images.unsplash.com/photo-1603779046675-2eccbab9b982?w=800&h=600&fit=crop", caption: "Harvested coconuts at the buying station", category: "Station" },
   ];

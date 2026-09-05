@@ -4,6 +4,7 @@ import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "rea
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
 import { useAuth } from "../../contexts/AuthContext";
+import TermsConfirmModal from "../../components/TermsConfirmModal";
 
 const ROLE_REDIRECT = {
   "Business Owner": "/dashboard/owner",
@@ -16,6 +17,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { isLoading, role, accountStatus } = useAuth();
+  const [showCreateAccountConfirm, setShowCreateAccountConfirm] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Suppress dark mode on auth pages
   useEffect(() => {
@@ -152,6 +155,14 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      {showCreateAccountConfirm && (
+        <TermsConfirmModal
+          agreed={agreedToTerms}
+          onAgreedChange={setAgreedToTerms}
+          onCancel={() => setShowCreateAccountConfirm(false)}
+          onConfirm={() => { setShowCreateAccountConfirm(false); navigate("/register"); }}
+        />
+      )}
       <Link to="/" aria-label="Back to homepage"
         className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
         <LuArrowLeft className="w-4 h-4 text-green-dark" />
@@ -298,9 +309,13 @@ export default function LoginPage() {
 
           <p className="text-center text-sm text-brown-light mt-6">
             New supplier?{" "}
-            <Link to="/register" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
+            <button
+              type="button"
+              onClick={() => setShowCreateAccountConfirm(true)}
+              className="text-green-mid font-semibold hover:text-green-dark transition-colors"
+            >
               Create an account
-            </Link>
+            </button>
           </p>
         </div>
       </div>

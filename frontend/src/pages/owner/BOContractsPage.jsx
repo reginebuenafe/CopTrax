@@ -217,7 +217,7 @@ export default function BOContractsPage() {
           });
         }
       }
-      showToast("Contract activated — deliveries can now be recorded.");
+      showToast("Contract activated. Deliveries can now be recorded.");
       fetchContracts();
     }
 
@@ -438,7 +438,7 @@ export default function BOContractsPage() {
                     </button>
                   )}
                   {(c.status === "Completed" || c.status === "Breached") && (
-                    <span className="text-xs text-brown-light italic">Contract finalized — rating computed</span>
+                    <span className="text-xs text-brown-light italic">Contract finalized, rating computed</span>
                   )}
                 </div>
               </div>

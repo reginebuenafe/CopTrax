@@ -249,7 +249,7 @@ export default function PaymentsPage() {
     if (res.error || res.data?.error) {
       showToast(res.data?.error ?? "Failed to release payment.", "error");
     } else if (res.data?.processing) {
-      showToast("Payout submitted — payment is now Processing. It will update to Released once Xendit confirms.");
+      showToast("Payout submitted. Payment is now Processing. It will update to Released once Xendit confirms.");
     } else {
       showToast(`Payment released · Receipt ${res.data.receipt_number}`);
     }
@@ -634,7 +634,7 @@ function PaymentPreviewPanel({ group, onCreateBatch }) {
             <span className="text-brown-light">Price per kg</span>
             {deliveryUniformPrice && deliveryLines.length > 0
               ? <span className="font-semibold text-brown-dark">{peso(deliveryLines[0].pricePerKg)}<span className="text-brown-light font-normal">/kg</span></span>
-              : <span className="text-xs text-brown-light italic">Multiple — see breakdown</span>
+              : <span className="text-xs text-brown-light italic">Multiple, see breakdown</span>
             }
           </div>
         </div>
@@ -1062,7 +1062,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center text-brown-light italic">Official electronic payment receipt</p>
-            <p className="text-center text-brown-light">NERC Copra Trading — CopTrax</p>
+            <p className="text-center text-brown-light">NERC Copra Trading · CopTrax</p>
           </div>
         </div>
 
@@ -1386,7 +1386,7 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center text-brown-light italic">Official cash payment receipt</p>
-            <p className="text-center text-brown-light">NERC Copra Trading — CopTrax</p>
+            <p className="text-center text-brown-light">NERC Copra Trading · CopTrax</p>
           </div>
         </div>
 

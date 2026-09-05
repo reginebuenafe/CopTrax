@@ -166,9 +166,9 @@ export default function WalkinDeliveryForm() {
           </div>
           <h2 className="text-xl font-bold text-brown-dark mb-2">Walk-in Delivery Recorded</h2>
           <p className="text-brown-light text-sm mb-5">
-            <span className="font-semibold text-brown-dark">{success.supplierName}</span> —{" "}
+            <span className="font-semibold text-brown-dark">{success.supplierName}</span>:{" "}
             <span className="font-semibold text-green-dark">{success.finalWeight.toFixed(2)} kg</span> final weight.
-            Delivery accepted and added to inventory — no lab inspection required for Walk-in.
+            Delivery accepted and added to inventory. No lab inspection required for Walk-in.
           </p>
           <div className="bg-beige rounded-xl px-4 py-3 text-left mb-6 text-sm space-y-1">
             <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Summary</p>

@@ -67,9 +67,24 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-5 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs opacity-50">
-          <p>&copy; {new Date().getFullYear()} NERC Copra Trading. All rights reserved.</p>
-          <p>Serving Filipino coconut farmers</p>
+        <div className="max-w-6xl mx-auto px-4 sm:px-5 py-5">
+          <div className="flex items-center justify-center gap-2 sm:gap-3 text-xs mb-3">
+            <Link to="/help" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
+              Help &amp; Support
+            </Link>
+            <span className="opacity-30" aria-hidden="true">&middot;</span>
+            <Link to="/privacy-policy" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
+              Privacy Policy
+            </Link>
+            <span className="opacity-30" aria-hidden="true">&middot;</span>
+            <Link to="/terms" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
+              Terms &amp; Conditions
+            </Link>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs opacity-50">
+            <p>&copy; {new Date().getFullYear()} NERC Copra Trading. All rights reserved.</p>
+            <p>Serving Filipino coconut farmers</p>
+          </div>
         </div>
       </div>
     </footer>
