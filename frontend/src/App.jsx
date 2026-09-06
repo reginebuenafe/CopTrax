@@ -7,7 +7,6 @@ import Footer from "./Footer";
 import HomePage from "./HomePage";
 import WhatIsCopra from "./WhatIsCopra";
 import WhySellToUs from "./WhySellToUs";
-import Gallery from "./Gallery";
 import Contact from "./Contact";
 import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
 import TermsConditionsPage from "./pages/legal/TermsConditionsPage";
@@ -95,7 +94,6 @@ function App() {
         <Route path="/" element={<><Navbar /><main className="min-h-screen"><HomePage /></main><Footer /></>} />
         <Route path="/what-is-copra" element={<><Navbar /><main className="min-h-screen"><WhatIsCopra /></main><Footer /></>} />
         <Route path="/why-sell-to-us" element={<><Navbar /><main className="min-h-screen"><WhySellToUs /></main><Footer /></>} />
-        <Route path="/gallery" element={<><Navbar /><main className="min-h-screen"><Gallery /></main><Footer /></>} />
         <Route path="/contact" element={<><Navbar /><main className="min-h-screen"><Contact /></main><Footer /></>} />
         <Route path="/privacy-policy" element={<><Navbar /><main className="min-h-screen"><PrivacyPolicyPage /></main><Footer /></>} />
         <Route path="/terms" element={<><Navbar /><main className="min-h-screen"><TermsConditionsPage /></main><Footer /></>} />

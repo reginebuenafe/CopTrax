@@ -9,6 +9,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
 import jsQR from "jsqr";
+import TermsConfirmModal from "../../components/TermsConfirmModal";
 
 const PH_BANKS = [
   "AllBank", "Asia United Bank", "Bank of China (Manila)", "Bank of Commerce",
@@ -378,6 +379,11 @@ export default function RegisterPage() {
 
   const [currentStep, setCurrentStep] = useState(0); // 0-4
 
+  // Terms & Privacy gate — shown every time a visitor lands on /register,
+  // regardless of entry point, before they can interact with the form.
+  const [showTermsGate, setShowTermsGate] = useState(true);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
   const [form, setForm] = useState({
     firstName: "", lastName: "", email: "", phone: "", address: "",
     password: "", confirmPassword: "", govIdType: "",
@@ -712,7 +718,7 @@ export default function RegisterPage() {
               <circle cx="40" cy="40" r="36" fill="none" stroke="#1b5e20" strokeWidth="6"
                 strokeDasharray="226" strokeDashoffset="170" strokeLinecap="round" />
             </svg>
-            <div className="absolute inset-[10px] bg-gradient-to-br from-green-dark to-green-mid rounded-2xl flex items-center justify-center shadow-lg">
+            <div className="absolute inset-[10px] flex items-center justify-center">
               <BrandLogo className="w-8 h-8" size="100%" />
             </div>
           </div>
@@ -1013,6 +1019,15 @@ export default function RegisterPage() {
 
   return (
     <>
+      {showTermsGate && (
+        <TermsConfirmModal
+          agreed={agreedToTerms}
+          onAgreedChange={setAgreedToTerms}
+          onCancel={() => navigate("/")}
+          onConfirm={() => setShowTermsGate(false)}
+        />
+      )}
+
       {camera && (
         <CameraModal
           facing={camera.facing}
@@ -1036,7 +1051,7 @@ export default function RegisterPage() {
         <div className="relative w-full max-w-lg">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3 p-2">
+            <div className="w-14 h-14 flex items-center justify-center mb-3">
               <BrandLogo className="w-full h-full" size="100%" />
             </div>
             <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>
