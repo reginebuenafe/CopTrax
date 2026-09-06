@@ -8,3 +8,4 @@ export const MotionSpan = motion.span;
 export const MotionP = motion.p;
 export const MotionH2 = motion.h2;
 export const MotionH3 = motion.h3;
+export const MotionIframe = motion.iframe;
