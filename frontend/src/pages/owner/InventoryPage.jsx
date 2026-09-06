@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, createElement } from "react";
 import {
   LuLeaf, LuTruck, LuCheck, LuCircleAlert, LuArrowRightLeft,
 } from "react-icons/lu";
@@ -21,12 +21,7 @@ export default function InventoryPage() {
   const [resecada, setResecada] = useState([]);
   const [walkin, setWalkin] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState(null);
-
-  const showToast = useCallback((msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  }, []);
+  const [toast] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -62,7 +57,7 @@ export default function InventoryPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { (async () => { await fetchData(); })(); }, [fetchData]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
   const resecadaTotal = resecada.reduce((s, b) => s + Number(b.weight_kg), 0);
@@ -140,7 +135,7 @@ function SummaryCard({ label, value, count, color, textColor, icon: Icon, badge 
         <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-400 rounded-full border-2 border-white" />
       )}
       <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center mb-3`}>
-        <Icon className={`w-5 h-5 ${textColor}`} />
+        {createElement(Icon, { className: `w-5 h-5 ${textColor}` })}
       </div>
       <p className={`break-words text-xl font-extrabold ${textColor}`}>{value}</p>
       <p className="text-brown-light text-xs mt-0.5">{label}</p>
@@ -342,7 +337,7 @@ function EmptyState({ icon: Icon, title, subtitle }) {
   return (
     <div className="bg-white rounded-xl border border-beige-dark/40 flex flex-col items-center justify-center py-20 text-center px-4">
       <div className="w-14 h-14 bg-beige rounded-xl flex items-center justify-center mb-4">
-        <Icon className="w-7 h-7 text-brown-light" />
+        {createElement(Icon, { className: "w-7 h-7 text-brown-light" })}
       </div>
       <p className="text-brown-dark font-semibold">{title}</p>
       <p className="text-brown-light text-sm mt-1">{subtitle}</p>

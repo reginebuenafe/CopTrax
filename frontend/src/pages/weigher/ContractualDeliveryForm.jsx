@@ -132,12 +132,6 @@ export default function ContractualDeliveryForm() {
     setLoadingContracts(false);
   }
 
-  // ── Live allocation preview ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedSupplier || net <= 0) { setAllocationPreview([]); return; }
-    setAllocationPreview(buildAllocationPreview(net, activeContracts, spotPrice));
-  }, [net, activeContracts, spotPrice, selectedSupplier]);
-
   function buildAllocationPreview(netKg, contracts, spot) {
     const result = [];
     let remaining = netKg;
@@ -174,6 +168,25 @@ export default function ContractualDeliveryForm() {
     }
 
     return result;
+  }
+
+  // ── Live allocation preview ────────────────────────────────────────────────
+  // Recomputed from state during render (rather than in a useEffect) to avoid
+  // an extra "cascading render" pass for this pure derived-value calculation:
+  // https://react.dev/learn/you-might-not-need-an-effect
+  const [prevPreviewInputs, setPrevPreviewInputs] = useState(null);
+  const previewInputs = { selectedSupplier, net, activeContracts, spotPrice };
+  const previewInputsChanged =
+    !prevPreviewInputs ||
+    prevPreviewInputs.selectedSupplier !== previewInputs.selectedSupplier ||
+    prevPreviewInputs.net !== previewInputs.net ||
+    prevPreviewInputs.activeContracts !== previewInputs.activeContracts ||
+    prevPreviewInputs.spotPrice !== previewInputs.spotPrice;
+  if (previewInputsChanged) {
+    setPrevPreviewInputs(previewInputs);
+    setAllocationPreview(
+      !selectedSupplier || net <= 0 ? [] : buildAllocationPreview(net, activeContracts, spotPrice)
+    );
   }
 
   // ── Form field helpers ─────────────────────────────────────────────────────

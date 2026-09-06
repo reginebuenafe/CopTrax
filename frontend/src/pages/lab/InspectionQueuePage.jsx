@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   LuFlaskConical, LuTruck, LuFileText, LuCheck, LuX,
   LuCircleAlert, LuArrowLeft, LuDroplets,
@@ -19,9 +19,7 @@ export default function InspectionQueuePage() {
   const [success, setSuccess] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  useEffect(() => { fetchQueue(); }, []);
-
-  async function fetchQueue() {
+  const fetchQueue = useCallback(async () => {
     setLoading(true);
     const { data, error: queueError } = await supabase
       .from("deliveries")
@@ -46,7 +44,9 @@ export default function InspectionQueuePage() {
 
     setDeliveries(data ?? []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => { (async () => { await fetchQueue(); })(); }, [fetchQueue]);
 
   // Live PCA lookup as moisture is typed (used for validation + the confirm modal, not rendered inline)
   async function handleMoistureChange(val) {

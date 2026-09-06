@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createElement } from "react";
 import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   LuLogOut, LuMenu, LuX, LuChevronRight, LuChevronLeft,
@@ -80,7 +80,7 @@ export default function WeigherLayout() {
                 ${isActive ? "bg-[#2E7D32] text-white font-semibold shadow-sm" : "text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E]"}`}>
               {({ isActive }) => (
                 <>
-                  <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? "text-white" : "text-[#9A8176] group-hover:text-[#765D52]"}`} />
+                  {createElement(Icon, { className: `w-4.5 h-4.5 shrink-0 ${isActive ? "text-white" : "text-[#9A8176] group-hover:text-[#765D52]"}` })}
                   {!collapsed && <span className="flex-1">{label}</span>}
                   {!collapsed && isActive && <LuChevronRight className="w-3.5 h-3.5 text-white/70" />}
                 </>

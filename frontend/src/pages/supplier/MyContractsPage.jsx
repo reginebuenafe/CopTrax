@@ -111,7 +111,7 @@ export default function MyContractsPage() {
     setLoading(false);
   }, [user.id]);
 
-  useEffect(() => { fetchContracts(); }, [fetchContracts]);
+  useEffect(() => { (async () => { await fetchContracts(); })(); }, [fetchContracts]);
 
   // Realtime: re-fetch when any of this supplier's contracts change
   useEffect(() => {

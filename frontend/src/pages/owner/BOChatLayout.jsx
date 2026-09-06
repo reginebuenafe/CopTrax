@@ -257,7 +257,7 @@ export default function BOChatLayout() {
     setConvLoading(false);
   }, [user.id]);
 
-  useEffect(() => { fetchConversations(); }, [fetchConversations]);
+  useEffect(() => { (async () => { await fetchConversations(); })(); }, [fetchConversations]);
 
   useEffect(() => {
     const listChannel = supabase
@@ -333,7 +333,7 @@ export default function BOChatLayout() {
   }, [user.id]);
 
   useEffect(() => {
-    if (conversationId) loadChat(conversationId);
+    if (conversationId) { (async () => { await loadChat(conversationId); })(); }
   }, [conversationId, loadChat]);
 
   // Keep a stable ref to currentConv so realtime callbacks can read it without stale closure
@@ -417,8 +417,7 @@ export default function BOChatLayout() {
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
 
-  // ── Pending contract (no PDF generated yet) vs. Sent (PDF generated, awaiting supplier) ─
-  const pendingContract = contracts.find(c => c.status === "Pending" && !c.contract_hash) ?? null;
+  // ── Sent contract (PDF generated, awaiting supplier signature) ─────────────
   const sentContract    = contracts.find(c => c.status === "Pending" && c.contract_hash) ?? null;
 
   // ── Chat actions ──────────────────────────────────────────────────────────

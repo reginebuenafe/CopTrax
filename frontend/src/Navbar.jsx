@@ -7,9 +7,14 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
 
-  useEffect(() => {
+  // Close the mobile menu whenever the route changes. Adjusting state during
+  // render (rather than in a useEffect) avoids the extra "cascading render"
+  // pass for this exact pattern: https://react.dev/learn/you-might-not-need-an-effect
+  const [prevLocation, setPrevLocation] = useState(location);
+  if (location !== prevLocation) {
+    setPrevLocation(location);
     setOpen(false);
-  }, [location]);
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);

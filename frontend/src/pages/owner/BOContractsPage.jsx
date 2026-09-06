@@ -125,7 +125,7 @@ export default function BOContractsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchContracts(); }, [fetchContracts]);
+  useEffect(() => { (async () => { await fetchContracts(); })(); }, [fetchContracts]);
 
   // Realtime: update when any contract changes (e.g., supplier signs → Active)
   useEffect(() => {

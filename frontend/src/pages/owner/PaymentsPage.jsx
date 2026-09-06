@@ -19,14 +19,96 @@ function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
-// Escape HTML for any injected strings (e.g. in download filenames)
-function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+
+// ── payment computation: one line per allocation (spec §3.5) ──────────────
+function computeLine(delivery, spot) {
+  const wr   = delivery.weighing_records?.[0];
+  const li   = delivery.laboratory_inspections?.[0];
+  const qr   = delivery.quality_results?.[0];
+  const allocs = (delivery.delivery_allocations ?? [])
+    .slice()
+    .sort((a, b) => a.sequence_order - b.sequence_order);
+
+  if (!wr || !li || !qr) return null;
+  if (qr.result !== "Accepted") return null;
+  if (allocs.length === 0) return null;
+
+  const mc      = parseFloat(li.moisture_content_pct);
+  const netKg   = parseFloat(wr.net_weight_kg);
+  const grossKg = parseFloat(wr.gross_weight_kg);
+  const tareKg  = parseFloat(wr.tare_weight_kg);
+
+  // Derive discount % from quality result remarks
+  const remarkMatch = (qr.remarks ?? "").match(/Discount:\s*([\d.]+)%/);
+  const discountPct  = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
+  const deductionKg  = netKg * (discountPct / 100);
+  const finalKgTotal = netKg - deductionKg;
+
+  // One line per allocation — each gets its proportional share of the
+  // moisture deduction applied to its own allocated weight
+  const allocLines = allocs.map(alloc => {
+    const allocNetKg   = parseFloat(alloc.allocated_weight_kg);
+    const deductedKg   = allocNetKg * (discountPct / 100);
+    const allocFinalKg = allocNetKg - deductedKg;
+    const pricePerKg   = alloc.contract_id
+      ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
+      : parseFloat(spot);
+    const lineAmount   = allocFinalKg * pricePerKg;
+    const priceType    = alloc.contract_id ? "Negotiated" : "Spot";
+    return {
+      allocationId:    alloc.allocation_id,
+      contractId:      alloc.contract_id,
+      contractNumber:  alloc.contract?.contract_number ?? null,
+      allocNetKg,
+      deductedKg,
+      allocFinalKg,
+      pricePerKg,
+      priceType,
+      lineAmount,
+      // shared MC fields (same for every alloc in the same physical delivery)
+      mc,
+      discountPct,
+      grossKg,
+      tareKg,
+    };
+  });
+
+  const totalLineAmount = allocLines.reduce((s, l) => s + l.lineAmount, 0);
+  const hasSpot = allocLines.some(l => l.priceType === "Spot");
+  const hasNeg  = allocLines.some(l => l.priceType === "Negotiated");
+
+  return {
+    grossKg, tareKg, netKg, mc, discountPct, deductionKg, finalKg: finalKgTotal,
+    allocLines,
+    totalLineAmount,
+    // kept for backward-compat with total/badge checks
+    lineAmount: totalLineAmount,
+    priceType: hasSpot && hasNeg ? "Mixed" : hasSpot ? "Spot" : "Negotiated",
+  };
+}
+
+// ── Friday 5PM PHT disbursement week helper ──────────────────────────────
+// Each delivery's created_at determines its payment week (Friday date).
+// Week spans Sat 00:00 → Fri 17:00 Philippine Time (UTC+8).
+// Deliveries recorded after 5:00 PM on Friday go to the NEXT Friday.
+function getPaymentFriday(isoTimestamp) {
+  const phMs  = new Date(isoTimestamp).getTime() + 8 * 3600 * 1000; // shift to UTC+8
+  const ph    = new Date(phMs);
+  const day   = ph.getUTCDay();    // 0=Sun … 5=Fri … 6=Sat (in PH time)
+  const hour  = ph.getUTCHours();
+  const min   = ph.getUTCMinutes();
+
+  // Days until the disbursement Friday
+  let daysToFriday = ((5 - day) + 7) % 7;
+  // Friday after 5:00 PM → next Friday
+  if (day === 5 && (hour > 17 || (hour === 17 && min > 0))) daysToFriday = 7;
+
+  const fridayPhMs = phMs + daysToFriday * 24 * 3600 * 1000;
+  const f = new Date(fridayPhMs);
+  const y = f.getUTCFullYear();
+  const m = String(f.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(f.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 // ── main component ────────────────────────────────────────────────────────────
@@ -111,74 +193,7 @@ export default function PaymentsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // ── payment computation: one line per allocation (spec §3.5) ──────────────
-  function computeLine(delivery, spot) {
-    const wr   = delivery.weighing_records?.[0];
-    const li   = delivery.laboratory_inspections?.[0];
-    const qr   = delivery.quality_results?.[0];
-    const allocs = (delivery.delivery_allocations ?? [])
-      .slice()
-      .sort((a, b) => a.sequence_order - b.sequence_order);
-
-    if (!wr || !li || !qr) return null;
-    if (qr.result !== "Accepted") return null;
-    if (allocs.length === 0) return null;
-
-    const mc      = parseFloat(li.moisture_content_pct);
-    const netKg   = parseFloat(wr.net_weight_kg);
-    const grossKg = parseFloat(wr.gross_weight_kg);
-    const tareKg  = parseFloat(wr.tare_weight_kg);
-
-    // Derive discount % from quality result remarks
-    const remarkMatch = (qr.remarks ?? "").match(/Discount:\s*([\d.]+)%/);
-    const discountPct  = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
-    const deductionKg  = netKg * (discountPct / 100);
-    const finalKgTotal = netKg - deductionKg;
-
-    // One line per allocation — each gets its proportional share of the
-    // moisture deduction applied to its own allocated weight
-    const allocLines = allocs.map(alloc => {
-      const allocNetKg   = parseFloat(alloc.allocated_weight_kg);
-      const deductedKg   = allocNetKg * (discountPct / 100);
-      const allocFinalKg = allocNetKg - deductedKg;
-      const pricePerKg   = alloc.contract_id
-        ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
-        : parseFloat(spot);
-      const lineAmount   = allocFinalKg * pricePerKg;
-      const priceType    = alloc.contract_id ? "Negotiated" : "Spot";
-      return {
-        allocationId:    alloc.allocation_id,
-        contractId:      alloc.contract_id,
-        contractNumber:  alloc.contract?.contract_number ?? null,
-        allocNetKg,
-        deductedKg,
-        allocFinalKg,
-        pricePerKg,
-        priceType,
-        lineAmount,
-        // shared MC fields (same for every alloc in the same physical delivery)
-        mc,
-        discountPct,
-        grossKg,
-        tareKg,
-      };
-    });
-
-    const totalLineAmount = allocLines.reduce((s, l) => s + l.lineAmount, 0);
-    const hasSpot = allocLines.some(l => l.priceType === "Spot");
-    const hasNeg  = allocLines.some(l => l.priceType === "Negotiated");
-
-    return {
-      grossKg, tareKg, netKg, mc, discountPct, deductionKg, finalKg: finalKgTotal,
-      allocLines,
-      totalLineAmount,
-      // kept for backward-compat with total/badge checks
-      lineAmount: totalLineAmount,
-      priceType: hasSpot && hasNeg ? "Mixed" : hasSpot ? "Spot" : "Negotiated",
-    };
-  }
+  useEffect(() => { (async () => { await fetchData(); })(); }, [fetchData]);
 
   // ── group ready deliveries by (supplier, payment week) ───────────────────
   // Key: "userId::YYYY-MM-DD" (the disbursement Friday)
@@ -256,30 +271,6 @@ export default function PaymentsPage() {
     setProcessing(false);
     setReleaseModal(null);
     fetchData();
-  }
-
-  // ── Friday 5PM PHT disbursement week helper ──────────────────────────────
-  // Each delivery's created_at determines its payment week (Friday date).
-  // Week spans Sat 00:00 → Fri 17:00 Philippine Time (UTC+8).
-  // Deliveries recorded after 5:00 PM on Friday go to the NEXT Friday.
-  function getPaymentFriday(isoTimestamp) {
-    const phMs  = new Date(isoTimestamp).getTime() + 8 * 3600 * 1000; // shift to UTC+8
-    const ph    = new Date(phMs);
-    const day   = ph.getUTCDay();    // 0=Sun … 5=Fri … 6=Sat (in PH time)
-    const hour  = ph.getUTCHours();
-    const min   = ph.getUTCMinutes();
-
-    // Days until the disbursement Friday
-    let daysToFriday = ((5 - day) + 7) % 7;
-    // Friday after 5:00 PM → next Friday
-    if (day === 5 && (hour > 17 || (hour === 17 && min > 0))) daysToFriday = 7;
-
-    const fridayPhMs = phMs + daysToFriday * 24 * 3600 * 1000;
-    const f = new Date(fridayPhMs);
-    const y = f.getUTCFullYear();
-    const m = String(f.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(f.getUTCDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -560,8 +551,15 @@ function PaymentPreviewPanel({ group, onCreateBatch }) {
   const { supplier, paymentWeek, deliveries } = group;
   const [currentIdx, setCurrentIdx] = useState(0);
 
-  // Reset to first delivery whenever the selected group changes
-  useEffect(() => { setCurrentIdx(0); }, [group]);
+  // Reset to first delivery whenever the selected group changes. Adjusting
+  // state during render (rather than in a useEffect) avoids the extra
+  // "cascading render" pass React warns about for this exact pattern.
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevGroup, setPrevGroup] = useState(group);
+  if (group !== prevGroup) {
+    setPrevGroup(group);
+    setCurrentIdx(0);
+  }
 
   const total = deliveries.length;
   const delivery = deliveries[Math.min(currentIdx, total - 1)];
@@ -1035,6 +1033,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">DELIVERY DETAILS</p>
+            <div className="flex justify-between"><span className="text-brown-light">Recorded by</span><span className="text-brown-dark">{weigherName}</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Tare Weight</span><span className="text-brown-dark">{tareKg.toFixed(2)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{netKg.toFixed(2)} kg</span></div>
@@ -1217,6 +1216,8 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
             {numSacks > 0 && <>
               <span className="text-beige-dark">·</span>
               <span><span className="text-brown-mid font-medium">{numSacks}</span> sacks</span>
+              <span className="text-beige-dark">·</span>
+              <span>Sacks Ded <span className="text-red-500 font-medium">−{sacksDeduct.toFixed(2)} kg</span></span>
             </>}
             <span className="text-beige-dark">·</span>
             <span>Gross <span className="text-brown-mid font-medium">{grossKg.toFixed(2)} kg</span></span>

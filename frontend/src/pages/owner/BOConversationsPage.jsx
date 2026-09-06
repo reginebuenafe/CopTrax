@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { LuMessageSquare, LuClock } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -8,11 +8,7 @@ export default function BOConversationsPage() {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  async function fetchConversations() {
+  const fetchConversations = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("conversations")
@@ -29,12 +25,16 @@ export default function BOConversationsPage() {
     }));
     setConversations(enriched);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    (async () => { await fetchConversations(); })();
+  }, [fetchConversations]);
 
   function formatTime(dateStr) {
     if (!dateStr) return "";
     const d = new Date(dateStr);
-    const diff = Date.now() - d;
+    const diff = new Date().getTime() - d;
     if (diff < 60000) return "Just now";
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
