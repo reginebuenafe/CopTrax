@@ -10,10 +10,16 @@
        zoomed in as the user navigates between pages. */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* Safety net: scroll-linked transforms (e.g. the Hero's Ken Burns zoom)
+       should always be clipped by their own container, but this guards
+       against any transform ever bleeding past the viewport edge and
+       causing a sideways scroll/clip on mobile. */
+    overflow-x: hidden;
   }
   body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
     @apply bg-cream text-brown-dark font-sans;
   }
 
