@@ -1,92 +1,71 @@
 import { Link } from "react-router-dom";
-import { LuPhone, LuMail, LuMapPin, LuArrowUpRight } from "react-icons/lu";
 import BrandLogo from "./components/BrandLogo";
 
 export default function Footer() {
   return (
-    <footer className="relative bg-brown-dark text-white/80 overflow-hidden">
-      <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-white/[0.02] -translate-y-1/2 translate-x-1/2" />
-      <div className="absolute bottom-0 left-0 w-48 h-48 rounded-full bg-white/[0.02] translate-y-1/2 -translate-x-1/2" />
+    <footer className="bg-cream border-t border-beige-dark/60">
+      <div className="max-w-6xl mx-auto px-4 sm:px-5 py-14 sm:py-16">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-10">
 
-      <div className="relative max-w-6xl mx-auto px-4 sm:px-5 py-16">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-
-          <div className="sm:col-span-2 lg:col-span-1">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 bg-gradient-to-br from-green-dark to-green-light rounded-full flex items-center justify-center shadow-md p-1.5">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 flex items-center justify-center">
                 <BrandLogo className="w-full h-full" size="100%" />
               </div>
-              <span className="text-lg font-extrabold text-white">NERC Copra</span>
+              <span className="text-sm font-extrabold text-brown-dark">NERC Copra Trading</span>
             </div>
-            <p className="text-sm leading-relaxed opacity-60">
-              Your trusted copra buying partner in Zamboanga del Sur. Fair prices, honest weight, fast payment.
+            <p className="text-xs text-brown-light">Powered by CopTrax</p>
+            <p className="text-xs text-brown-light mt-3">
+              Poblacion, Kumalarang<br />Zamboanga del Sur
             </p>
           </div>
 
-          <div>
-            <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-5">Quick Links</h4>
-            <ul className="space-y-3 text-sm">
-              {[
-                { to: "/what-is-copra", label: "What is Copra?" },
-                { to: "/why-sell-to-us", label: "Why Sell to Us" },
-                { to: "/gallery", label: "Gallery" },
-                { to: "/contact", label: "Contact" },
-              ].map((link) => (
-                <li key={link.to}>
-                  <Link to={link.to} className="group inline-flex items-center gap-1 hover:text-white transition-colors duration-300">
-                    {link.label}
-                    <LuArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-5">Contact</h4>
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-center gap-2.5"><LuPhone className="w-4 h-4 text-green-light flex-shrink-0" /> +63 912 345 6789</li>
-              <li className="flex items-center gap-2.5"><LuMail className="w-4 h-4 text-green-light flex-shrink-0" /> nerc.copra@gmail.com</li>
-              <li className="flex items-start gap-2.5"><LuMapPin className="w-4 h-4 text-green-light flex-shrink-0 mt-0.5" /> Kumalarang, Zamboanga del Sur, Philippines</li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-5">Business Hours</h4>
-            <ul className="space-y-3 text-sm">
-              <li className="opacity-60">Monday – Sunday</li>
-              <li className="text-white font-medium">8:00 AM – 5:00 PM</li>
-            </ul>
-            <div className="mt-6 inline-flex items-center gap-2 bg-green-dark/40 text-green-light text-xs font-semibold px-3 py-1.5 rounded-full">
-              <span className="w-2 h-2 bg-green-light rounded-full animate-pulse" />
-              Open 7 days a week
+          <div className="flex flex-wrap gap-x-12 gap-y-8">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-brown-light mb-3">Site</p>
+              <ul className="space-y-2 text-sm">
+                <li><a href="/#top" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Home</a></li>
+                <li><a href="/#why-nerc" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Why NERC</a></li>
+                <li><a href="/#story" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">How It Works</a></li>
+                <li><a href="/#about" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">About</a></li>
+                <li><a href="/#contact" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Contact</a></li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-brown-light mb-3">Account</p>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/login" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Supplier Login</Link></li>
+                <li><Link to="/register" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Register</Link></li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-brown-light mb-3">Learn More</p>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/what-is-copra" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">What is Copra</Link></li>
+                <li><Link to="/why-sell-to-us" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Why Sell to Us</Link></li>
+                <li><Link to="/help" className="text-brown-mid/90 hover:text-green-dark transition-colors duration-200">Help &amp; Support</Link></li>
+              </ul>
             </div>
           </div>
 
         </div>
       </div>
 
-      <div className="border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-5 py-5">
-          <div className="flex items-center justify-center gap-2 sm:gap-3 text-xs mb-3">
-            <Link to="/help" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
-              Help &amp; Support
-            </Link>
-            <span className="opacity-30" aria-hidden="true">&middot;</span>
-            <Link to="/privacy-policy" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
+      <div className="border-t border-beige-dark/60">
+        <div className="max-w-6xl mx-auto px-4 sm:px-5 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-brown-light">
+          <p>&copy; {new Date().getFullYear()} NERC Copra Trading. All rights reserved.</p>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link to="/privacy-policy" className="hover:text-green-dark transition-colors duration-200">
               Privacy Policy
             </Link>
-            <span className="opacity-30" aria-hidden="true">&middot;</span>
-            <Link to="/terms" className="opacity-60 hover:opacity-100 hover:text-white transition-opacity">
+            <span aria-hidden="true">&middot;</span>
+            <Link to="/terms" className="hover:text-green-dark transition-colors duration-200">
               Terms &amp; Conditions
             </Link>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs opacity-50">
-            <p>&copy; {new Date().getFullYear()} NERC Copra Trading. All rights reserved.</p>
-            <p>Serving Filipino coconut farmers</p>
           </div>
         </div>
       </div>
     </footer>
   );
 }
+

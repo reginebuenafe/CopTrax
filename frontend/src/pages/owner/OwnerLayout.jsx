@@ -216,7 +216,7 @@ export default function OwnerLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[#E7DCC9] shrink-0">
-          <div className="w-9 h-9 shrink-0 bg-green-dark rounded-xl flex items-center justify-center shadow-sm p-1.5">
+          <div className="w-9 h-9 shrink-0 flex items-center justify-center">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap

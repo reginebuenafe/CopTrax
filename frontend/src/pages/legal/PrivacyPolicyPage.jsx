@@ -294,15 +294,15 @@ export default function PrivacyPolicyPage() {
           <ul className="space-y-1.5 text-[14px] sm:text-[15px]">
             <li className="flex items-center gap-2">
               <LuMail className="w-4 h-4 text-green-mid shrink-0" />
-              <span>Email: <span className="italic text-brown-light">nerc.copra@gmail.com</span></span>
+              <span>Email: <span className="italic text-brown-light">nerccopra@coptrax.com</span></span>
             </li>
             <li className="flex items-center gap-2">
               <LuPhone className="w-4 h-4 text-green-mid shrink-0" />
-              <span>Contact Number: <span className="italic text-brown-light">+63 912 345 6789</span></span>
+              <span>Contact Number: <span className="italic text-brown-light">+63 918 606 2580</span></span>
             </li>
             <li className="flex items-start gap-2">
               <LuMapPin className="w-4 h-4 text-green-mid shrink-0 mt-0.5" />
-              <span>Business Address: <span className="italic text-brown-light">Kumalarang, Zamboanga del Sur</span></span>
+              <span>Business Address: <span className="italic text-brown-light">Poblacion, Kumalarang, Zamboanga del Sur</span></span>
             </li>
           </ul>
         </div>

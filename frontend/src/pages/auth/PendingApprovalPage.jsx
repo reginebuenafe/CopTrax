@@ -13,7 +13,7 @@ export default function PendingApprovalPage() {
       <div className="relative w-full max-w-md text-center">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-gradient-to-br from-green-dark to-green-light rounded-2xl flex items-center justify-center shadow-lg mb-3 p-2">
+          <div className="w-14 h-14 flex items-center justify-center mb-3">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           <h1 className="text-2xl font-extrabold text-green-dark tracking-tight">CopTrax</h1>

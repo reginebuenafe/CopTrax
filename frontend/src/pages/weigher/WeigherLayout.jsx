@@ -55,7 +55,7 @@ export default function WeigherLayout() {
 
         {/* Brand */}
         <div className={`flex items-center gap-3 px-4 py-5 border-b border-[#E4D5BD] shrink-0 ${collapsed ? "justify-center lg:px-2" : ""}`}>
-          <div className="w-8 h-8 bg-green-dark rounded-xl flex items-center justify-center shadow-sm p-1.5 shrink-0">
+          <div className="w-8 h-8 flex items-center justify-center shrink-0">
             <BrandLogo className="w-full h-full" size="100%" />
           </div>
           {!collapsed && (

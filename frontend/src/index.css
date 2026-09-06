@@ -5,11 +5,28 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* Prevent iOS/Android from auto-boosting text size, which combined with
+       small form-control font sizes causes the browser to zoom in and stay
+       zoomed in as the user navigates between pages. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     @apply bg-cream text-brown-dark font-sans;
+  }
+
+  /* iOS Safari auto-zooms the whole page when a tapped form control has a
+     computed font-size under 16px, and that zoom level then persists across
+     page navigations in the same tab. Force 16px on mobile so tapping any
+     input/select/textarea never triggers it. */
+  @media (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
   }
 
   /* ── Dark mode ─────────────────────────────────────────────────────── */
@@ -298,6 +315,16 @@
     opacity: 1;
     transform: scale(1);
   }
+
+  /* ScrollStory's pinned-scroll sequence uses plain `vh` (set inline via
+     React) deliberately, not `dvh`. `dvh` continuously recalculates as the
+     mobile browser's address bar hides/shows mid-scroll, which makes the
+     whole pinned section (and the page's scrollable range) resize in real
+     time while scrolling — visible as an unwanted "zooming" reflow, and it
+     also knocks the fixed navbar out of sync during the resize. Plain `vh`
+     is computed once and stays stable; the minor tradeoff (very slightly
+     taller than the visible area when the toolbar is showing) is far less
+     disruptive than a page that visibly resizes as you scroll. */
 }
 
 @keyframes float {

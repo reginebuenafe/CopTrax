@@ -5,8 +5,8 @@ import {
   LuTruck, LuWallet, LuFileText, LuShieldCheck, LuMail, LuPhone, LuClock, LuSendHorizontal,
 } from "react-icons/lu";
 
-const SUPPORT_EMAIL = "support@nerccopratrading.com"; // dummy address for now
-const SUPPORT_PHONE = "+63 912 345 6789";
+const SUPPORT_EMAIL = "support@coptrax.com";
+const SUPPORT_PHONE = "+63 967 304 2580";
 const SUPPORT_HOURS = "Monday-Friday; 9:00 AM - 6:00 PM";
 
 /**
