@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { useScroll, useTransform, useReducedMotion } from "framer-motion";
+import { LuTreePalm, LuArrowRight, LuPhone } from "react-icons/lu";
 import { MotionDiv } from "./components/landing/motion-elements";
 import ScrollStory from "./components/landing/ScrollStory";
 import NercStory from "./components/landing/NercStory";
@@ -14,72 +15,81 @@ function Hero() {
   const textOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
   const textY = useTransform(scrollYProgress, [0, 0.6], [0, -40]);
   const imgScale = useTransform(scrollYProgress, [0, 1], [1, 1.08]);
-  const imgOpacity = useTransform(scrollYProgress, [0.3, 1], [1, 0.5]);
 
   return (
     <section
       ref={heroRef}
       id="top"
-      className="relative bg-cream"
+      className="relative flex items-center overflow-hidden grain"
       style={{ minHeight: "calc(var(--vh-unit) * 100)" }}
     >
-      <div className="pt-32 sm:pt-36 pb-10 px-4 sm:px-5">
-        <MotionDiv
-          style={prefersReducedMotion ? undefined : { opacity: textOpacity, y: textY }}
-          className="max-w-2xl mx-auto text-center"
-        >
-          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.24em] text-green-dark mb-6">
-            NERC Copra Trading
-          </p>
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-brown-dark leading-[1.05] tracking-tight mb-6">
-            Your copra.<br />A market you can count on.
-          </h1>
-          <p className="text-base sm:text-lg text-brown-mid/90 leading-relaxed max-w-md mx-auto mb-9">
-            A local copra buying business serving farmers and suppliers in Kumalarang and
-            surrounding communities.
-          </p>
-          <div className="flex items-center justify-center gap-6">
-            <Link
-              to="/register"
-              className="inline-flex items-center gap-2 bg-green-dark text-white font-semibold px-7 py-3.5 rounded-full hover:bg-green-mid transition-colors duration-300"
-            >
-              Sell to NERC
-            </Link>
-            <a
-              href="#why-nerc"
-              className="text-brown-dark font-semibold hover:text-green-dark transition-colors duration-300"
-            >
-              Learn More &darr;
-            </a>
-          </div>
-        </MotionDiv>
-      </div>
+      {/* Full-bleed background photo with a slow Ken Burns zoom as the user
+          scrolls past, clipped by this section's own overflow-hidden. */}
+      <MotionDiv
+        style={prefersReducedMotion ? undefined : { scale: imgScale }}
+        className="absolute inset-0 w-full h-full"
+      >
+        <img
+          src="https://images.unsplash.com/photo-1560769680-ba2f3767c785?w=1920&h=1080&fit=crop"
+          alt=""
+          className="w-full h-full object-cover"
+        />
+      </MotionDiv>
+      <div className="absolute inset-0 bg-gradient-to-br from-green-dark/85 via-green-mid/80 to-brown-mid/85 animate-gradient" />
 
-      {/* The Ken Burns–style zoom lives on an inner wrapper clipped by the
-          card's own `overflow-hidden` boundary, not on this outer container.
-          Scaling the outer box directly (as before) let it visually bleed
-          past the viewport edges on mobile — the image would grow wider
-          than the screen and get clipped by the page, showing as a
-          lopsided "cut" on one side while scrolling. Keeping this outer
-          box static and only zooming the image inside its fixed, clipped
-          frame keeps the effect fully contained. */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-5">
-        <MotionDiv
-          style={prefersReducedMotion ? undefined : { opacity: imgOpacity }}
-          className="rounded-2xl overflow-hidden border border-beige-dark/60"
-        >
-          <MotionDiv
-            style={prefersReducedMotion ? undefined : { scale: imgScale }}
-            className="h-[42vh] sm:h-[55vh] lg:h-[62vh]"
+      {/* Decorative floating shapes — purely ambient, so they're skipped
+          entirely for users who prefer reduced motion rather than just
+          having their animation paused. */}
+      {!prefersReducedMotion && (
+        <>
+          <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full bg-white/5 animate-float" />
+          <div className="absolute -bottom-20 -left-20 w-[350px] h-[350px] rounded-full bg-white/5 animate-float-slow" />
+          <div className="absolute top-1/2 right-10 w-24 h-24 rounded-full border-2 border-white/10 animate-pulse-ring" />
+        </>
+      )}
+
+      <MotionDiv
+        style={prefersReducedMotion ? undefined : { opacity: textOpacity, y: textY }}
+        className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5 py-24 sm:py-32 w-full"
+      >
+        <div className="max-w-3xl">
+          <h1
+            className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white leading-[1.1] mb-6 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            style={!prefersReducedMotion ? { animationDelay: "150ms" } : undefined}
           >
-            <img
-              src="https://images.unsplash.com/photo-1546662608-aec5228e9a74?w=1800&h=1000&fit=crop"
-              alt="Freshly harvested coconuts ready for copra production"
-              className="w-full h-full object-cover"
-            />
-          </MotionDiv>
-        </MotionDiv>
-      </div>
+            Your Trusted{" "}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-100 animate-shimmer">
+              Copra Trading
+            </span>{" "}
+            Partner
+          </h1>
+          <p
+            className={`text-lg sm:text-xl text-white/85 leading-relaxed mb-10 max-w-2xl ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            style={!prefersReducedMotion ? { animationDelay: "300ms" } : undefined}
+          >
+            We buy high-quality copra directly from farmers and suppliers with fair prices and
+            fast payment. Learn about copra and how to sell with us.
+          </p>
+          <div
+            className={`flex flex-col sm:flex-row gap-4 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            style={!prefersReducedMotion ? { animationDelay: "450ms" } : undefined}
+          >
+            <Link
+              to="/what-is-copra"
+              className="group inline-flex items-center justify-center gap-3 bg-white text-green-dark font-bold px-8 py-4 rounded-2xl hover:bg-yellow-300 hover:shadow-glow-green transition-all duration-300 text-base shadow-lg hover:-translate-y-1"
+            >
+              <LuTreePalm className="w-5 h-5" /> Learn About Copra
+              <LuArrowRight className="w-4 h-4 opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all duration-300" />
+            </Link>
+            <Link
+              to="/contact"
+              className="inline-flex items-center justify-center gap-2 glass text-white font-bold px-8 py-4 rounded-2xl hover:bg-white/20 transition-all duration-300 text-base hover:-translate-y-1"
+            >
+              <LuPhone className="w-5 h-5" /> Contact Us
+            </Link>
+          </div>
+        </div>
+      </MotionDiv>
     </section>
   );
 }
