@@ -55,18 +55,31 @@ function Hero() {
         </MotionDiv>
       </div>
 
-      <MotionDiv
-        style={prefersReducedMotion ? undefined : { scale: imgScale, opacity: imgOpacity }}
-        className="max-w-6xl mx-auto px-4 sm:px-5"
-      >
-        <div className="rounded-2xl overflow-hidden border border-beige-dark/60">
-          <img
-            src="https://images.unsplash.com/photo-1546662608-aec5228e9a74?w=1800&h=1000&fit=crop"
-            alt="Freshly harvested coconuts ready for copra production"
-            className="w-full h-[42vh] sm:h-[55vh] lg:h-[62vh] object-cover"
-          />
-        </div>
-      </MotionDiv>
+      {/* The Ken Burns–style zoom lives on an inner wrapper clipped by the
+          card's own `overflow-hidden` boundary, not on this outer container.
+          Scaling the outer box directly (as before) let it visually bleed
+          past the viewport edges on mobile — the image would grow wider
+          than the screen and get clipped by the page, showing as a
+          lopsided "cut" on one side while scrolling. Keeping this outer
+          box static and only zooming the image inside its fixed, clipped
+          frame keeps the effect fully contained. */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-5">
+        <MotionDiv
+          style={prefersReducedMotion ? undefined : { opacity: imgOpacity }}
+          className="rounded-2xl overflow-hidden border border-beige-dark/60"
+        >
+          <MotionDiv
+            style={prefersReducedMotion ? undefined : { scale: imgScale }}
+            className="h-[42vh] sm:h-[55vh] lg:h-[62vh]"
+          >
+            <img
+              src="https://images.unsplash.com/photo-1546662608-aec5228e9a74?w=1800&h=1000&fit=crop"
+              alt="Freshly harvested coconuts ready for copra production"
+              className="w-full h-full object-cover"
+            />
+          </MotionDiv>
+        </MotionDiv>
+      </div>
     </section>
   );
 }
