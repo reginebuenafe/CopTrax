@@ -1,8 +1,25 @@
+import { useRef } from "react";
+import { useScroll, useTransform, useReducedMotion } from "framer-motion";
 import { LuMapPin, LuPhone, LuMail, LuClock } from "react-icons/lu";
 import useReveal from "./useReveal";
+import { MotionDiv, MotionIframe } from "./components/landing/motion-elements";
 
 export default function Contact() {
   const ref = useReveal();
+  const prefersReducedMotion = useReducedMotion();
+
+  // Header text drifts up and fades slightly as the page scrolls past it.
+  const { scrollY } = useScroll();
+  const headerY = useTransform(scrollY, [0, 400], [0, -50]);
+  const headerOpacity = useTransform(scrollY, [0, 350], [1, 0.35]);
+
+  // Map gets a subtle parallax lag as it travels through the viewport.
+  const mapRef = useRef(null);
+  const { scrollYProgress: mapProgress } = useScroll({
+    target: mapRef,
+    offset: ["start end", "end start"],
+  });
+  const mapY = useTransform(mapProgress, [0, 1], [50, -50]);
 
   const cards = [
     {
@@ -46,7 +63,11 @@ export default function Contact() {
   return (
     <div ref={ref} className="bg-cream">
       <section className="pt-28 sm:pt-32 lg:pt-36 pb-14 sm:pb-16">
-        <div className="max-w-3xl mx-auto px-4 sm:px-5 text-center" data-reveal>
+        <MotionDiv
+          className="max-w-3xl mx-auto px-4 sm:px-5 text-center"
+          data-reveal
+          style={prefersReducedMotion ? undefined : { y: headerY, opacity: headerOpacity }}
+        >
           <p className="reveal text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-green-dark mb-5">
             Get in Touch
           </p>
@@ -56,7 +77,7 @@ export default function Contact() {
           <p className="reveal text-base sm:text-lg text-brown-mid/90 leading-relaxed delay-200">
             Reach out to sell your copra or inquire about the current buying price.
           </p>
-        </div>
+        </MotionDiv>
       </section>
 
       <section className="max-w-6xl mx-auto px-4 sm:px-5 pb-20 sm:pb-28">
@@ -88,14 +109,18 @@ export default function Contact() {
               Visit us to sell your copra and get paid on the spot.
             </p>
           </div>
-          <div className="reveal delay-300 rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden">
-            <iframe
+          <div
+            ref={mapRef}
+            className="reveal delay-300 rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden"
+          >
+            <MotionIframe
               title="Poblacion, Kumalarang, Zamboanga del Sur"
               src="https://www.google.com/maps/embed?pb=!1m2!2m1!1sPoblacion%2C+Kumalarang%2C+Zamboanga+del+Sur"
-              className="w-full h-full border-0"
+              className="w-full h-[150%] border-0 -mt-[25%]"
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
+              style={prefersReducedMotion ? undefined : { y: mapY }}
             />
           </div>
         </div>

@@ -11,6 +11,7 @@ import Contact from "./Contact";
 import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
 import TermsConditionsPage from "./pages/legal/TermsConditionsPage";
 import HelpSupportPage from "./pages/help/HelpSupportPage";
+import SmoothScroll from "./components/landing/SmoothScroll";
 
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
@@ -91,13 +92,13 @@ function App() {
       <ScrollToTop />
       <Routes>
         {/* Public landing pages */}
-        <Route path="/" element={<><Navbar /><main className="min-h-screen"><HomePage /></main><Footer /></>} />
-        <Route path="/what-is-copra" element={<><Navbar /><main className="min-h-screen"><WhatIsCopra /></main><Footer /></>} />
-        <Route path="/why-sell-to-us" element={<><Navbar /><main className="min-h-screen"><WhySellToUs /></main><Footer /></>} />
-        <Route path="/contact" element={<><Navbar /><main className="min-h-screen"><Contact /></main><Footer /></>} />
-        <Route path="/privacy-policy" element={<><Navbar /><main className="min-h-screen"><PrivacyPolicyPage /></main><Footer /></>} />
-        <Route path="/terms" element={<><Navbar /><main className="min-h-screen"><TermsConditionsPage /></main><Footer /></>} />
-        <Route path="/help" element={<><Navbar /><main className="min-h-screen"><HelpSupportPage /></main><Footer /></>} />
+        <Route path="/" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><HomePage /></main><Footer /></>} />
+        <Route path="/what-is-copra" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><WhatIsCopra /></main><Footer /></>} />
+        <Route path="/why-sell-to-us" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><WhySellToUs /></main><Footer /></>} />
+        <Route path="/contact" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><Contact /></main><Footer /></>} />
+        <Route path="/privacy-policy" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><PrivacyPolicyPage /></main><Footer /></>} />
+        <Route path="/terms" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><TermsConditionsPage /></main><Footer /></>} />
+        <Route path="/help" element={<><Navbar /><SmoothScroll /><main className="min-h-screen"><HelpSupportPage /></main><Footer /></>} />
 
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />
