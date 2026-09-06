@@ -6,6 +6,10 @@ import Lenis from "lenis";
 // Lenis smooths native window scrolling (it still calls window.scrollTo under
 // the hood), so position: sticky, IntersectionObserver reveals, and every
 // scroll-linked framer-motion effect on these pages keep working untouched.
+// `anchors: true` is required: this site's Navbar/Footer links are plain
+// `href="/#section"` hash anchors, and without it Lenis fights the browser's
+// native hash-jump (its own animation loop overrides the jump), overshooting
+// wildly past the target section instead of landing on it.
 // Scoped to the public landing routes only — never mounted on dashboard
 // layouts, so it can't interfere with internal scroll containers, modals, or
 // the chat/negotiation UI.
@@ -19,6 +23,7 @@ export default function SmoothScroll() {
       smoothWheel: true,
       wheelMultiplier: 1,
       touchMultiplier: 1.2,
+      anchors: true,
     });
 
     let rafId;
