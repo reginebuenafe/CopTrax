@@ -331,15 +331,22 @@ export default function ScrollStory() {
       </section>
 
       {/* Pinned scroll-driven sequence — same crossfade behavior at every
-          breakpoint. Uses plain, stable `vh` on purpose (see index.css) —
-          not `dvh`, which would resize this section in real time as the
-          mobile browser's address bar hides/shows mid-scroll. */}
+          breakpoint. Uses the stable `--vh-unit` custom property (see
+          index.css), which resolves to `svh` where supported and falls back
+          to plain `vh`. Both are computed once and never change mid-scroll
+          (unlike `dvh`), and `svh` additionally guarantees the pinned box
+          never exceeds the actually-visible mobile viewport, so the
+          background can't get cut off when the browser's toolbar is
+          showing. */}
       <section
         ref={containerRef}
         className="relative"
-        style={{ height: `${STAGES.length * 100}vh` }}
+        style={{ height: `calc(var(--vh-unit) * ${STAGES.length * 100})` }}
       >
-        <div className="sticky top-0 h-screen overflow-hidden bg-cream">
+        <div
+          className="sticky top-0 overflow-hidden bg-cream"
+          style={{ height: "calc(var(--vh-unit) * 100)" }}
+        >
           <div className="absolute top-20 sm:top-24 left-0 right-0 text-center pointer-events-none">
             <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] sm:tracking-[0.24em] text-brown-light">
               Selling copra to NERC

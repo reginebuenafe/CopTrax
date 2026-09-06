@@ -316,15 +316,28 @@
     transform: scale(1);
   }
 
-  /* ScrollStory's pinned-scroll sequence uses plain `vh` (set inline via
-     React) deliberately, not `dvh`. `dvh` continuously recalculates as the
-     mobile browser's address bar hides/shows mid-scroll, which makes the
-     whole pinned section (and the page's scrollable range) resize in real
-     time while scrolling — visible as an unwanted "zooming" reflow, and it
-     also knocks the fixed navbar out of sync during the resize. Plain `vh`
-     is computed once and stays stable; the minor tradeoff (very slightly
-     taller than the visible area when the toolbar is showing) is far less
-     disruptive than a page that visibly resizes as you scroll. */
+  /* ScrollStory's pinned-scroll sequence and the Hero section both need a
+     viewport-height unit that (a) never recalculates mid-scroll like `dvh`
+     does — that's what caused the earlier "page zooms while scrolling" bug,
+     since `dvh` resizes the whole pinned section in real time as the mobile
+     browser's address bar hides/shows — and (b) never exceeds the area the
+     user can actually see, unlike plain `vh` on mobile Safari, which can be
+     based on the *largest* possible viewport (toolbar hidden). That mismatch
+     is what caused the pinned section's background to visually get "cut" —
+     part of it sat below the fold whenever the toolbar was showing.
+     `svh` (small viewport height) is the standards fix: it's fixed to the
+     smallest possible viewport size, so it's both stable (no live
+     recalculation) and guaranteed to fit within the visible area. `--vh-unit`
+     defaults to plain `vh` for older browsers and is overridden to `svh`
+     wherever it's supported. */
+  :root {
+    --vh-unit: 1vh;
+  }
+  @supports (height: 1svh) {
+    :root {
+      --vh-unit: 1svh;
+    }
+  }
 }
 
 @keyframes float {

@@ -17,7 +17,12 @@ function Hero() {
   const imgOpacity = useTransform(scrollYProgress, [0.3, 1], [1, 0.5]);
 
   return (
-    <section ref={heroRef} id="top" className="relative bg-cream" style={{ minHeight: "100vh" }}>
+    <section
+      ref={heroRef}
+      id="top"
+      className="relative bg-cream"
+      style={{ minHeight: "calc(var(--vh-unit) * 100)" }}
+    >
       <div className="pt-32 sm:pt-36 pb-10 px-4 sm:px-5">
         <MotionDiv
           style={prefersReducedMotion ? undefined : { opacity: textOpacity, y: textY }}
