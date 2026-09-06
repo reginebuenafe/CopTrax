@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { LuClipboardList, LuTruck, LuFileText, LuFlaskConical } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -16,11 +16,7 @@ export default function WeigherHistoryPage() {
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDeliveries();
-  }, []);
-
-  async function fetchDeliveries() {
+  const fetchDeliveries = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("deliveries")
@@ -37,7 +33,11 @@ export default function WeigherHistoryPage() {
 
     setDeliveries(data ?? []);
     setLoading(false);
-  }
+  }, [user.id]);
+
+  useEffect(() => {
+    (async () => { await fetchDeliveries(); })();
+  }, [fetchDeliveries]);
 
   return (
     <div className="pt-6">

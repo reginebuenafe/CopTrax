@@ -294,6 +294,20 @@ export default function WalkinDeliveryForm() {
                 {finalWeight > 0 ? finalWeight.toFixed(2) : "—"}
               </div>
             </div>
+
+            {/* Estimated payout — full width. Uses the spot price fetched on
+                load as a preview only; the actual price locked in at
+                submission time is re-fetched fresh in handleSubmit. */}
+            {spotPrice != null && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-brown-dark mb-1.5">Estimated Payout</label>
+                <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
+                  {finalWeight > 0
+                    ? `₱${(finalWeight * spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (at ₱${spotPrice.toFixed(2)}/kg spot price)`
+                    : "—"}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

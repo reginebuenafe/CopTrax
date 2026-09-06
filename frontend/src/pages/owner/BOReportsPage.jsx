@@ -257,7 +257,7 @@ function DeliveriesTable({ rows }) {
               <td className="px-3 py-2.5 text-brown-mid">
                 {isWalkin ? (
                   spotPrice != null
-                    ? <span>Spot: {fmtWeight(netWt)} · {peso(spotPrice)}/kg</span>
+                    ? <span>Spot: {fmtWeight(netWt)} · {peso(spotPrice)}/kg{amountPaid != null ? ` = ${peso(amountPaid)}` : ""}</span>
                     : "—"
                 ) : allocs.length === 0 ? "—" : allocs.map((a, j) => (
                   <div key={j}>{a.contract?.contract_number ?? "Spot"}: {fmtWeight(a.allocated_weight_kg)} ({a.price_type})</div>

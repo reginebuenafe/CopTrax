@@ -59,7 +59,7 @@ export default function NotificationBell() {
   }, [user]);
 
   useEffect(() => {
-    fetchNotifications();
+    (async () => { await fetchNotifications(); })();
 
     if (!user) return;
 

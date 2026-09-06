@@ -13,13 +13,21 @@
     /* Safety net: scroll-linked transforms (e.g. the Hero's Ken Burns zoom)
        should always be clipped by their own container, but this guards
        against any transform ever bleeding past the viewport edge and
-       causing a sideways scroll/clip on mobile. */
-    overflow-x: hidden;
+       causing a sideways scroll/clip on mobile. Uses `clip` rather than
+       `hidden`: per the CSS overflow spec, setting `overflow-x` to any
+       value other than `visible` forces the *other* axis to compute to
+       `auto` as well, turning `<body>`/`<html>` into a scroll container.
+       That silently breaks `position: sticky` for every descendant
+       (e.g. ScrollStory's pinned section), since sticky elements can only
+       stick against the nearest *actual* viewport, not a scrolling
+       ancestor. `clip` still prevents the sideways bleed without adding
+       scrollable overflow. */
+    overflow-x: clip;
   }
   body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
+    overflow-x: clip;
     @apply bg-cream text-brown-dark font-sans;
   }
 

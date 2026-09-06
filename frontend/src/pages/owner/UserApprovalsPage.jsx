@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   LuUsers, LuCheck, LuX, LuPhone,
   LuMapPin, LuClock, LuSearch, LuCircleAlert,
@@ -238,9 +238,7 @@ export default function UserApprovalsPage() {
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
-  useEffect(() => { fetchUsers(); }, [tab]);
-
-  async function fetchUsers() {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("users")
@@ -251,7 +249,9 @@ export default function UserApprovalsPage() {
 
     if (!error) setUsers(data ?? []);
     setLoading(false);
-  }
+  }, [tab]);
+
+  useEffect(() => { (async () => { await fetchUsers(); })(); }, [fetchUsers]);
 
   async function handleDecision(targetUser, action) {
     setProcessing(true);

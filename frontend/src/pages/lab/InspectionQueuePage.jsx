@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   LuFlaskConical, LuTruck, LuFileText, LuCheck, LuX,
   LuCircleAlert, LuArrowLeft, LuDroplets,
@@ -18,9 +18,7 @@ export default function InspectionQueuePage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
 
-  useEffect(() => { fetchQueue(); }, []);
-
-  async function fetchQueue() {
+  const fetchQueue = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("deliveries")
@@ -38,7 +36,9 @@ export default function InspectionQueuePage() {
 
     setDeliveries(data ?? []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => { (async () => { await fetchQueue(); })(); }, [fetchQueue]);
 
   // Live PCA lookup as moisture is typed
   async function handleMoistureChange(val) {

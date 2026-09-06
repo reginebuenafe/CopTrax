@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
@@ -284,14 +284,18 @@ function DeliveryAnalyticsModal({ onClose }) {
     setLoading(false);
   }, [preset, customFrom, customTo]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { (async () => { await loadData(); })(); }, [loadData]);
 
-  // Auto-select grouping based on range
-  useEffect(() => {
+  // Auto-select grouping based on range. Adjusting state during render (rather
+  // than in a useEffect) avoids the extra "cascading render" pass for this
+  // exact pattern: https://react.dev/learn/you-might-not-need-an-effect
+  const [prevPreset, setPrevPreset] = useState(preset);
+  if (preset !== prevPreset) {
+    setPrevPreset(preset);
     if (preset === "7d" || preset === "30d") setGrouping("daily");
     else if (preset === "3m") setGrouping("weekly");
     else setGrouping("monthly");
-  }, [preset]);
+  }
 
   const filtered = supplierFilter === "all"
     ? rawRows
