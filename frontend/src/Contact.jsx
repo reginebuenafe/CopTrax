@@ -111,12 +111,12 @@ export default function Contact() {
           </div>
           <div
             ref={mapRef}
-            className="reveal delay-300 rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden"
+            className="reveal delay-300 relative rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden"
           >
             <MotionIframe
               title="Poblacion, Kumalarang, Zamboanga del Sur"
-              src="https://www.google.com/maps/embed?pb=!1m2!2m1!1sPoblacion%2C+Kumalarang%2C+Zamboanga+del+Sur"
-              className="w-full h-[150%] border-0 -mt-[25%]"
+              src="https://www.google.com/maps?q=Poblacion%2C+Kumalarang%2C+Zamboanga+del+Sur%2C+Philippines&output=embed"
+              className="absolute inset-x-0 top-[-25%] w-full h-[150%] border-0"
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
