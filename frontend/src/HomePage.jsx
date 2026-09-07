@@ -1,12 +1,16 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useScroll, useTransform, useReducedMotion } from "framer-motion";
+import { useScroll, useTransform, useReducedMotion, useMotionValueEvent } from "framer-motion";
 import { LuTreePalm, LuArrowRight, LuPhone } from "react-icons/lu";
 import { MotionDiv } from "./components/landing/motion-elements";
 import ScrollStory from "./components/landing/ScrollStory";
 import NercStory from "./components/landing/NercStory";
 import BeforeStory from "./components/landing/BeforeStory";
 import useViewportHeightUnit from "./hooks/useViewportHeightUnit";
+import useThemeColor from "./hooks/useThemeColor";
+
+const HERO_THEME_COLOR = "#2f5233"; // approximate visible tone of the Hero's dark-green gradient overlay
+const DEFAULT_THEME_COLOR = "#fffdf7"; // cream — everywhere else on the site
 
 function Hero() {
   const heroRef = useRef(null);
@@ -16,6 +20,16 @@ function Hero() {
   const textOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
   const textY = useTransform(scrollYProgress, [0, 0.6], [0, -40]);
   const imgScale = useTransform(scrollYProgress, [0, 1], [1, 1.08]);
+
+  // Tints the phone browser's status bar / floating URL bar to match
+  // whatever's actually behind them, instead of the harsh default white —
+  // green while the Hero still fills most of the screen, cream once the
+  // user has scrolled far enough that cream content is what's really there.
+  const [themeColor, setThemeColor] = useState(HERO_THEME_COLOR);
+  useMotionValueEvent(scrollYProgress, "change", (progress) => {
+    setThemeColor(progress < 0.5 ? HERO_THEME_COLOR : DEFAULT_THEME_COLOR);
+  });
+  useThemeColor(themeColor);
 
   return (
     <section
