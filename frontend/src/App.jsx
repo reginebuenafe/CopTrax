@@ -51,8 +51,26 @@ import InspectionQueuePage from "./pages/lab/InspectionQueuePage";
 import LabHistoryPage from "./pages/lab/LabHistoryPage";
 
 function ScrollToTop() {
-  const { pathname } = useLocation();
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  const { pathname, hash } = useLocation();
+  useEffect(() => {
+    if (hash) {
+      // Jump to the target section instead of forcing scroll to the top.
+      // Without this, every route change — including the very first
+      // load/reload of a URL like "/#contact" (e.g. a shared link, or the
+      // Footer/Navbar's plain `href="/#section"` anchors reloading from a
+      // different page) — reset scrollY to 0 and silently discarded the
+      // hash, since `pathname` alone doesn't include it. A rAF tick lets
+      // the page's own layout/animations settle first so the section is
+      // scrolled to its true position.
+      const id = hash.slice(1);
+      const raf = requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView();
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    window.scrollTo(0, 0);
+    return undefined;
+  }, [pathname, hash]);
   return null;
 }
 
