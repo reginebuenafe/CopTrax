@@ -1,8 +1,7 @@
-import { useRef } from "react";
 import { useScroll, useTransform, useReducedMotion } from "framer-motion";
 import { LuMapPin, LuPhone, LuMail, LuClock } from "react-icons/lu";
 import useReveal from "./useReveal";
-import { MotionDiv, MotionIframe } from "./components/landing/motion-elements";
+import { MotionDiv } from "./components/landing/motion-elements";
 
 export default function Contact() {
   const ref = useReveal();
@@ -12,14 +11,6 @@ export default function Contact() {
   const { scrollY } = useScroll();
   const headerY = useTransform(scrollY, [0, 400], [0, -50]);
   const headerOpacity = useTransform(scrollY, [0, 350], [1, 0.35]);
-
-  // Map gets a subtle parallax lag as it travels through the viewport.
-  const mapRef = useRef(null);
-  const { scrollYProgress: mapProgress } = useScroll({
-    target: mapRef,
-    offset: ["start end", "end start"],
-  });
-  const mapY = useTransform(mapProgress, [0, 1], [50, -50]);
 
   const cards = [
     {
@@ -109,18 +100,14 @@ export default function Contact() {
               Visit us to sell your copra and get paid on the spot.
             </p>
           </div>
-          <div
-            ref={mapRef}
-            className="reveal delay-300 relative rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden"
-          >
-            <MotionIframe
+          <div className="reveal delay-300 rounded-2xl border border-beige-dark/60 h-64 sm:h-80 overflow-hidden">
+            <iframe
               title="Poblacion, Kumalarang, Zamboanga del Sur"
               src="https://www.google.com/maps?q=Poblacion%2C+Kumalarang%2C+Zamboanga+del+Sur%2C+Philippines&output=embed"
-              className="absolute inset-x-0 top-[-25%] w-full h-[150%] border-0"
+              className="w-full h-full border-0"
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              style={prefersReducedMotion ? undefined : { y: mapY }}
             />
           </div>
         </div>

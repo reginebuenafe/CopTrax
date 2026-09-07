@@ -6,6 +6,7 @@ import { MotionDiv } from "./components/landing/motion-elements";
 import ScrollStory from "./components/landing/ScrollStory";
 import NercStory from "./components/landing/NercStory";
 import BeforeStory from "./components/landing/BeforeStory";
+import useViewportHeightUnit from "./hooks/useViewportHeightUnit";
 
 function Hero() {
   const heroRef = useRef(null);
@@ -50,11 +51,11 @@ function Hero() {
 
       <MotionDiv
         style={prefersReducedMotion ? undefined : { opacity: textOpacity, y: textY }}
-        className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5 py-24 sm:py-32 w-full"
+        className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5 py-16 sm:py-24 lg:py-32 w-full"
       >
         <div className="max-w-3xl">
           <h1
-            className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white leading-[1.1] mb-6 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white leading-[1.1] mb-5 sm:mb-6 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
             style={!prefersReducedMotion ? { animationDelay: "150ms" } : undefined}
           >
             Your Trusted{" "}
@@ -64,14 +65,14 @@ function Hero() {
             Partner
           </h1>
           <p
-            className={`text-lg sm:text-xl text-white/85 leading-relaxed mb-10 max-w-2xl ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            className={`text-lg sm:text-xl text-white/85 leading-relaxed mb-8 sm:mb-10 max-w-2xl ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
             style={!prefersReducedMotion ? { animationDelay: "300ms" } : undefined}
           >
             We buy high-quality copra directly from farmers and suppliers with fair prices and
             fast payment. Learn about copra and how to sell with us.
           </p>
           <div
-            className={`flex flex-col sm:flex-row gap-4 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
+            className={`flex flex-col sm:flex-row gap-3 sm:gap-4 ${!prefersReducedMotion ? "animate-fade-in-up" : ""}`}
             style={!prefersReducedMotion ? { animationDelay: "450ms" } : undefined}
           >
             <Link
@@ -95,6 +96,8 @@ function Hero() {
 }
 
 export default function HomePage() {
+  useViewportHeightUnit();
+
   return (
     <div className="bg-cream">
       <Hero />
