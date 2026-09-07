@@ -23,12 +23,40 @@
        ancestor. `clip` still prevents the sideways bleed without adding
        scrollable overflow. */
     overflow-x: clip;
+    /* iOS Safari paints the area revealed by rubber-band overscroll (and,
+       with `viewport-fit=cover`, the safe-area notch/home-indicator strip)
+       using the `<html>` element's own background — not `<body>`'s. Without
+       an explicit color here it defaults to white, which flashes visibly
+       above/below the page on every real iOS Safari device even though
+       `body` already carries the site's cream background. `min-height`
+       (not `height`) guarantees this fill never falls short of the actual
+       viewport on any device, while still letting the document grow taller
+       for normal page content. The plain `100vh` line is a pre-`svh` browser
+       fallback; browsers that understand `100svh` override it with the
+       smallest-possible viewport size, avoiding the "jumps as the browser
+       toolbar shows/hides" issue that `100dvh` has. */
+    background-color: #fffdf7;
+    min-height: 100%;
+    min-height: 100vh;
+    min-height: 100svh;
   }
   body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: clip;
+    min-height: 100%;
+    min-height: 100vh;
+    min-height: 100svh;
     @apply bg-cream text-brown-dark font-sans;
+  }
+  /* React's mount point — same reasoning as `body` above: guarantees the
+     app's own background (set per-page by each route) always extends to
+     fill at least the full real viewport, so no default background can
+     show through beneath shorter pages. */
+  #root {
+    min-height: 100%;
+    min-height: 100vh;
+    min-height: 100svh;
   }
 
   /* iOS Safari auto-zooms the whole page when a tapped form control has a
@@ -44,6 +72,9 @@
   }
 
   /* ── Dark mode ─────────────────────────────────────────────────────── */
+  html[data-theme="dark"] {
+    background-color: #1a1a1a;
+  }
   html[data-theme="dark"] body {
     background-color: #1a1a1a;
     color: #e8e0d8;
