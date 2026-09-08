@@ -27,7 +27,8 @@ export default function WeigherHistoryPage() {
       .select(`
         delivery_id, delivery_source, delivery_date, delivery_status,
         truck_plate_number, batch_number, created_at,
-        contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+        contract:contract_id(contract_number),
+        supplier:supplier_id(first_name, last_name),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg)
       `)
@@ -79,7 +80,7 @@ export default function WeigherHistoryPage() {
                 {deliveries.map(d => {
                   const supplierName = d.delivery_source === "Walkin"
                     ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-                    : `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+                    : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
                   const netWeight = d.weighing_records?.[0]?.net_weight_kg;
 
                   return (

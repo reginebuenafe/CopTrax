@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LuClipboardList, LuCheck, LuX, LuFlaskConical } from "react-icons/lu";
+import { LuClipboardList, LuFlaskConical } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -16,7 +16,7 @@ export default function LabHistoryPage() {
           inspection_id, moisture_content_pct, inspected_at,
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
-            contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
+            supplier:supplier_id(first_name, last_name),
             walkin_supplier:walkin_supplier_id(first_name, last_name),
             weighing_records(net_weight_kg)
           ),
@@ -35,7 +35,7 @@ export default function LabHistoryPage() {
     if (!delivery) return "—";
     return delivery.delivery_source === "Walkin"
       ? `${delivery.walkin_supplier?.first_name ?? ""} ${delivery.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${delivery.contract?.supplier?.first_name ?? ""} ${delivery.contract?.supplier?.last_name ?? ""}`.trim();
+      : `${delivery.supplier?.first_name ?? ""} ${delivery.supplier?.last_name ?? ""}`.trim();
   }
 
   return (
@@ -65,12 +65,12 @@ export default function LabHistoryPage() {
           </div>
         ) : (
           <>
-            {/* Desktop table */}
+            {/* Desktop table — Supplier, Date, Net Weight, Moisture (cc) only */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                   <tr>
-                    {["Supplier", "Type", "Date", "Net Weight", "Moisture (cc)", "Discount (%)", "Final Weight", "Result"].map(h => (
+                    {["Supplier", "Date", "Moisture (cc)"].map(h => (
                       <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                     ))}
                   </tr>
@@ -78,50 +78,16 @@ export default function LabHistoryPage() {
                 <tbody className="divide-y divide-beige-dark/20">
                   {records.map(r => {
                     const d = r.delivery;
-                    const result = r.quality_results?.[0]?.result ?? "—";
-                    const netKg = d?.weighing_records?.[0]?.net_weight_kg ?? 0;
                     const mc = r.moisture_content_pct;
-
-                    // Parse discount from remarks: "Discount: X%"
-                    const remarksMatch = r.quality_results?.[0]?.remarks?.match(/Discount: ([\d.]+)%/);
-                    const discountPct = remarksMatch ? parseFloat(remarksMatch[1]) : 0;
-                    const finalKg = netKg * (1 - discountPct / 100);
-
                     return (
                       <tr key={r.inspection_id} className="hover:bg-beige/30 transition-colors">
-                        <td className="px-5 py-3.5 font-medium text-brown-dark">{getSupplierName(d)}</td>
-                        <td className="px-5 py-3.5">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            d?.delivery_source === "Walkin"
-                              ? "bg-orange-50 text-orange-600"
-                              : "bg-green-pale text-green-dark"
-                          }`}>
-                            {d?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
-                          </span>
+                        <td className="px-5 py-3.5 font-medium text-brown-dark">
+                          {getSupplierName(d) || <span className="text-brown-light italic text-xs">Unknown supplier</span>}
                         </td>
                         <td className="px-5 py-3.5 text-brown-mid">
                           {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
-                        <td className="px-5 py-3.5 text-brown-mid">{Number(netKg).toFixed(3)} kg</td>
-                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}cc</td>
-                        <td className="px-5 py-3.5 text-brown-mid">
-                          {result === "Rejected" ? "—" : `${discountPct}%`}
-                        </td>
-                        <td className="px-5 py-3.5 font-semibold text-brown-dark">
-                          {result === "Rejected" ? "—" : `${finalKg.toFixed(3)} kg`}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${
-                            result === "Accepted"
-                              ? "bg-green-pale text-green-dark"
-                              : "bg-red-50 text-red-600"
-                          }`}>
-                            {result === "Accepted"
-                              ? <><LuCheck className="w-3 h-3" />Accepted</>
-                              : <><LuX className="w-3 h-3" />Rejected</>
-                            }
-                          </span>
-                        </td>
+                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc} cc</td>
                       </tr>
                     );
                   })}
@@ -129,45 +95,36 @@ export default function LabHistoryPage() {
               </table>
             </div>
 
-            {/* Mobile cards */}
-            <ul className="md:hidden divide-y divide-beige-dark/20">
+            {/* Mobile cards — Supplier, Date, Moisture (cc) only */}
+            <div className="md:hidden space-y-3 p-4">
               {records.map(r => {
                 const d = r.delivery;
-                const result = r.quality_results?.[0]?.result ?? "—";
-                const netKg = d?.weighing_records?.[0]?.net_weight_kg ?? 0;
                 const mc = r.moisture_content_pct;
-                const remarksMatch = r.quality_results?.[0]?.remarks?.match(/Discount: ([\d.]+)%/);
-                const discountPct = remarksMatch ? parseFloat(remarksMatch[1]) : 0;
-                const finalKg = netKg * (1 - discountPct / 100);
 
                 return (
-                  <li key={r.inspection_id} className="px-5 py-4">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2.5">
+                  <div key={r.inspection_id} className="bg-white rounded-xl border border-beige-dark/40 p-4 space-y-2 text-sm">
+                    <div className="flex items-center gap-2.5 mb-1">
                         <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
                           <LuFlaskConical className="w-4 h-4 text-purple-500" />
                         </div>
-                        <p className="font-semibold text-brown-dark text-sm">{getSupplierName(d)}</p>
+                        <p className="font-semibold text-brown-dark">{getSupplierName(d)}</p>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Date</span>
+                        <span className="font-semibold text-brown-dark text-right">
+                          {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                        </span>
                       </div>
-                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                        result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
-                      }`}>
-                        {result === "Accepted" ? <LuCheck className="w-3 h-3" /> : <LuX className="w-3 h-3" />}
-                        {result}
-                      </span>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-brown-light">Moisture (cc)</span>
+                        <span className="font-semibold text-brown-dark text-right">{mc} cc</span>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 text-xs text-brown-mid ml-10.5">
-                      <p>Moisture: <span className="font-semibold text-brown-dark">{mc}cc</span></p>
-                      <p>Net: <span className="font-semibold text-brown-dark">{Number(netKg).toFixed(3)} kg</span></p>
-                      {result === "Accepted" && <>
-                        <p>Discount: <span className="font-semibold text-brown-dark">{discountPct}%</span></p>
-                        <p>Final: <span className="font-semibold text-green-dark">{finalKg.toFixed(3)} kg</span></p>
-                      </>}
-                    </div>
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
           </>
         )}
       </div>

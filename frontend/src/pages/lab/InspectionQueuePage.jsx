@@ -17,16 +17,17 @@ export default function InspectionQueuePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => { fetchQueue(); }, []);
 
   async function fetchQueue() {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error: queueError } = await supabase
       .from("deliveries")
       .select(`
-        delivery_id, delivery_source, delivery_date, delivery_status, created_at,
-        supplier:supplier_id(user_id, first_name, last_name),
+        delivery_id, delivery_source, delivery_date, delivery_status, created_at, batch_number,
+        supplier:supplier_id(user_id, first_name, last_name, phone),
         contract:contract_id(contract_number),
         delivery_allocations(contract_id, contract:contract_id(contract_number)),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
@@ -36,11 +37,18 @@ export default function InspectionQueuePage() {
       .eq("delivery_source", "Contract-based")
       .order("created_at", { ascending: true });
 
+    if (queueError) {
+      // Don't silently show "queue is empty" when the fetch actually failed
+      // (e.g. an RLS policy denying access) — surface it instead.
+      console.error("Failed to load inspection queue:", queueError);
+      setError("Could not load the inspection queue. Please refresh or contact support.");
+    }
+
     setDeliveries(data ?? []);
     setLoading(false);
   }
 
-  // Live PCA lookup as moisture is typed
+  // Live PCA lookup as moisture is typed (used for validation + the confirm modal, not rendered inline)
   async function handleMoistureChange(val) {
     setMoisture(val);
     setPreview(null);
@@ -76,7 +84,8 @@ export default function InspectionQueuePage() {
     }
   }
 
-  async function handleSubmit(e) {
+  // Step 1: validate and open the confirmation modal (no DB writes yet)
+  function openConfirmModal(e) {
     e.preventDefault();
     setError("");
 
@@ -84,7 +93,15 @@ export default function InspectionQueuePage() {
     if (isNaN(mc) || mc < 0) { setError("Enter a valid moisture content cc."); return; }
     if (!preview) { setError("Moisture lookup not complete. Try again."); return; }
 
+    setShowConfirmModal(true);
+  }
+
+  // Step 2: user confirmed in the modal — now actually submit
+  async function confirmSubmit() {
+    setError("");
     setSubmitting(true);
+
+    const mc = parseFloat(moisture);
 
     // 1. Create laboratory inspection record
     const { data: inspection, error: iErr } = await supabase
@@ -97,7 +114,7 @@ export default function InspectionQueuePage() {
       .select("inspection_id")
       .single();
 
-    if (iErr) { setError("Failed to save inspection."); setSubmitting(false); return; }
+    if (iErr) { console.error("Failed to save inspection:", iErr); setError("Failed to submit quality assessment. Please try again."); setSubmitting(false); setShowConfirmModal(false); return; }
 
     // 2. Create quality result
     const { error: qErr } = await supabase.from("quality_results").insert({
@@ -109,13 +126,15 @@ export default function InspectionQueuePage() {
         : `Moisture content ${mc}cc. Discount: ${preview.discountValue ?? 0}%.`,
     });
 
-    if (qErr) { setError("Inspection saved but quality result failed."); setSubmitting(false); return; }
+    if (qErr) { console.error("Failed to save quality result:", qErr); setError("Failed to submit quality assessment. Please try again."); setSubmitting(false); setShowConfirmModal(false); return; }
 
     // 3. Update delivery status
     const newStatus = preview.result === "Accepted" ? "Accepted" : "Rejected";
-    await supabase.from("deliveries")
+    const { error: dErr } = await supabase.from("deliveries")
       .update({ delivery_status: newStatus, lab_staff_id: user.id })
       .eq("delivery_id", selected.delivery_id);
+
+    if (dErr) { console.error("Failed to update delivery status:", dErr); setError("Failed to submit quality assessment. Please try again."); setSubmitting(false); setShowConfirmModal(false); return; }
 
     // 4. For accepted contractual deliveries → add to Resecada inventory
     // (Walk-in batches are already inserted into Walk-in Holding by WalkinDeliveryForm at record time)
@@ -158,6 +177,7 @@ export default function InspectionQueuePage() {
     }
 
     setSubmitting(false);
+    setShowConfirmModal(false);
     setSuccess({
       result: preview.result,
       moisture: mc,
@@ -171,6 +191,12 @@ export default function InspectionQueuePage() {
     return d.delivery_source === "Walkin"
       ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
       : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
+  }
+
+  function getSupplierContact(d) {
+    return d.delivery_source === "Walkin"
+      ? (d.walkin_supplier?.number ?? "")
+      : (d.supplier?.phone ?? "");
   }
 
   function resetInspection() {
@@ -196,32 +222,14 @@ export default function InspectionQueuePage() {
             }
           </div>
           <h2 className="text-xl font-bold text-brown-dark mb-2">
-            Delivery {success.result}
+            {success.result === "Accepted" ? "Quality Assessment Submitted" : "Quality Assessment Failed"}
           </h2>
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span> ·{" "}
             Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
           </p>
 
-          {success.result === "Accepted" ? (
-            <div className="bg-green-pale rounded-xl px-4 py-3 text-sm text-left mb-6 space-y-2">
-              <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-1">Quality Summary</p>
-              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{Number(success.netKg).toFixed(3)} kg</span></p>
-              <p className="text-brown-mid">Moisture discount: <span className="font-semibold text-brown-dark">{success.discount ?? 0}%</span></p>
-              <p className="text-brown-mid">
-                Moisture deduction:{" "}
-                <span className="font-semibold text-brown-dark">
-                  {(Number(success.netKg) * ((success.discount ?? 0) / 100)).toFixed(3)} kg
-                </span>
-              </p>
-              <p className="text-brown-mid">
-                Final weight:{" "}
-                <span className="font-bold text-green-dark">
-                  {(Number(success.netKg) * (1 - (success.discount ?? 0) / 100)).toFixed(3)} kg
-                </span>
-              </p>
-            </div>
-          ) : (
+          {success.result === "Rejected" && (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
               Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected — no payment will be processed.
             </div>
@@ -261,29 +269,17 @@ export default function InspectionQueuePage() {
           </div>
         </div>
 
-        {/* Delivery summary */}
-        <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5 mb-5">
-          <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-3">Delivery Info</p>
-          <div className="grid grid-cols-2 gap-3 text-sm">
+        {/* Delivery summary — single row layout, uppercase tracked labels */}
+        <div className="bg-white border border-beige-dark/40 rounded-xl p-5 mb-5">
+          <p className="text-[10px] text-brown-light font-semibold uppercase tracking-widest mb-4">Delivery Info</p>
+          <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-brown-light text-xs">Supplier</p>
-              <p className="font-semibold text-brown-dark">{getSupplierName(selected)}</p>
+              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Supplier</p>
+              <p className="font-bold text-brown-dark truncate">{getSupplierName(selected)}</p>
             </div>
             <div>
-              <p className="text-brown-light text-xs">Type</p>
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                selected.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
-              }`}>
-                {selected.delivery_source === "Walkin" ? <><LuTruck className="w-3 h-3" />Walk-in</> : <><LuFileText className="w-3 h-3" />Contractual</>}
-              </span>
-            </div>
-            <div>
-              <p className="text-brown-light text-xs">Net Weight</p>
-              <p className="font-semibold text-brown-dark">{Number(netKg).toFixed(3)} kg</p>
-            </div>
-            <div>
-              <p className="text-brown-light text-xs">Delivery Date</p>
-              <p className="font-semibold text-brown-dark">
+              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Delivery Date</p>
+              <p className="font-bold text-brown-dark">
                 {new Date(selected.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
               </p>
             </div>
@@ -296,7 +292,7 @@ export default function InspectionQueuePage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={openConfirmModal} className="space-y-4">
           {/* Moisture input */}
           <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 p-5">
             <label className="block text-sm font-bold text-brown-dark mb-3 flex items-center gap-2">
@@ -322,49 +318,8 @@ export default function InspectionQueuePage() {
             </p>
           </div>
 
-          {/* Live result preview */}
-          {preview && (
-            <div className={`rounded-2xl border-2 p-5 transition-all duration-300 ${
-              preview.result === "Accepted"
-                ? "bg-green-pale border-green-mid/30"
-                : "bg-red-50 border-red-200"
-            }`}>
-              <div className="flex items-center gap-2 mb-3">
-                {preview.result === "Accepted"
-                  ? <LuCheck className="w-5 h-5 text-green-dark" />
-                  : <LuX className="w-5 h-5 text-red-500" />
-                }
-                <p className={`font-bold text-base ${preview.result === "Accepted" ? "text-green-dark" : "text-red-600"}`}>
-                  {preview.result === "Accepted" ? "Accepted" : "Rejected — Automatic"}
-                </p>
-              </div>
-
-              {preview.result === "Accepted" ? (
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">PCA Discount</p>
-                    <p className="font-bold text-brown-dark">{preview.discountValue ?? 0}%</p>
-                  </div>
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Moisture Deduction</p>
-                    <p className="font-bold text-brown-dark">{deductionKg.toFixed(3)} kg</p>
-                  </div>
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Net Weight</p>
-                    <p className="text-brown-mid">{Number(netKg).toFixed(3)} kg</p>
-                  </div>
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Final Weight</p>
-                    <p className="font-bold text-green-dark text-base">{finalKg.toFixed(3)} kg</p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-red-600 text-sm">
-                  Moisture {mc}cc exceeds the 20.2cc maximum. No payment will be processed for this delivery.
-                </p>
-              )}
-            </div>
-          )}
+          {/* Note: the live Accepted/Rejected preview box was removed from here.
+              The result is now shown for review inside the confirmation modal instead. */}
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={() => { setSelected(null); setMoisture(""); setPreview(null); setError(""); }}
@@ -372,20 +327,62 @@ export default function InspectionQueuePage() {
               Cancel
             </button>
             <button type="submit" disabled={submitting || !preview || lookingUp}
-              className={`flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60
-                ${preview?.result === "Rejected"
-                  ? "bg-red-500 hover:bg-red-600"
-                  : "bg-gradient-to-r from-green-dark to-green-mid hover:shadow-glow-green"
-                }`}>
-              {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Saving…
-                </span>
-              ) : preview?.result === "Rejected" ? "Confirm Rejection" : "Confirm Acceptance"}
+              className="flex-1 py-3 rounded-xl font-bold text-sm text-white bg-green-dark hover:bg-green-dark/90 transition-all disabled:opacity-60">
+              Review &amp; Submit
             </button>
           </div>
         </form>
+
+        {/* ── Confirmation modal ────────────────────────────────── */}
+        {showConfirmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !submitting && setShowConfirmModal(false)} />
+
+            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <LuCircleAlert className="w-5 h-5 text-brown-mid" />
+                <h3 className="text-base font-bold text-brown-dark">Review Your Input</h3>
+              </div>
+              <p className="text-brown-light text-xs mb-4">
+                Please make sure the details below are correct before submitting. This cannot be undone.
+              </p>
+
+              <div className="bg-beige rounded-xl p-4 text-sm space-y-2 mb-5">
+                <div className="flex justify-between">
+                  <span className="text-brown-light">Supplier</span>
+                  <span className="font-semibold text-brown-dark">{getSupplierName(selected)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-brown-light">Moisture Content</span>
+                  <span className="font-semibold text-brown-dark">{mc}cc</span>
+                </div>
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2 mb-4 text-xs">
+                  <LuCircleAlert className="w-4 h-4 shrink-0" /> {error}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button type="button" disabled={submitting} onClick={() => setShowConfirmModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-60">
+                  Go Back
+                </button>
+                <button type="button" disabled={submitting} onClick={confirmSubmit}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60
+                    ${preview?.result === "Rejected" ? "bg-red-500 hover:bg-red-600" : "bg-green-dark hover:bg-green-dark/90"}`}>
+                  {submitting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Submitting assessment…
+                    </span>
+                  ) : "Confirm"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -408,6 +405,12 @@ export default function InspectionQueuePage() {
         )}
       </div>
 
+      {error && (
+        <div className="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 mb-5 text-sm">
+          <LuCircleAlert className="w-4 h-4 shrink-0" /> {error}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-card border border-beige-dark/20 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -418,14 +421,13 @@ export default function InspectionQueuePage() {
             <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
               <LuFlaskConical className="w-7 h-7 text-brown-light" />
             </div>
-            <p className="text-brown-dark font-semibold">Queue is empty</p>
-            <p className="text-brown-light text-sm mt-1">No deliveries awaiting inspection right now.</p>
+            <p className="text-brown-dark font-semibold">{error ? "Couldn't load queue" : "Queue is empty"}</p>
+            <p className="text-brown-light text-sm mt-1">{error ? "See the error above and try refreshing." : "No deliveries awaiting inspection right now."}</p>
           </div>
         ) : (
           <ul className="divide-y divide-beige-dark/20">
             {deliveries.map(d => {
               const supplierName = getSupplierName(d);
-              const netKg = d.weighing_records?.[0]?.net_weight_kg;
               return (
                 <li key={d.delivery_id}>
                   <button
@@ -443,19 +445,11 @@ export default function InspectionQueuePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-semibold text-brown-dark text-sm">{supplierName || "—"}</p>
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                          d.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
-                        }`}>
-                          {d.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
-                        </span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5">
                         <p className="text-brown-light text-xs">
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                         </p>
-                        {netKg && (
-                          <p className="text-brown-light text-xs">· {Number(netKg).toFixed(3)} kg net</p>
-                        )}
                         {d.contract?.contract_number && (
                           <p className="text-brown-light text-xs">· {d.contract.contract_number}</p>
                         )}
