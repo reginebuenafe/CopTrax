@@ -4,7 +4,7 @@ import {
   LuUsers, LuLogOut, LuMenu, LuX, LuChevronLeft, LuChevronRight, LuBadgeCheck,
   LuLayoutDashboard, LuFileText, LuTruck,
   LuWallet, LuPackage, LuStar, LuMessageSquare, LuFileChartColumn, LuSettings,
-  LuBot,
+  LuBot, LuCircleAlert,
 } from "react-icons/lu";
 import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { to: "/dashboard/owner/inventory", label: "Inventory", icon: LuPackage },
   { to: "/dashboard/owner/suppliers", label: "Supplier Ratings", icon: LuStar },
   { to: "/dashboard/owner/reports", label: "Reports", icon: LuFileChartColumn },
+  { to: "/dashboard/owner/delivery-issues", label: "Issue Reports", icon: LuCircleAlert },
 ];
 
 const SIDEBAR_FULL = 256;
