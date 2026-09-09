@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuTruck, LuArrowLeft, LuUser,
-  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage,
+  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage, LuFlag, LuX,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -21,7 +21,12 @@ export default function WalkinDeliveryForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
   const [spotPrice, setSpotPrice] = useState(null);
+  const [reportingIssue, setReportingIssue] = useState(false);
+  const [issueNote, setIssueNote] = useState("");
+  const [issueError, setIssueError] = useState("");
+  const [issueSaved, setIssueSaved] = useState(false);
 
   useEffect(() => {
     async function fetchSpotPrice() {
@@ -48,13 +53,19 @@ export default function WalkinDeliveryForm() {
   const wetDeduction   = form.condition === "Wet" ? grossWeight * 0.10 : 0;    // 10% of GROSS weight
   const finalWeight    = Math.max(netWeight - wetDeduction, 0);                 // final payable weight
 
-  async function handleSubmit(e) {
+  function handleReview(e) {
     e.preventDefault();
     setError("");
 
     if (!form.supplierName.trim()) { setError("Enter the supplier name."); return; }
     if (grossWeight <= 0)          { setError("Enter a valid weight."); return; }
     if (numSacks <= 0)             { setError("Enter the number of sacks."); return; }
+
+    setReviewing(true);
+  }
+
+  async function saveDelivery() {
+    setError("");
 
     setSubmitting(true);
 
@@ -144,6 +155,7 @@ export default function WalkinDeliveryForm() {
     }
 
     setSubmitting(false);
+    setReviewing(false);
     setSuccess({
       supplierName:    form.supplierName.trim(),
       grossWeight,
@@ -155,6 +167,27 @@ export default function WalkinDeliveryForm() {
       finalWeight,
       deliveryId:      delivery.delivery_id,
     });
+  }
+
+  async function submitIssue() {
+    const note = issueNote.trim();
+    if (!note) { setIssueError("Describe the problem before submitting."); return; }
+
+    setIssueError("");
+    const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
+      delivery_id: success.deliveryId,
+      reported_by: user.id,
+      issue_note: note,
+    });
+
+    if (reportError) {
+      setIssueError("Could not save the issue report. Please try again.");
+      return;
+    }
+
+    setIssueNote("");
+    setIssueSaved(true);
+    setReportingIssue(false);
   }
 
   if (success) {
@@ -184,8 +217,17 @@ export default function WalkinDeliveryForm() {
               <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{success.finalWeight.toFixed(2)} kg</span></p>
             </div>
           </div>
+          {issueSaved && <p className="text-sm text-green-dark mb-4">Issue report sent for staff review.</p>}
           <div className="flex gap-3">
-            <button onClick={() => { setSuccess(null); setForm({ supplierName: "", deliveryDate: new Date().toISOString().split("T")[0], weight: "", numSacks: "", condition: "Dry" }); }}
+            <button onClick={() => {
+              setSuccess(null);
+              setReviewing(false);
+              setReportingIssue(false);
+              setIssueNote("");
+              setIssueError("");
+              setIssueSaved(false);
+              setForm({ supplierName: "", deliveryDate: new Date().toISOString().split("T")[0], weight: "", numSacks: "", condition: "Dry" });
+            }}
               className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
               Record Another
             </button>
@@ -194,7 +236,31 @@ export default function WalkinDeliveryForm() {
               View History
             </button>
           </div>
+          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
+            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
+            <LuFlag className="w-4 h-4" /> Report Issue
+          </button>
         </div>
+
+        {reportingIssue && (
+          <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
+            <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
+                <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuX /></button>
+              </div>
+              <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or weighing entry.</p>
+              <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
+                placeholder="Enter the issue or correction needed..."
+                className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
+              {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
+              <button type="button" onClick={submitIssue}
+                className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
+                Submit Issue Report
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -221,7 +287,7 @@ export default function WalkinDeliveryForm() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleReview} className="space-y-5">
         {/* Supplier details */}
         <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
@@ -328,6 +394,36 @@ export default function WalkinDeliveryForm() {
           </button>
         </div>
       </form>
+
+      {reviewing && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
+            <h3 className="text-lg font-bold text-brown-dark mb-1">Review Walk-in Delivery</h3>
+            <p className="text-sm text-brown-light mb-4">Confirm these details before saving.</p>
+            <div className="bg-beige rounded-xl p-4 text-sm space-y-2">
+              <p className="text-brown-mid">Supplier: <span className="font-semibold text-brown-dark">{form.supplierName.trim()}</span></p>
+              <p className="text-brown-mid">Delivery date: <span className="font-semibold text-brown-dark">{form.deliveryDate}</span></p>
+              <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{grossWeight.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Sacks: <span className="font-semibold text-brown-dark">{numSacks}</span></p>
+              <p className="text-brown-mid">Condition: <span className="font-semibold text-brown-dark">{form.condition}</span></p>
+              <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-brown-dark">{sacksDeduction.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{netWeight.toFixed(2)} kg</span></p>
+              {form.condition === "Wet" && <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-brown-dark">{wetDeduction.toFixed(2)} kg</span></p>}
+              <p className="border-t border-beige-dark pt-2 text-brown-mid">Final weight: <span className="font-bold text-green-dark">{finalWeight.toFixed(2)} kg</span></p>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button type="button" onClick={() => setReviewing(false)} disabled={submitting}
+                className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige disabled:opacity-60">
+                Edit
+              </button>
+              <button type="button" onClick={saveDelivery} disabled={submitting}
+                className="flex-1 py-2.5 rounded-xl bg-green-dark text-white font-semibold text-sm hover:bg-green-dark/90 disabled:opacity-60">
+                {submitting ? "Saving…" : "Confirm & Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
