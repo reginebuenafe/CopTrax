@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   LuFlaskConical, LuTruck, LuFileText, LuCheck, LuX,
   LuCircleAlert, LuArrowLeft, LuDroplets,
+  LuFlag, LuX as LuClose,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -17,6 +18,10 @@ export default function InspectionQueuePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [reportingIssue, setReportingIssue] = useState(false);
+  const [issueNote, setIssueNote] = useState("");
+  const [issueError, setIssueError] = useState("");
+  const [issueSaved, setIssueSaved] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -181,7 +186,32 @@ export default function InspectionQueuePage() {
     setPreview(null);
     setError("");
     setSuccess(null);
+    setReportingIssue(false);
+    setIssueNote("");
+    setIssueError("");
+    setIssueSaved(false);
     fetchQueue();
+  }
+
+  async function submitIssueReport() {
+    const note = issueNote.trim();
+    if (!note) { setIssueError("Describe the problem before submitting."); return; }
+
+    setIssueError("");
+    const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
+      delivery_id: selected.delivery_id,
+      reported_by: user.id,
+      issue_note: note,
+    });
+
+    if (reportError) {
+      setIssueError("Could not save the issue report. Please try again.");
+      return;
+    }
+
+    setIssueNote("");
+    setIssueSaved(true);
+    setReportingIssue(false);
   }
 
   // ── Success screen ───────────────────────────────────────────
@@ -384,6 +414,31 @@ export default function InspectionQueuePage() {
               ) : preview?.result === "Rejected" ? "Confirm Rejection" : "Confirm Acceptance"}
             </button>
           </div>
+          {issueSaved && <p className="text-sm text-green-dark text-center mt-3">Issue report sent for staff review.</p>}
+          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
+            className="w-full mt-3 inline-flex items-center justify-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
+            <LuFlag className="w-4 h-4" /> Report Issue
+          </button>
+
+          {reportingIssue && (
+            <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
+              <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
+                  <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuClose /></button>
+                </div>
+                <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or inspection.</p>
+                <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
+                  placeholder="Enter the issue or correction needed..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
+                {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
+                <button type="button" onClick={submitIssueReport}
+                  className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
+                  Submit Issue Report
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       </div>
     );
@@ -425,7 +480,16 @@ export default function InspectionQueuePage() {
               return (
                 <li key={d.delivery_id}>
                   <button
-                    onClick={() => { setSelected(d); setMoisture(""); setPreview(null); setError(""); }}
+                    onClick={() => {
+                      setSelected(d);
+                      setMoisture("");
+                      setPreview(null);
+                      setError("");
+                      setReportingIssue(false);
+                      setIssueNote("");
+                      setIssueError("");
+                      setIssueSaved(false);
+                    }}
                     className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/40 transition-colors text-left"
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
