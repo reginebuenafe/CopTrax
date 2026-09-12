@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   LuTruck, LuFlaskConical, LuCheck, LuX, LuClock,
   LuChevronDown, LuChevronUp, LuSearch,
@@ -33,11 +34,13 @@ const STATUS_META = {
 const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
 
 export default function BODeliveriesPage() {
+  const [searchParams] = useSearchParams();
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const linkedDeliveryId = searchParams.get("deliveryId");
 
   useEffect(() => {
     async function fetchAll() {
@@ -71,6 +74,7 @@ export default function BODeliveriesPage() {
   }
 
   const filtered = deliveries.filter(d => {
+    if (linkedDeliveryId) return d.delivery_id === linkedDeliveryId;
     if (filter !== "All" && d.delivery_status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -150,7 +154,7 @@ export default function BODeliveriesPage() {
               .sort((a, b) => a.sequence_order - b.sequence_order);
 
             return (
-              <div key={d.delivery_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
+              <div key={d.delivery_id} className={`bg-white border border-beige-dark/40 rounded-xl overflow-hidden ${linkedDeliveryId === d.delivery_id ? "ring-2 ring-green-mid/40" : ""}`}>
                 <button
                   onClick={() => setExpanded(isOpen ? null : d.delivery_id)}
                   className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/30 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
