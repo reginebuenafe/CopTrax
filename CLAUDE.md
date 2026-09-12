@@ -341,6 +341,11 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
+### 2026-09-12 — Inventory capacity warning
+
+- **Inventory labels**: renamed the Business Owner Inventory page's "Eligible to Merge" label to "Ready to Sell" without changing the 14-day readiness behavior.
+- **Capacity notification**: added an 80,000 kg (80% of 100 tons) database-triggered warning to the Business Owner through the existing notifications bell. It fires only when active inventory crosses into the warning band.
+
 ### 2026-08-31 — Business Owner and Supplier responsive layout pass
 
 - **Responsive UI only**: improved Business Owner and Supplier non-negotiation pages for mobile/tablet by tightening app-shell padding, allowing header cards/actions to stack, making filter bars horizontally scrollable where needed, and preventing dense detail rows from forcing horizontal overflow.
