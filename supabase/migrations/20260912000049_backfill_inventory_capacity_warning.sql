@@ -34,7 +34,7 @@ BEGIN
       VALUES (
         v_owner_id,
         'Inventory Capacity Warning',
-        'Inventory has reached ' || ROUND((v_current_kg / v_capacity_kg) * 100) || '% of the 100-ton capacity. Consider selling soon.',
+        'Inventory capacity: ' || ROUND(v_current_kg / 1000) || 't / ' || ROUND(v_capacity_kg / 1000) || 't. Consider selling soon.',
         'inventory_capacity'
       );
     END IF;
