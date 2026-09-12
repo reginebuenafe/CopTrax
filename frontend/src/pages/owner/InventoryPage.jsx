@@ -256,7 +256,7 @@ function WalkinHoldingTab({ batches, total }) {
           <table className="w-full text-sm">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
-                {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Eligible to Merge", "Days Left"].map(h => (
+                {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Ready to Sell", "Days Left"].map(h => (
                   <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                 ))}
               </tr>
@@ -311,7 +311,7 @@ function WalkinHoldingTab({ batches, total }) {
                     <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <span className="text-brown-light">Eligible to Merge</span>
+                    <span className="text-brown-light">Ready to Sell</span>
                     <span className="font-semibold text-brown-dark text-right">{fmtDate(b.merge_eligible_date)}</span>
                   </div>
                   <div className="flex justify-between gap-3">
