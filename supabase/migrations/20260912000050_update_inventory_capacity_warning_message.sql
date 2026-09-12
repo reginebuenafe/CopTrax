@@ -1,6 +1,5 @@
--- Notify the Business Owner when active inventory reaches 80% of the
--- 100-ton storage capacity. The warning is emitted only when stock crosses
--- into the warning band, avoiding repeated notifications for every batch.
+-- Update the deployed trigger and any existing capacity warning to show
+-- rounded tons instead of a percentage. The 80,000 kg threshold is unchanged.
 
 CREATE OR REPLACE FUNCTION public.warn_inventory_capacity()
 RETURNS TRIGGER
@@ -62,9 +61,20 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS inventory_capacity_warning_trigger ON public.inventory_batches;
+-- Rewrite existing capacity warnings, including the retroactive warning, with
+-- the current inventory total and the new tons-based format.
+DO $$
+DECLARE
+  v_current_kg NUMERIC;
+BEGIN
+  SELECT COALESCE(SUM(weight_kg), 0)
+    INTO v_current_kg
+  FROM public.inventory_batches
+  WHERE batch_status IN ('Walk-in Holding', 'Ready to Merge', 'Resecada');
 
-CREATE TRIGGER inventory_capacity_warning_trigger
-  AFTER INSERT OR UPDATE OF weight_kg, batch_status ON public.inventory_batches
-  FOR EACH ROW
-  EXECUTE FUNCTION public.warn_inventory_capacity();
+  UPDATE public.notifications
+  SET message = 'Inventory capacity: ' || ROUND(v_current_kg / 1000) || 't / 100t. Consider selling soon.'
+  WHERE notification_type = 'Inventory Capacity Warning'
+    AND related_entity_type = 'inventory_capacity';
+END;
+$$;
