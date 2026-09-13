@@ -7,6 +7,8 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
+function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
 export default function WalkinDeliveryForm() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -200,21 +202,21 @@ export default function WalkinDeliveryForm() {
           <h2 className="text-xl font-bold text-brown-dark mb-2">Walk-in Delivery Recorded</h2>
           <p className="text-brown-light text-sm mb-5">
             <span className="font-semibold text-brown-dark">{success.supplierName}</span>:{" "}
-            <span className="font-semibold text-green-dark">{success.finalWeight.toFixed(2)} kg</span> final weight.
+            <span className="font-semibold text-green-dark">{fmtKg(success.finalWeight)} kg</span> final weight.
             Delivery accepted and added to inventory. No lab inspection required for Walk-in.
           </p>
           <div className="bg-beige rounded-xl px-4 py-3 text-left mb-6 text-sm space-y-1">
             <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Summary</p>
-            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{success.grossWeight.toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{fmtKg(success.grossWeight)} kg</span></p>
             <p className="text-brown-mid">No. of sacks: <span className="font-semibold text-brown-dark">{success.numSacks}</span></p>
-            <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-red-600">−{success.sacksDeduction.toFixed(2)} kg</span></p>
-            <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{success.netWeight.toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-red-600">−{fmtKg(success.sacksDeduction)} kg</span></p>
+            <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{fmtKg(success.netWeight)} kg</span></p>
             <p className="text-brown-mid">Condition: <span className="font-semibold text-brown-dark">{success.condition}</span></p>
             {success.condition === "Wet" && (
-              <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-red-600">−{success.wetDeduction.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-red-600">−{fmtKg(success.wetDeduction)} kg</span></p>
             )}
             <div className="border-t border-beige-dark mt-2 pt-2">
-              <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{success.finalWeight.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{fmtKg(success.finalWeight)} kg</span></p>
             </div>
           </div>
           {issueSaved && <p className="text-sm text-green-dark mb-4">Issue report sent for staff review.</p>}
@@ -403,13 +405,13 @@ export default function WalkinDeliveryForm() {
             <div className="bg-beige rounded-xl p-4 text-sm space-y-2">
               <p className="text-brown-mid">Supplier: <span className="font-semibold text-brown-dark">{form.supplierName.trim()}</span></p>
               <p className="text-brown-mid">Delivery date: <span className="font-semibold text-brown-dark">{form.deliveryDate}</span></p>
-              <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{grossWeight.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{fmtKg(grossWeight)} kg</span></p>
               <p className="text-brown-mid">Sacks: <span className="font-semibold text-brown-dark">{numSacks}</span></p>
               <p className="text-brown-mid">Condition: <span className="font-semibold text-brown-dark">{form.condition}</span></p>
-              <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-brown-dark">{sacksDeduction.toFixed(2)} kg</span></p>
-              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{netWeight.toFixed(2)} kg</span></p>
-              {form.condition === "Wet" && <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-brown-dark">{wetDeduction.toFixed(2)} kg</span></p>}
-              <p className="border-t border-beige-dark pt-2 text-brown-mid">Final weight: <span className="font-bold text-green-dark">{finalWeight.toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Sacks deduction: <span className="font-semibold text-brown-dark">{fmtKg(sacksDeduction)} kg</span></p>
+              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{fmtKg(netWeight)} kg</span></p>
+              {form.condition === "Wet" && <p className="text-brown-mid">Wet deduction: <span className="font-semibold text-brown-dark">{fmtKg(wetDeduction)} kg</span></p>}
+              <p className="border-t border-beige-dark pt-2 text-brown-mid">Final weight: <span className="font-bold text-green-dark">{fmtKg(finalWeight)} kg</span></p>
             </div>
             <div className="flex gap-3 mt-5">
               <button type="button" onClick={() => setReviewing(false)} disabled={submitting}

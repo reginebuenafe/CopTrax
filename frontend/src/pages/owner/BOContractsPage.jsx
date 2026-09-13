@@ -3,20 +3,22 @@ import { useNavigate } from "react-router-dom";
 import {
   LuFileText, LuCheck, LuX,
   LuCircleAlert, LuLoader, LuMessageSquare, LuPenLine,
-  LuSearch, LuArrowUpDown, LuTruck, LuPackage,
+  LuSearch, LuArrowUpDown, LuTruck, LuPackage, LuClock,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ContractReviewModal from "../../components/ContractReviewModal";
+import ContractApprovalModal from "../../components/ContractApprovalModal";
 
 const STATUS_META = {
-  Pending:   { label: "Pending",   color: "bg-amber-50 text-amber-700",      dot: "bg-amber-400" },
+  Pending:   { label: "Awaiting Supplier",   color: "bg-amber-50 text-amber-700",      dot: "bg-amber-400" },
+  "Pending Owner Review": { label: "Pending Your Review", color: "bg-orange-50 text-orange-700", dot: "bg-orange-500" },
   Active:    { label: "Active",    color: "bg-green-pale text-green-dark",    dot: "bg-green-mid" },
   Completed: { label: "Completed", color: "bg-emerald-50 text-emerald-700",   dot: "bg-emerald-500" },
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",           dot: "bg-red-500" },
 };
 
-const FILTERS = ["All", "Pending", "Active", "Completed", "Breached"];
+const FILTERS = ["All", "Pending", "Pending Owner Review", "Active", "Completed", "Breached"];
 
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
@@ -38,12 +40,11 @@ export default function BOContractsPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("newest");
   const [loading, setLoading] = useState(true);
-  const [actionModal, setActionModal]       = useState(null); // { contract, action }
   const [reviewModal, setReviewModal]       = useState(null); // contract for generation
+  const [approvalModal, setApprovalModal]   = useState(null); // contract awaiting BO approval
   const [successMsg, setSuccessMsg]         = useState(null); // success overlay after generation
   const [pdfModal, setPdfModal]             = useState(null); // { url, contractNumber, supplierName }
   const [batchesModal, setBatchesModal]     = useState(null); // contract object
-  const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
 
   const showToast = useCallback((msg, type = "success") => {
@@ -59,7 +60,7 @@ export default function BOContractsPage() {
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, activation_date, due_date, status, created_at,
-        contract_hash, contract_document_url,
+        contract_hash, contract_document_url, bo_reviewed_at,
         supplier:supplier_id(user_id, first_name, last_name, email)
       `)
       .order("created_at", { ascending: false });
@@ -111,7 +112,7 @@ export default function BOContractsPage() {
       .select(`
         contract_id, contract_number, negotiated_price_per_kg, contracted_tons,
         signing_date, activation_date, due_date, status, created_at,
-        contract_hash, contract_document_url,
+        contract_hash, contract_document_url, bo_reviewed_at,
         supplier:supplier_id(user_id, first_name, last_name, email)
       `)
       .order("created_at", { ascending: false });
@@ -161,70 +162,6 @@ export default function BOContractsPage() {
       return new Date(b.created_at) - new Date(a.created_at); // newest default
     });
 
-  async function handleAction() {
-    const { contract, action } = actionModal;
-    setProcessing(true);
-
-    const updates = {};
-    let notifType = null;
-    let notifMsg = "";
-
-    if (action === "activate") {
-      updates.status = "Active";
-      updates.signing_date = new Date().toISOString().slice(0, 10);
-      notifType = "Contract Activated";
-      notifMsg = `Contract ${contract.contract_number} has been activated. Deliveries can now be recorded.`;
-
-      // Insert BO signature record
-      await supabase.from("contract_signatures").insert({
-        contract_id: contract.contract_id,
-        signer_id: user.id,
-        signer_role: "Business Owner",
-        signature_order: 1,
-        signed_at: new Date().toISOString(),
-      });
-      // Insert supplier signature (auto-apply)
-      await supabase.from("contract_signatures").insert({
-        contract_id: contract.contract_id,
-        signer_id: contract.supplier.user_id,
-        signer_role: "Supplier",
-        signature_order: 2,
-        signed_at: new Date().toISOString(),
-      });
-    }
-
-    const { error } = await supabase.from("contracts").update(updates).eq("contract_id", contract.contract_id);
-
-    if (error) {
-      showToast("Action failed. Please try again.", "error");
-    } else {
-      // Notify supplier
-      if (notifType) {
-        await supabase.from("notifications").insert({
-          user_id: contract.supplier.user_id,
-          notification_type: notifType,
-          message: notifMsg,
-          related_entity_type: "contracts",
-          related_entity_id: contract.contract_id,
-        });
-        // Notify conversation
-        if (contract.conversations?.[0]?.conversation_id) {
-          await supabase.from("messages").insert({
-            conversation_id: contract.conversations[0].conversation_id,
-            sender_id: user.id,
-            message_type: "Contract Form",
-            message_text: notifMsg,
-          });
-        }
-      }
-      showToast("Contract activated. Deliveries can now be recorded.");
-      fetchContracts();
-    }
-
-    setProcessing(false);
-    setActionModal(null);
-  }
-
   async function openPdfModal(c) {
     if (!c.contract_document_url) return;
     const { data } = await supabase.storage.from("contracts").createSignedUrl(c.contract_document_url, 60 * 15);
@@ -256,6 +193,23 @@ export default function BOContractsPage() {
           <span className="text-xs text-brown-light shrink-0">{contracts.length} total</span>
         )}
       </div>
+
+      {/* Prominent banner — impossible to miss when a Supplier-signed
+          contract is waiting on the Business Owner's review/approval. */}
+      {!loading && contracts.filter(c => c.status === "Pending Owner Review").length > 0 && (
+        <button
+          onClick={() => setFilter("Pending Owner Review")}
+          className="w-full flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 mb-4 text-left transition-colors hover:bg-orange-100"
+        >
+          <LuCircleAlert className="w-5 h-5 text-orange-600 shrink-0" />
+          <span className="text-sm text-orange-800 flex-1">
+            <strong>{contracts.filter(c => c.status === "Pending Owner Review").length}</strong> contract
+            {contracts.filter(c => c.status === "Pending Owner Review").length !== 1 ? "s" : ""} signed by
+            the Supplier and awaiting your review &amp; approval.
+          </span>
+          <span className="text-xs font-bold text-orange-700 shrink-0">Review now →</span>
+        </button>
+      )}
 
       {/* Search + Sort row */}
       <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
@@ -295,18 +249,27 @@ export default function BOContractsPage() {
 
       {/* Status filter tabs */}
       <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
-        {FILTERS.map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
-              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-            {f}
-            {f === "Pending" && contracts.filter(c => c.status === "Pending").length > 0 && (
-              <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                {contracts.filter(c => c.status === "Pending").length}
-              </span>
-            )}
-          </button>
-        ))}
+        {FILTERS.map(f => {
+          const tabLabel = STATUS_META[f]?.label ?? f;
+          const count = f !== "All" ? contracts.filter(c => c.status === f).length : 0;
+          return (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+                ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+              {tabLabel}
+              {f === "Pending Owner Review" && count > 0 && (
+                <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  {count}
+                </span>
+              )}
+              {f === "Pending" && count > 0 && (
+                <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {loading ? (
@@ -431,10 +394,15 @@ export default function BOContractsPage() {
                       <LuPenLine className="w-3.5 h-3.5" /> Review & Generate Contract
                     </button>
                   )}
-                  {c.status === "Pending" && c.contract_hash && !c.contract_document_url && (
-                    <button onClick={() => setActionModal({ contract: c, action: "activate" })}
+                  {c.status === "Pending" && c.contract_hash && (
+                    <span className="text-xs text-brown-light italic flex items-center gap-1.5">
+                      <LuClock className="w-3.5 h-3.5" /> Awaiting Supplier's signature
+                    </span>
+                  )}
+                  {c.status === "Pending Owner Review" && (
+                    <button onClick={() => setApprovalModal(c)}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-colors">
-                      <LuCheck className="w-3.5 h-3.5" /> Activate Contract
+                      <LuCheck className="w-3.5 h-3.5" /> {c.bo_reviewed_at ? "Approve & Sign Contract" : "Review Contract"}
                     </button>
                   )}
                   {(c.status === "Completed" || c.status === "Breached") && (
@@ -447,46 +415,20 @@ export default function BOContractsPage() {
         </div>
       )}
 
-      {/* Confirm modal */}
-      {actionModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-md p-6 relative">
-            <button onClick={() => setActionModal(null)} className="absolute top-4 right-4 text-brown-light hover:text-brown-dark">
-              <LuX className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-green-pale`}>
-                <LuCheck className="w-5 h-5 text-green-dark" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-brown-dark">Activate Contract</h2>
-                <p className="text-brown-light text-sm">{actionModal.contract.contract_number}</p>
-              </div>
-            </div>
-
-            <div className="bg-beige rounded-xl px-4 py-3 mb-4 text-sm space-y-1">
-              <p className="text-brown-mid">Supplier: <span className="font-semibold text-brown-dark">{actionModal.contract.supplier?.first_name} {actionModal.contract.supplier?.last_name}</span></p>
-              <p className="text-brown-mid">Price: <span className="font-semibold text-brown-dark">{peso(actionModal.contract.negotiated_price_per_kg)}/kg</span></p>
-              <p className="text-brown-mid">Volume: <span className="font-semibold text-brown-dark">{actionModal.contract.contracted_tons} tons</span></p>
-            </div>
-
-            <p className="text-sm text-brown-light mb-5">
-              Both parties' signatures will be recorded and the contract will become Active. Weighers will then be able to record deliveries under this contract.
-            </p>
-
-            <div className="flex gap-3">
-              <button onClick={() => setActionModal(null)} disabled={processing}
-                className="flex-1 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
-                Cancel
-              </button>
-              <button onClick={handleAction} disabled={processing}
-                className="flex-1 py-3 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60 flex items-center justify-center gap-2 bg-green-dark hover:bg-green-dark/90">
-                {processing && <LuLoader className="w-4 h-4 animate-spin" />}
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ContractApprovalModal — BO must open, review, and explicitly approve
+          & sign a contract the Supplier has already signed. This is the ONLY
+          path that can activate a contract; it replaces the old client-side
+          "Activate Contract" bypass entirely. */}
+      {approvalModal && (
+        <ContractApprovalModal
+          contract={approvalModal}
+          onClose={() => setApprovalModal(null)}
+          onApproved={() => {
+            setApprovalModal(null);
+            showToast("Contract approved and signed. It is now Active.");
+            fetchContracts();
+          }}
+        />
       )}
 
       {/* ContractReviewModal — BO reviews and generates contract */}
@@ -639,11 +581,11 @@ function DeliveryBatchesModal({ contract, onClose }) {
                       )}
                       <span className="text-sm text-brown-light break-words">
                         {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toFixed(0)}kg N:${Number(wr.net_weight_kg ?? 0).toFixed(0)}kg`}
+                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toLocaleString("en-PH")}kg N:${Number(wr.net_weight_kg ?? 0).toLocaleString("en-PH")}kg`}
                       </span>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toFixed(2)} kg</span>
+                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
                       <span className={`ml-2 text-sm font-semibold ${a.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>
                         {a.price_type}
                       </span>

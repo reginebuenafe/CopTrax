@@ -26,6 +26,7 @@ import {
 } from "../_shared/contract_hash.ts";
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
 import { sendEmail } from "../_shared/send_email.ts";
+import { priceToWords } from "../_shared/price_to_words.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -57,7 +58,6 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-
     // ── 1. Authenticate caller ───────────────────────────────────────────────
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace(/^Bearer\s+/i, "");
@@ -270,7 +270,7 @@ Deno.serve(async (req) => {
 
     // ── 5. Render unsigned preview PDF ───────────────────────────────────────
     // Price words = price per kilogram in words (e.g. "Twenty Eight Pesos"), NOT total value.
-    const priceWords  = numberToWords(Math.round(Number(pricePerKgStr)));
+    const priceWords  = priceToWords(Number(pricePerKgStr));
 
     const pdfBytes = await renderContractPDF({
       contract_number:        terms.contract_number,
@@ -403,26 +403,3 @@ Deno.serve(async (req) => {
     return json({ error: String(err) }, 500);
   }
 });
-
-// ── Simple number-to-words helper for Philippine peso amounts ────────────────
-function numberToWords(n: number): string {
-  if (n === 0) return "Zero Pesos";
-  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
-    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
-    "Eighteen", "Nineteen"];
-  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-  function chunk(num: number): string {
-    if (num === 0) return "";
-    if (num < 20)  return ones[num] + " ";
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "") + " ";
-    return ones[Math.floor(num / 100)] + " Hundred " + chunk(num % 100);
-  }
-
-  let result = "";
-  if (n >= 1_000_000) { result += chunk(Math.floor(n / 1_000_000)) + "Million "; n %= 1_000_000; }
-  if (n >= 1_000)     { result += chunk(Math.floor(n / 1_000))     + "Thousand "; n %= 1_000; }
-  if (n > 0)           result += chunk(n);
-
-  return result.trim() + " Pesos";
-}

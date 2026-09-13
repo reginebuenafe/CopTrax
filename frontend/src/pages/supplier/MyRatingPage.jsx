@@ -4,7 +4,10 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
 function StarDisplay({ rating, size = "md" }) {
-  const stars = Math.round(rating ?? 0);
+  // Floor (not round) so the filled-star count always matches the same
+  // band used for negotiation pricing elsewhere (e.g. 2.7 shows 2 full
+  // stars, not rounded up to 3) — never overstates the supplier's rating.
+  const stars = Math.floor(rating ?? 0);
   const sz = size === "lg" ? "w-7 h-7" : "w-4.5 h-4.5";
   return (
     <div className="flex items-center gap-1">

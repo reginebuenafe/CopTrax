@@ -3,7 +3,9 @@ import { LuStar, LuChevronDown, LuChevronUp } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
 function StarRating({ rating, size = "sm" }) {
-  const stars = Math.round(rating ?? 0);
+  // Floor (not round) so the filled-star count never overstates the rating
+  // (e.g. 2.7 shows 2 full stars, not rounded up to 3).
+  const stars = Math.floor(rating ?? 0);
   return (
     <div className={`flex items-center gap-0.5 ${size === "lg" ? "gap-1" : ""}`}>
       {[1, 2, 3, 4, 5].map(i => (

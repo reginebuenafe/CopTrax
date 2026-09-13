@@ -9,13 +9,17 @@ import { supabase } from "../lib/supabase";
  * Sign Contract" on a contract card in chat. Embeds a preview of the generated
  * contract PDF (fetched from the private `contracts` storage bucket via a
  * signed URL) and requires the Supplier to check an authorization box before
- * the `sign-contract` Edge Function is called.
+ * the `sign-contract` Edge Function is called. This is ONLY the first of two
+ * required signing steps — after the Supplier signs, the contract moves to
+ * 'Pending Owner Review' and the Business Owner must separately open and
+ * explicitly approve it (see approve-contract Edge Function) before it
+ * becomes Active. The Supplier's action here never activates the contract.
  *
  * Props:
  *   contract    – { contract_id, contract_number, price_per_kg, contracted_tons,
  *                   due_date, document_path, contract_hash }
  *   onClose     – () => void
- *   onSigned    – ({ contract_document_path, activation_date }) => void
+ *   onSigned    – ({ contract_document_path, status }) => void
  */
 export default function SupplierContractReviewModal({ contract, onClose, onSigned }) {
   const [authorized, setAuthorized] = useState(false);
@@ -161,8 +165,9 @@ export default function SupplierContractReviewModal({ contract, onClose, onSigne
               submitted during account registration. Your signing action will be securely linked 
               to the exact contract terms, allowing any changes made after signing to be detected. 
               The date, time, IP address and browser you used will be recorded. Once signed, the 
-              contract's status will change to <strong>Active</strong> and it becomes eligible to 
-              receive deliveries.
+              contract will move to <strong>Pending Owner Review</strong> — NERC Copra Trading must
+              still review and explicitly approve it before it becomes <strong>Active</strong> and
+              eligible to receive deliveries.
             </div>
           </div>
 

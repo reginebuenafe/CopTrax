@@ -1,6 +1,6 @@
 // sign-contract/index.ts
 // -----------------------------------------------------------------------------
-// Cryptographic Signature Binding — Contract Signing
+// Cryptographic Signature Binding — Contract Signing (Supplier step only)
 //
 // Called by the Supplier from the "Review & Sign Contract" modal after they
 // tick the authorization checkbox.
@@ -10,14 +10,17 @@
 //   2. The current contract terms are re-canonicalised and re-hashed. If that
 //      hash does not match the hash stored on the row (created by
 //      generate-contract), signing is refused — the terms were tampered with.
-//   3. Each contract_signatures audit row records:
+//   3. A contract_signatures audit row records the Supplier's signature:
 //        signer_id, signer_role, signed_at, ip_address, user_agent,
 //        signature_hash (== agreed contract hash), signature_image_url.
 //      That row is made immutable by a DB trigger (see migration 017).
-//   4. The signature image(s) are embedded into a final signed PDF, which is
-//      also fingerprinted by the same hash in a visible footer.
-//   5. The contract row transitions to 'Active'; the DB trigger computes
-//      due_date = activation_date + 1 month + 1 day.
+//   4. ONLY the Supplier's signature image is embedded into the interim
+//      signed PDF at this stage — the Business Owner's signature is never
+//      applied automatically here.
+//   5. The contract row transitions to 'Pending Owner Review' — NOT Active.
+//      Activation only happens when the Business Owner explicitly reviews
+//      and approves via the separate `approve-contract` Edge Function; see
+//      migration 20260913000057_bo_contract_approval_flow.sql.
 // -----------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -27,6 +30,8 @@ import {
 } from "../_shared/contract_hash.ts";
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
 import { sendEmail } from "../_shared/send_email.ts";
+import { callerIP, fetchSignatureBytes } from "../_shared/contract_signing_helpers.ts";
+import { priceToWords } from "../_shared/price_to_words.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -51,58 +56,6 @@ function fmtDate(iso: string): string {
   });
 }
 
-/** Extract the caller's IP address from common proxy headers. */
-function callerIP(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("cf-connecting-ip")
-      ?? req.headers.get("x-real-ip")
-      ?? "unknown";
-}
-
-// deno-lint-ignore no-explicit-any
-type Admin = ReturnType<typeof createClient<any, any>>;
-
-/**
- * Fetch a user's stored e-signature image bytes.
- * Returns { bytes, sourceUrl } or null if no signature is registered.
- * Note: file_uploads.file_url actually stores the object path within the
- * 'documents' storage bucket (see upload-registration-files), not an HTTP URL.
- */
-async function fetchSignatureBytes(
-  admin: Admin,
-  userId: string,
-): Promise<{ bytes: Uint8Array; sourceUrl: string } | null> {
-  const { data: verifyRow } = await admin
-    .from("user_verify")
-    .select("esign_file_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!verifyRow?.esign_file_id) return null;
-
-  const { data: fileRow } = await admin
-    .from("file_uploads")
-    .select("file_url")
-    .eq("file_id", verifyRow.esign_file_id)
-    .maybeSingle();
-
-  if (!fileRow?.file_url) return null;
-
-  const stored = fileRow.file_url as string;
-  const storagePath = stored.startsWith("documents/")
-    ? stored.substring("documents/".length)
-    : stored;
-
-  // Download via service role (bypasses RLS).
-  const { data: blob, error } = await admin.storage
-    .from("documents").download(storagePath);
-  if (error || !blob) return null;
-
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  return { bytes, sourceUrl: storagePath };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -110,7 +63,6 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-
     // ── 1. Authenticate caller ───────────────────────────────────────────────
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace(/^Bearer\s+/i, "");
@@ -188,26 +140,22 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    // Fetch BO signature image for VISUAL embedding in the PDF only.
-    // This is NOT treated as the BO's legal signing action — the BO's image
-    // is already on file from registration. A separate BO-signing step would
-    // record the BO's explicit authorization. For now we only record the
-    // Supplier's binding signature row.
-    const boSigForPdf = await fetchSignatureBytes(admin, bo.user_id as string);
+    // SECURITY: the Business Owner's signature is NEVER fetched or embedded
+    // here. Only the Supplier's signature is applied at this stage. The BO
+    // must explicitly review and approve via `approve-contract` before their
+    // signature is ever applied and the contract can become Active.
 
-    // ── 6. Render final signed PDF ───────────────────────────────────────────
+    // ── 6. Render interim signed PDF (Supplier signature only) ───────────────
     const now = new Date();
     const nowIso = now.toISOString();
     const today  = nowIso.slice(0, 10);
 
-    // due_date will be set by the DB trigger on activation, so at signing time
-    // it may be null. Fall back to a computed placeholder if so.
-    const dueDateText = contract.due_date
-      ? fmtDate(contract.due_date as string)
-      : fmtDate(new Date(now.getFullYear(), now.getMonth() + 1, now.getDate() + 1).toISOString());
+    // due_date is not yet known — activation (and due_date) only happen once
+    // the Business Owner approves via approve-contract.
+    const dueDateText = "one month and one day from Business Owner approval";
 
     // Price words = price per kilogram in words, NOT the total contract value.
-    const priceWords  = numberToWords(Math.round(Number(snapshotTerms.negotiated_price_per_kg)));
+    const priceWords  = priceToWords(Number(snapshotTerms.negotiated_price_per_kg));
 
     const signedPdfBytes = await renderContractPDF({
       contract_number:              snapshotTerms.contract_number,
@@ -223,11 +171,13 @@ Deno.serve(async (req) => {
       business_owner_name:          snapshotTerms.business_owner_name,
       contract_hash:                contract.contract_hash,
       supplier_signature_png:       supplierSig.bytes,
-      business_owner_signature_png: boSigForPdf?.bytes ?? null,
+      business_owner_signature_png: null,
       supplier_signed_at:           nowIso,
-      // business_owner_signed_at is intentionally omitted — BO has not
-      // performed an explicit signing action in this request.
+      // business_owner_signed_at is intentionally omitted — the BO has not
+      // performed an explicit signing action in this request, and never
+      // will as a side-effect of the Supplier's action.
     });
+
 
     const signedPath = `${contract.supplier_id}/${contract_id}/signed.pdf`;
     const { error: uploadErr } = await admin.storage
@@ -268,39 +218,52 @@ Deno.serve(async (req) => {
       return json({ error: `Signature record insert failed: ${sigInsertErr.message}` }, 500);
     }
 
-    // ── 8. Activate contract ─────────────────────────────────────────────────
-    const { error: updateErr } = await admin.from("contracts").update({
-      status:                 "Active",
-      activation_date:        today,     // DB trigger computes due_date
-      signing_date:           today,
-      supplier_authorized_at: nowIso,
-      contract_document_url:  signedPath,
-    }).eq("contract_id", contract_id);
+    // ── 8. Move to Pending Owner Review (NOT Active) ─────────────────────────
+    // Guard the transition atomically: only succeeds if the contract is still
+    // 'Pending' at this exact moment, preventing a double-submit/race from
+    // processing the Supplier's signature twice.
+    const { data: updatedRows, error: updateErr } = await admin
+      .from("contracts")
+      .update({
+        status:                 "Pending Owner Review",
+        supplier_authorized_at: nowIso,
+        signing_date:           today,
+        contract_document_url:  signedPath,
+      })
+      .eq("contract_id", contract_id)
+      .eq("status", "Pending")
+      .select("contract_id");
 
     if (updateErr) return json({ error: `Contract update failed: ${updateErr.message}` }, 500);
+    if (!updatedRows || updatedRows.length === 0) {
+      return json({
+        error: "This contract is no longer awaiting your signature (it may have already been signed).",
+      }, 409);
+    }
 
     // ── 9. Notifications ─────────────────────────────────────────────────────
     await admin.from("notifications").insert([
       {
         user_id:             contract.supplier_id as string,
         notification_type:   "Contract Signed",
-        message:             `You've signed contract ${contract.contract_number}. It is now Active.`,
+        message:             `You've signed contract ${contract.contract_number}. It is now awaiting the Business Owner's review and approval.`,
         related_entity_type: "contracts",
         related_entity_id:   contract_id,
       },
       {
         user_id:             contract.business_owner_id as string,
         notification_type:   "Contract Signed",
-        message:             `Contract ${contract.contract_number} has been signed by the Supplier and is now Active.`,
+        message:             `Supplier ${supplier.first_name} ${supplier.last_name} has signed contract ${contract.contract_number}. Please open and review it to approve and activate.`,
         related_entity_type: "contracts",
         related_entity_id:   contract_id,
       },
     ]);
 
-    // Send email to Business Owner notifying that supplier has signed
+    // Send email to Business Owner notifying that supplier has signed and
+    // their review + explicit approval is now required.
     await sendEmail({
       to:      bo.email as string,
-      subject: `Contract ${contract.contract_number} has been signed — now Active`,
+      subject: `Contract ${contract.contract_number} signed by Supplier — your review is required`,
       html: `
         <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; color: #3E2723;">
           <div style="background: #2E7D32; padding: 24px 32px; border-radius: 12px 12px 0 0;">
@@ -311,15 +274,17 @@ Deno.serve(async (req) => {
             <p style="font-size: 16px; font-weight: 600; margin-top: 0;">Hi ${bo.first_name},</p>
             <p style="line-height: 1.6;">
               Supplier <strong>${supplier.first_name} ${supplier.last_name}</strong> has signed
-              contract <strong>${contract.contract_number}</strong>. The contract is now
-              <strong style="color: #2E7D32;">Active</strong> and deliveries can begin.
+              contract <strong>${contract.contract_number}</strong>. It is now
+              <strong style="color: #B45309;">Pending your review</strong> — please open the
+              contract, review its terms, and explicitly approve &amp; sign it before it can
+              become Active.
             </p>
             <div style="text-align: center; margin: 32px 0;">
               <a href="https://coptrax.onrender.com/dashboard/owner/contracts"
                  style="background: #2E7D32; color: #fff; text-decoration: none;
                         padding: 14px 32px; border-radius: 8px; font-weight: 700;
                         font-size: 15px; display: inline-block;">
-                View Contract
+                Review Contract
               </a>
             </div>
             <hr style="border: none; border-top: 1px solid #DCCDB4; margin: 24px 0;" />
@@ -345,9 +310,10 @@ Deno.serve(async (req) => {
             <p style="font-size: 16px; font-weight: 600; margin-top: 0;">Hi ${supplier.first_name},</p>
             <p style="line-height: 1.6;">
               You have successfully signed contract <strong>${contract.contract_number}</strong>.
-              The contract is now <strong style="color: #2E7D32;">Active</strong>.
+              It is now <strong style="color: #B45309;">pending the Business Owner's review and approval</strong>.
+              You'll be notified once it becomes Active.
             </p>
-            <p style="line-height: 1.6;">You can view and download your signed contract in CopTrax.</p>
+            <p style="line-height: 1.6;">You can view your signed contract in CopTrax.</p>
             <div style="text-align: center; margin: 32px 0;">
               <a href="https://coptrax.onrender.com/dashboard/supplier/contracts"
                  style="background: #2E7D32; color: #fff; text-decoration: none;
@@ -370,33 +336,10 @@ Deno.serve(async (req) => {
       contract_id,
       contract_document_path: signedPath,
       contract_hash:          contract.contract_hash,
-      activation_date:        today,
+      status:                 "Pending Owner Review",
     });
 
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
 });
-
-// ── Simple number-to-words helper for Philippine peso amounts ────────────────
-function numberToWords(n: number): string {
-  if (n === 0) return "Zero Pesos";
-  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
-    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
-    "Eighteen", "Nineteen"];
-  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-  function chunk(num: number): string {
-    if (num === 0) return "";
-    if (num < 20)  return ones[num] + " ";
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "") + " ";
-    return ones[Math.floor(num / 100)] + " Hundred " + chunk(num % 100);
-  }
-
-  let result = "";
-  if (n >= 1_000_000) { result += chunk(Math.floor(n / 1_000_000)) + "Million "; n %= 1_000_000; }
-  if (n >= 1_000)     { result += chunk(Math.floor(n / 1_000))     + "Thousand "; n %= 1_000; }
-  if (n > 0)           result += chunk(n);
-
-  return result.trim() + " Pesos";
-}
