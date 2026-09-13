@@ -116,10 +116,16 @@ export default function LoginPage() {
     const trimmedEmail = email.trim();
 
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email:    trimmedEmail,
-        password,
-      });
+      // Race against a 15-second timeout so a stalled auth call (e.g. a
+      // background browser tab holding a stuck GoTrue request) never leaves
+      // the user stuck on an infinite "Signing in…" spinner with no feedback.
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Sign-in timed out")), 15_000)
+      );
+      const { error: authError } = await Promise.race([
+        supabase.auth.signInWithPassword({ email: trimmedEmail, password }),
+        timeout,
+      ]);
 
       if (authError) {
         const msg = authError.message?.toLowerCase() ?? "";
@@ -143,9 +149,14 @@ export default function LoginPage() {
       // AuthContext to finish loading the profile before redirecting.
       signingInRef.current = true;
     } catch (err) {
-      // Unexpected throw (network failure, Supabase client error, etc.)
+      // Unexpected throw (network failure, timeout race above, Supabase
+      // client error, etc.)
       console.error("[login] unexpected error:", err);
-      setError("An unexpected error occurred. Please try again.");
+      setError(
+        err?.message === "Sign-in timed out"
+          ? "Sign-in is taking too long. Please try again."
+          : "An unexpected error occurred. Please try again."
+      );
       setLoading(false);
     }
   }

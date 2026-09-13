@@ -3,13 +3,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuX, LuSend, LuFileText,
   LuMessageSquare, LuCheckCheck, LuLeaf, LuMaximize2,
-  LuCoins, LuCheck, LuPencil, LuClock, LuChevronRight,
+  LuCoins, LuCheck, LuPencil, LuClock, LuChevronRight, LuBot,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
+import MoistureContentTable from "./MoistureContentTable";
 import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
@@ -27,6 +28,18 @@ function getDateLabel(dateInput) {
     return "Yesterday";
   }
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Small pill clearly marking a message/proposal as AI-generated on behalf of the Business Owner. */
+function AiBadge({ className = "" }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full bg-[#EDE7FE] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#5B21B6] ${className}`}
+      title="This response was generated automatically by the CopTrax AI Assistant on behalf of NERC Copra Trading."
+    >
+      <LuBot className="h-3 w-3" /> AI Assistant
+    </span>
+  );
 }
 
 function getSupplierProposalEvent(message = "", isMine = false) {
@@ -790,7 +803,8 @@ export default function NegotiationChatWidget() {
                     try {
                       const contract = JSON.parse(rawMessage.replace(/^CONTRACT_CARD:\s*/, ""));
                       return (
-                        <div key={m.message_id || idx} className="flex justify-start my-2">
+                        <div key={m.message_id || idx} className="flex flex-col items-start my-2">
+                          {m.is_ai_generated && <AiBadge className="mb-1 ml-1" />}
                           <div className="w-[90%] overflow-hidden rounded-2xl rounded-tl-none border border-[#2E7D32]/20 bg-[#EDF7EF] shadow-sm">
                             <div className="flex items-center gap-2 bg-[#2E7D32] px-3.5 py-2.5 text-white">
                               <LuFileText className="w-4 h-4 shrink-0" />
@@ -819,6 +833,7 @@ export default function NegotiationChatWidget() {
                                     ? contracts.find(c => c.contract_id === contract.contract_id)
                                     : contracts.find(c => c.contract_number === contract.contract_number);
                                   const isSigned = ["Active", "Completed", "Breached"].includes(contractRow?.status);
+                                  const supplierAlreadySigned = isSigned || contractRow?.status === "Pending Owner Review";
                                   const resolved = {
                                     contract_id: contractRow?.contract_id ?? contract.contract_id,
                                     contract_number: contractRow?.contract_number ?? contract.contract_number,
@@ -828,14 +843,14 @@ export default function NegotiationChatWidget() {
                                     document_path: contractRow?.contract_document_url ?? contract.document_path,
                                     contract_hash: contractRow?.contract_hash ?? contract.contract_hash,
                                   };
-                                  if (isSigned) {
+                                  if (supplierAlreadySigned) {
                                     return (
                                       <button type="button" onClick={() => setViewContract({
                                         contractId: resolved.contract_id,
                                         contractNumber: resolved.contract_number,
                                         documentPath: resolved.document_path,
                                       })} className="font-bold text-[#2E7D32] hover:underline">
-                                        View Contract
+                                        {isSigned ? "View Contract" : "View Contract (awaiting NERC's review)"}
                                       </button>
                                     );
                                   }
@@ -856,11 +871,30 @@ export default function NegotiationChatWidget() {
                     }
                   }
 
+                  if (rawMessage.startsWith("MC_TABLE:")) {
+                    try {
+                      const { intro, specific, fullTable } = JSON.parse(rawMessage.replace(/^MC_TABLE:\s*/, ""));
+                      return (
+                        <div key={m.message_id || idx} className="flex flex-col items-start my-2">
+                          {m.is_ai_generated && <AiBadge className="mb-1 ml-1" />}
+                          <div className="w-[92%] rounded-2xl rounded-tl-none border border-[#E8DCC8] bg-[#FDF7E7] px-4 py-3 text-brown-dark shadow-sm">
+                            <MoistureContentTable intro={intro} specific={specific} fullTable={fullTable} />
+                          </div>
+                        </div>
+                      );
+                    } catch {
+                      // Fall back to the regular message bubble for malformed legacy data.
+                    }
+                  }
+
                   return (
                     <div
                       key={m.message_id || idx}
                       className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                     >
+                      {!isMe && m.is_ai_generated && (
+                        <AiBadge className="mb-1" />
+                      )}
                       <div
                         className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-sm ${isMe
                           ? "bg-[#024023] text-white rounded-tr-none"
@@ -897,6 +931,9 @@ export default function NegotiationChatWidget() {
                             <LuCoins className="w-4 h-4 text-[#024023]" />
                           )}
                           <span>{isMine ? "PRICE PROPOSAL SUBMITTED" : "COUNTEROFFER RECEIVED"}</span>
+                          {!isMine && p.is_ai_generated && (
+                            <AiBadge className="bg-white/70" />
+                          )}
                           {!isMine && (
                             <span className="ml-auto flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold normal-case text-amber-700">
                               <LuClock className="h-3 w-3" /> Pending

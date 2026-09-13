@@ -6,7 +6,7 @@ import { supabase } from "../../lib/supabase";
 
 const TABS = ["Resecada Pool", "Walk-in Holding"];
 
-function fmt3(n) { return Number(n ?? 0).toFixed(2); }
+function fmt3(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function fmtTons(n) { return (Number(n ?? 0) / 1000).toFixed(2); }
 function fmtDate(d) {
   if (!d) return "—";

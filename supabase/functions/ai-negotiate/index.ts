@@ -1,9 +1,15 @@
 /**
  * ai-negotiate — auto-respond to Supplier proposals on behalf of the Business Owner.
  *
- * Rule (per spec):
- *   Supplier offer <= spot_price + 1  →  ACCEPT + generate & send contract
- *   Supplier offer >  spot_price + 1  →  COUNTEROFFER at exactly spot_price + 1
+ * Rule:
+ *   Supplier offer <= recommendedPrice  →  ACCEPT + generate & send contract
+ *   Supplier offer >  recommendedPrice  →  COUNTEROFFER at exactly recommendedPrice
+ *
+ * `recommendedPrice` is computed by the centralized
+ * `computeNegotiationPrice` helper (see ../_shared/negotiation_pricing.ts),
+ * which derives the allowable price purely from the supplier's actual
+ * overall rating — never a flat spot_price + 1, and never invented for a
+ * supplier with no rating (they get exactly spot price).
  *
  * Called from:
  *   - BOChatLayout frontend (global realtime, works when BO is logged in)
@@ -13,6 +19,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { ContractTerms, computeContractHash } from "../_shared/contract_hash.ts";
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
+import { computeNegotiationPrice } from "../_shared/negotiation_pricing.ts";
+import { priceToWords } from "../_shared/price_to_words.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -24,25 +32,6 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-PH", {
     month: "long", day: "numeric", year: "numeric",
   });
-}
-
-function numberToWords(n: number): string {
-  if (n === 0) return "Zero Pesos";
-  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
-    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
-    "Eighteen", "Nineteen"];
-  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-  function chunk(num: number): string {
-    if (num === 0) return "";
-    if (num < 20)  return ones[num] + " ";
-    if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "") + " ";
-    return ones[Math.floor(num / 100)] + " Hundred " + chunk(num % 100);
-  }
-  let result = "";
-  if (n >= 1_000_000) { result += chunk(Math.floor(n / 1_000_000)) + "Million "; n %= 1_000_000; }
-  if (n >= 1_000)     { result += chunk(Math.floor(n / 1_000))     + "Thousand "; n %= 1_000; }
-  if (n > 0)           result += chunk(n);
-  return result.trim() + " Pesos";
 }
 
 async function generateAndSendContract(
@@ -109,7 +98,7 @@ async function generateAndSendContract(
   };
 
   const contractHash = await computeContractHash(terms);
-  const priceWords   = numberToWords(Math.round(Number(pricePerKgStr)));
+  const priceWords   = priceToWords(Number(pricePerKgStr));
 
   // 6. Render unsigned preview PDF
   const pdfBytes = await renderContractPDF({
@@ -147,11 +136,13 @@ async function generateAndSendContract(
     contract_document_url:   previewPath,
   }).eq("contract_id", contract.contract_id);
 
-  // 9. Post contract card + message into chat (sent as BO)
+  // 9. Post contract card + message into chat (sent as BO, flagged as AI-generated
+  //    so the Supplier UI can clearly indicate this came from the AI negotiator).
   await db.from("messages").insert({
     conversation_id: conv.conversation_id,
     sender_id:       conv.business_owner_id,
     message_type:    "Contract Form",
+    is_ai_generated: true,
     message_text:    `CONTRACT_CARD:${JSON.stringify({
       contract_id:     contract.contract_id,
       contract_number: contract.contract_number,
@@ -166,6 +157,7 @@ async function generateAndSendContract(
     conversation_id: conv.conversation_id,
     sender_id:       conv.business_owner_id,
     message_type:    "Text",
+    is_ai_generated: true,
     message_text:    "Your price proposal has been accepted. The contract has been generated — please review and sign when you're ready.",
   });
 
@@ -256,7 +248,18 @@ Deno.serve(async (req) => {
 
     const spotPrice  = spotRow ? Number(spotRow.price_per_kg) : 0;
     const offerPrice = Number(proposal.proposed_price_per_kg);
-    const threshold  = spotPrice + 1;
+
+    // Centralized pricing decision — driven purely by the supplier's actual
+    // overall rating (spotPrice + ratingPremium). No volume/history/breach
+    // adjustments are applied to the price.
+    const pricing = await computeNegotiationPrice(
+      db,
+      proposal.supplier_id,
+      spotPrice,
+    );
+    const threshold = pricing.recommendedPrice;
+
+    console.log("ai-negotiate: pricing factors", pricing);
 
     if (offerPrice <= threshold) {
       // ── ACCEPT ──────────────────────────────────────────────────────────────
@@ -283,11 +286,11 @@ Deno.serve(async (req) => {
       // Generate and send the contract automatically
       await generateAndSendContract(db, conv, proposal);
 
-      return new Response(JSON.stringify({ action: "accepted", price: offerPrice }), {
+      return new Response(JSON.stringify({ action: "accepted", price: offerPrice, pricing }), {
         status: 200, headers: { ...CORS, "Content-Type": "application/json" },
       });
     } else {
-      // ── COUNTEROFFER at spot_price + 1 ───────────────────────────────────
+      // ── COUNTEROFFER at the centrally-computed recommended price ─────────
       const counterPrice = threshold;
 
       // Mark the Supplier's proposal as Modified
@@ -295,7 +298,8 @@ Deno.serve(async (req) => {
         .update({ proposal_status: "Modified", reviewed_by: conv.business_owner_id })
         .eq("proposal_id", proposal_id);
 
-      // Insert BO counteroffer
+      // Insert BO counteroffer (flagged as AI-generated so the Supplier UI can
+      // clearly indicate this counteroffer came from the AI negotiator).
       await db.from("proposal_forms").insert({
         conversation_id:       conv.conversation_id,
         supplier_id:           conv.supplier_id,
@@ -304,6 +308,7 @@ Deno.serve(async (req) => {
         proposal_status:       "Pending",
         supersedes_proposal_id: proposal_id,
         submitted_by:          conv.business_owner_id,
+        is_ai_generated:       true,
       });
 
       // Notify supplier
@@ -315,7 +320,7 @@ Deno.serve(async (req) => {
         related_entity_id:   conv.conversation_id,
       });
 
-      return new Response(JSON.stringify({ action: "counteroffered", counter_price: counterPrice }), {
+      return new Response(JSON.stringify({ action: "counteroffered", counter_price: counterPrice, pricing }), {
         status: 200, headers: { ...CORS, "Content-Type": "application/json" },
       });
     }

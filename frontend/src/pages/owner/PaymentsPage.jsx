@@ -14,7 +14,7 @@ const TABS = ["Ready to Pay", "Payment Batches", "Walk-In Payments"];
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function fmt3(n) { return Number(n ?? 0).toFixed(2); }
+function fmt3(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
@@ -523,7 +523,7 @@ function ReadyToPayTab({ groups, onCreateBatch }) {
                   )}
                 </div>
                 <p className="text-brown-light text-xs mt-0.5">
-                  {deliveries.length} delivery(ies) · {totalNetKg.toFixed(2)} kg · {fmtDate(paymentWeek)}
+                  {deliveries.length} delivery(ies) · {fmt3(totalNetKg)} kg · {fmtDate(paymentWeek)}
                 </p>
               </div>
 
@@ -880,23 +880,23 @@ function BatchesTab({ batches, onRelease }) {
                             <div className="space-y-1 text-brown-light">
                               <div className="flex justify-between">
                                 <span>Gross Weight</span>
-                                <span className="text-brown-dark font-medium">{grossKg.toFixed(2)} kg</span>
+                                <span className="text-brown-dark font-medium">{fmt3(grossKg)} kg</span>
                               </div>
                               <div className="flex justify-between pl-3">
                                 <span>Tare Weight</span>
-                                <span className="text-brown-mid">−{tareKg.toFixed(2)} kg</span>
+                                <span className="text-brown-mid">−{fmt3(tareKg)} kg</span>
                               </div>
                               <div className="flex justify-between font-semibold text-brown-dark border-t border-beige-dark/40 pt-1">
                                 <span>Net Weight</span>
-                                <span>{netKg.toFixed(2)} kg</span>
+                                <span>{fmt3(netKg)} kg</span>
                               </div>
                               <div className="flex justify-between pl-3">
                                 <span>Moisture/PCA ({mcPct}%)</span>
-                                <span className="text-red-500">−{mcDedKg.toFixed(2)} kg</span>
+                                <span className="text-red-500">−{fmt3(mcDedKg)} kg</span>
                               </div>
                               <div className="flex justify-between font-semibold text-green-dark border-t border-beige-dark/40 pt-1">
                                 <span>Final Weight</span>
-                                <span>{finalKg.toFixed(2)} kg</span>
+                                <span>{fmt3(finalKg)} kg</span>
                               </div>
                             </div>
                           </div>
@@ -1034,12 +1034,12 @@ function BatchReceiptModal({ batch: b, onClose }) {
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">DELIVERY DETAILS</p>
             <div className="flex justify-between"><span className="text-brown-light">Recorded by</span><span className="text-brown-dark">{weigherName}</span></div>
-            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
-            <div className="flex justify-between"><span className="text-brown-light">Tare Weight</span><span className="text-brown-dark">{tareKg.toFixed(2)} kg</span></div>
-            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{netKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{fmt3(grossKg)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Tare Weight</span><span className="text-brown-dark">{fmt3(tareKg)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{fmt3(netKg)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Moisture (cc)</span><span className="text-brown-dark">{mc}cc</span></div>
             <div className="flex justify-between"><span className="text-brown-light">PCA Discount</span><span className="text-brown-dark">{pcaPct}%</span></div>
-            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{finalKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{fmt3(finalKg)} kg</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <div className="flex justify-between">
@@ -1220,15 +1220,15 @@ function WalkinCard({ d, spotPrice, marking, onMark, onPrintReceipt }) {
               <span>Sacks Ded <span className="text-red-500 font-medium">−{sacksDeduct.toFixed(2)} kg</span></span>
             </>}
             <span className="text-beige-dark">·</span>
-            <span>Gross <span className="text-brown-mid font-medium">{grossKg.toFixed(2)} kg</span></span>
+            <span>Gross <span className="text-brown-mid font-medium">{fmt3(grossKg)} kg</span></span>
             <span className="text-beige-dark">·</span>
             <span className={`font-medium ${condition === "Wet" ? "text-blue-600" : "text-green-dark"}`}>{condition}</span>
             {condition === "Wet" && <>
               <span className="text-beige-dark">·</span>
-              <span>Ded <span className="text-red-500 font-medium">−{deductedKg.toFixed(2)} kg</span></span>
+              <span>Ded <span className="text-red-500 font-medium">−{fmt3(deductedKg)} kg</span></span>
             </>}
             <span className="text-beige-dark">·</span>
-            <span>Final <span className="text-brown-mid font-medium">{netKg.toFixed(2)} kg</span></span>
+            <span>Final <span className="text-brown-mid font-medium">{fmt3(netKg)} kg</span></span>
             <span className="text-beige-dark">·</span>
             <span>{peso(spot)}/kg</span>
           </div>
@@ -1360,15 +1360,15 @@ function WalkinReceiptModal({ d, spotPrice, onClose }) {
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">WEIGHT DETAILS</p>
-            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{grossKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">Gross Weight</span><span className="text-brown-dark">{fmt3(grossKg)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">No. of Sacks</span><span className="text-brown-dark">{numSacks}</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Sacks Deduction</span><span className="text-red-500">−{sacksDeduct.toFixed(2)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{netAfterSacks.toFixed(2)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Condition</span><span className={condition === "Wet" ? "text-blue-600 font-semibold" : "text-green-dark font-semibold"}>{condition}</span></div>
             {condition === "Wet" && (
-              <div className="flex justify-between"><span className="text-brown-light">Wet Deduction</span><span className="text-red-500">−{wetDeductKg.toFixed(2)} kg</span></div>
+              <div className="flex justify-between"><span className="text-brown-light">Wet Deduction</span><span className="text-red-500">−{fmt3(wetDeductKg)} kg</span></div>
             )}
-            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{finalKg.toFixed(2)} kg</span></div>
+            <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{fmt3(finalKg)} kg</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />
             <p className="text-center font-bold text-brown-dark">PAYMENT</p>

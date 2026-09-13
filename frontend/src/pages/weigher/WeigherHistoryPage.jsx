@@ -105,7 +105,7 @@ export default function WeigherHistoryPage() {
                       </td>
                       <td className="px-5 py-4 hidden lg:table-cell">
                        {netWeight != null
-                         ? <p className="font-semibold text-brown-dark">{Number(netWeight).toFixed(2)} kg</p>
+                         ? <p className="font-semibold text-brown-dark">{Number(netWeight).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</p>
                          : <p className="text-brown-light text-xs italic">No weigh record</p>
                        }
                      </td>

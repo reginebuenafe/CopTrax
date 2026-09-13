@@ -8,6 +8,8 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
+function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
 export default function ContractualDeliveryForm() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -174,9 +176,9 @@ export default function ContractualDeliveryForm() {
             <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Summary</p>
             <p className="text-brown-mid">Supplier: <span className="font-semibold text-brown-dark">{success.supplierName}</span></p>
             <p className="text-brown-mid">Delivery date: <span className="font-semibold text-brown-dark">{success.deliveryDate}</span></p>
-            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{success.grossWeight.toFixed(2)} kg</span></p>
-            <p className="text-brown-mid">Tare weight: <span className="font-semibold text-brown-dark">{success.tareWeight.toFixed(2)} kg</span></p>
-            <p className="text-brown-mid">Net weight: <span className="font-semibold text-green-dark">{Number(success.netWeight).toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{fmtKg(success.grossWeight)} kg</span></p>
+            <p className="text-brown-mid">Tare weight: <span className="font-semibold text-brown-dark">{fmtKg(success.tareWeight)} kg</span></p>
+            <p className="text-brown-mid">Net weight: <span className="font-semibold text-green-dark">{fmtKg(success.netWeight)} kg</span></p>
           </div>
 
           {issueSaved && <p className="text-sm text-green-dark mb-4">Issue report sent for staff review.</p>}
@@ -268,9 +270,9 @@ export default function ContractualDeliveryForm() {
           <div className="bg-beige rounded-xl p-4 text-sm space-y-2">
             <p className="text-brown-mid">Supplier: <span className="font-semibold text-brown-dark">{selectedSupplier?.first_name} {selectedSupplier?.last_name}</span></p>
             <p className="text-brown-mid">Delivery date: <span className="font-semibold text-brown-dark">{form.deliveryDate}</span></p>
-            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{gross.toFixed(2)} kg</span></p>
-            <p className="text-brown-mid">Tare weight: <span className="font-semibold text-brown-dark">{tare.toFixed(2)} kg</span></p>
-            <p className="text-brown-mid">Net weight: <span className="font-semibold text-green-dark">{net.toFixed(2)} kg</span></p>
+            <p className="text-brown-mid">Gross weight: <span className="font-semibold text-brown-dark">{fmtKg(gross)} kg</span></p>
+            <p className="text-brown-mid">Tare weight: <span className="font-semibold text-brown-dark">{fmtKg(tare)} kg</span></p>
+            <p className="text-brown-mid">Net weight: <span className="font-semibold text-green-dark">{fmtKg(net)} kg</span></p>
           </div>
           <div className="flex gap-3 mt-5">
             <button type="button" onClick={() => setReviewing(false)} disabled={submitting} className="flex-1 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige disabled:opacity-60">Edit</button>

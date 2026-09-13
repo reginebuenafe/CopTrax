@@ -3,13 +3,14 @@ import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LuSend, LuCoins, LuCheck, LuX, LuPencil,
-  LuClock, LuFileText, LuStar, LuCheckCheck, LuMessageSquare, LuArrowLeft,
+  LuClock, LuFileText, LuStar, LuCheckCheck, LuMessageSquare, LuArrowLeft, LuBot,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ProposePriceModal from "../../components/ProposePriceModal";
 import SupplierContractReviewModal from "../../components/SupplierContractReviewModal";
 import ContractDocumentModal from "../../components/ContractDocumentModal";
+import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 
@@ -42,10 +43,24 @@ function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
 }
 
-// ── Contract card shown in chat ───────────────────────────────────────────────
-function ContractCard({ contractData, onReviewSign, onView, signed }) {
+/** Small pill clearly marking a message/proposal as AI-generated on behalf of the Business Owner. */
+function AiBadge({ className = "" }) {
   return (
-    <div className="my-3 flex justify-start px-1 sm:px-4">
+    <span
+      className={`inline-flex items-center gap-1 rounded-full bg-[#EDE7FE] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#5B21B6] ${className}`}
+      title="This response was generated automatically by the CopTrax AI Assistant on behalf of NERC Copra Trading."
+    >
+      <LuBot className="h-3 w-3" /> AI Assistant
+    </span>
+  );
+}
+
+// ── Contract card shown in chat ───────────────────────────────────────────────
+function ContractCard({ contractData, onReviewSign, onView, signed, pendingOwnerReview, isAiGenerated }) {
+  const awaitingAction = !signed && !pendingOwnerReview; // still needs Supplier signature
+  return (
+    <div className="my-3 flex flex-col items-start px-1 sm:px-4">
+      {isAiGenerated && <AiBadge className="mb-1 ml-1" />}
       <div className="w-72 max-w-full rounded-2xl rounded-bl-sm border border-[#A2D5AB] bg-[#EDF7EF] p-4 text-[#3D2B1F] shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2E7D32] text-white">
@@ -54,7 +69,7 @@ function ContractCard({ contractData, onReviewSign, onView, signed }) {
           <div>
             <p className="font-bold text-sm">{contractData.contract_number}</p>
             <p className="text-xs text-[#5F7D63]">
-              {signed ? "Signed & Active" : "Awaiting your signature"}
+              {signed ? "Signed & Active" : pendingOwnerReview ? "Awaiting Business Owner's approval" : "Awaiting your signature"}
             </p>
           </div>
         </div>
@@ -74,7 +89,7 @@ function ContractCard({ contractData, onReviewSign, onView, signed }) {
             </div>
           )}
         </div>
-        {!signed && onReviewSign && (
+        {awaitingAction && onReviewSign && (
           <button
             onClick={onReviewSign}
             className="mt-3 w-full rounded-xl bg-white py-2 text-xs font-bold text-[#17682D] shadow-sm ring-1 ring-[#A2D5AB]/50 transition-all hover:bg-[#F7FCF8]"
@@ -82,9 +97,24 @@ function ContractCard({ contractData, onReviewSign, onView, signed }) {
             Review & Sign Contract
           </button>
         )}
-        {!signed && !onReviewSign && (
+        {awaitingAction && !onReviewSign && (
           <div className="mt-3 w-full rounded-xl bg-white py-2 text-center text-xs text-[#8B7355] ring-1 ring-[#A2D5AB]/40">
             Loading contract details…
+          </div>
+        )}
+        {pendingOwnerReview && (
+          <div className="mt-3 space-y-1.5">
+            <div className="w-full rounded-xl bg-amber-50 py-1.5 text-center text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+              ⏳ You've signed — awaiting NERC's review
+            </div>
+            {onView && (
+              <button
+                onClick={onView}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-white py-2 text-xs font-bold text-[#17682D] ring-1 ring-[#A2D5AB]/50 transition-all hover:bg-[#F7FCF8]"
+              >
+                <LuFileText className="w-3.5 h-3.5" /> View Contract Document
+              </button>
+            )}
           </div>
         )}
         {signed && (
@@ -117,6 +147,7 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
           <p className="text-sm font-bold text-[#2d5a27]">
             {submittedByMe ? "Your Proposal" : "Incoming Counteroffer"}
           </p>
+          {!submittedByMe && proposal.is_ai_generated && <AiBadge />}
           <span className="ml-auto text-xs bg-amber-50 text-amber-700 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
             <LuClock className="w-3 h-3" /> Pending
           </span>
@@ -582,13 +613,17 @@ export default function SupplierChatLayout() {
                       ? contracts.find(c => c.contract_id === cardData.contract_id)
                       : contracts.find(c => c.contract_number === cardData.contract_number);
                     const isSigned = contractRow?.status === "Active" || contractRow?.status === "Completed" || contractRow?.status === "Breached";
+                    const isPendingOwnerReview = contractRow?.status === "Pending Owner Review";
+                    const supplierAlreadySigned = isSigned || isPendingOwnerReview;
                     const resolvedId = cardData.contract_id ?? contractRow?.contract_id;
                     const viewPath = contractRow?.contract_document_url ?? cardData.document_path;
                     messageEl = (
                       <ContractCard
                         contractData={cardData}
                         signed={isSigned}
-                        onReviewSign={!isSigned && resolvedId ? () => setSignContract({
+                        pendingOwnerReview={isPendingOwnerReview}
+                        isAiGenerated={msg.is_ai_generated}
+                        onReviewSign={!supplierAlreadySigned && resolvedId ? () => setSignContract({
                           contract_id:     resolvedId,
                           contract_number: cardData.contract_number,
                           price_per_kg:    cardData.price_per_kg,
@@ -597,7 +632,7 @@ export default function SupplierChatLayout() {
                           document_path:   cardData.document_path ?? contractRow?.contract_document_url,
                           contract_hash:   contractRow?.contract_hash,
                         }) : null}
-                        onView={isSigned && viewPath ? () => setViewContract({
+                        onView={supplierAlreadySigned && viewPath ? () => setViewContract({
                           contractId: resolvedId,
                           contractNumber: cardData.contract_number,
                           documentPath: viewPath,
@@ -615,9 +650,24 @@ export default function SupplierChatLayout() {
                   );
                 }
 
+                if (!messageEl && msg.message_text?.startsWith("MC_TABLE:")) {
+                  try {
+                    const { intro, specific, fullTable } = JSON.parse(msg.message_text.replace("MC_TABLE:", ""));
+                    messageEl = (
+                      <div className="flex flex-col items-start px-1 sm:px-4">
+                        {msg.is_ai_generated && <AiBadge className="mb-1" />}
+                        <div className="rounded-2xl rounded-bl-sm border border-[#e8e0d0] bg-white px-4 py-3 text-[#3d2b1f] shadow-sm">
+                          <MoistureContentTable intro={intro} specific={specific} fullTable={fullTable} />
+                        </div>
+                      </div>
+                    );
+                  } catch { /* fall through */ }
+                }
+
                 if (!messageEl) {
                   messageEl = (
-                    <div className={`flex px-1 sm:px-4 ${isMine ? "justify-end" : "justify-start"}`}>
+                    <div className={`flex flex-col px-1 sm:px-4 ${isMine ? "items-end" : "items-start"}`}>
+                      {!isMine && msg.is_ai_generated && <AiBadge className="mb-1" />}
                       <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed sm:max-w-[65%] ${
                         isMine
                           ? "bg-[#2d5a27] text-white rounded-br-sm"

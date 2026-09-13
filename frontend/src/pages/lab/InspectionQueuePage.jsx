@@ -7,6 +7,8 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
+function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
 export default function InspectionQueuePage() {
   const { user } = useAuth();
   const [deliveries, setDeliveries] = useState([]);
@@ -168,7 +170,7 @@ export default function InspectionQueuePage() {
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(2)} kg net) has been accepted. Moisture: ${mc}cc.`
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${fmtKg(netKg)} kg net) has been accepted. Moisture: ${mc}cc.`
           : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}cc exceeds 20.2cc.`;
 
         await supabase.from("notifications").insert({
