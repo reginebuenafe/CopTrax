@@ -1,0 +1,7 @@
+{
+  "name": "coptrax-capstone",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev --"
+  }
+}

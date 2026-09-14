@@ -3,8 +3,6 @@ import { LuClipboardList, LuFlaskConical } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
-function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-
 export default function LabHistoryPage() {
   const { user } = useAuth();
   const [records, setRecords] = useState([]);

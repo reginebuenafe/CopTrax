@@ -40,7 +40,8 @@ export default function InspectionQueuePage() {
       `)
       .eq("delivery_status", "Weighed")
       .eq("delivery_source", "Contract-based")
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false })
+      .order("delivery_id", { ascending: false });
 
     if (queueError) {
       // Don't silently show "queue is empty" when the fetch actually failed
