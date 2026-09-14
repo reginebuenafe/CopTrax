@@ -61,12 +61,12 @@ function peso(n) {
 }
 
 // ── Contract card (shown inside the chat message stream) ──────────────────────
-function ContractCard({ contractData, onTapPreview, signed }) {
+function ContractCard({ contractData, onTapPreview, signed, pendingOwnerReview }) {
   const hasDoc = !!contractData.document_path;
   return (
     <div className="flex justify-center my-3 px-3 sm:justify-end sm:px-5">
       <div
-        className={`w-full max-w-[320px] rounded-[18px] rounded-br-sm p-4 text-white shadow-md ${signed ? "bg-[#1f4a1a]" : "bg-[#2d5a27]"} ${hasDoc ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
+        className={`w-full max-w-[320px] rounded-[18px] rounded-br-sm p-4 text-white shadow-md ${signed ? "bg-[#1f4a1a]" : pendingOwnerReview ? "bg-[#8a5a1f]" : "bg-[#2d5a27]"} ${hasDoc ? "cursor-pointer hover:opacity-90 transition-opacity" : ""}`}
         onClick={() => hasDoc && onTapPreview?.(contractData.document_path)}
       >
         <div className="flex items-center gap-2 mb-3">
@@ -76,7 +76,7 @@ function ContractCard({ contractData, onTapPreview, signed }) {
           <div>
             <p className="font-bold text-sm">{contractData.contract_number}</p>
             <p className="text-white/70 text-xs">
-              {signed ? "Signed & Active" : "Awaiting supplier signature"}
+              {signed ? "Signed & Active" : pendingOwnerReview ? "Signed by Supplier — review & approve" : "Awaiting supplier signature"}
             </p>
           </div>
         </div>
@@ -96,7 +96,12 @@ function ContractCard({ contractData, onTapPreview, signed }) {
             </div>
           )}
         </div>
-        {hasDoc && (
+        {pendingOwnerReview && (
+          <p className="text-white/90 text-[10px] text-center mt-3 font-semibold">
+            Open the Contracts page to review and approve
+          </p>
+        )}
+        {!pendingOwnerReview && hasDoc && (
           <p className="text-white/70 text-[10px] text-center mt-3 underline">
             Tap to review document
           </p>
@@ -705,10 +710,12 @@ export default function BOChatLayout() {
                     const cardData = JSON.parse(msg.message_text.replace("CONTRACT_CARD:", ""));
                     const contractRow = contracts.find(c => c.contract_number === cardData.contract_number);
                     const isSigned = contractRow?.status === "Active" || contractRow?.status === "Completed" || contractRow?.status === "Breached";
+                    const isPendingOwnerReview = contractRow?.status === "Pending Owner Review";
                     messageEl = (
                       <ContractCard
                         contractData={cardData}
                         signed={isSigned}
+                        pendingOwnerReview={isPendingOwnerReview}
                         onTapPreview={(docPath) => setViewContract({
                           contractId: contractRow?.contract_id ?? cardData.contract_id,
                           contractNumber: cardData.contract_number,

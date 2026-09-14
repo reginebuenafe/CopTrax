@@ -76,6 +76,17 @@ function wrapLines(text: string, font: PDFFont, size: number, maxWidth: number):
 
 interface Cursor { y: number; page: PDFPage; }
 
+/**
+ * Formats a contracted-tons value for display, stripping unnecessary
+ * trailing zeros (e.g. "30.000" → "30", "30.500" → "30.5") while
+ * preserving genuine fractional precision (e.g. "30.125" stays "30.125").
+ */
+function formatTons(tons: string): string {
+  const n = Number(tons);
+  if (Number.isNaN(n)) return tons;
+  return n.toFixed(3).replace(/\.?0+$/, "") || "0";
+}
+
 /** Ensure `neededPx` fits on the page — if not, start a new page. */
 function ensureSpace(
   ctx: RenderContext,
@@ -283,7 +294,7 @@ export async function renderContractPDF(input: RenderInput): Promise<Uint8Array>
   cur = drawLabelValue(ctx, cur, "ADDRESS:", input.supplier_address);
   cur = drawLabelValue(
     ctx, cur, "QUANTITY:",
-    `${input.contracted_tons} METRIC TONS of 1,000 Kilograms/Metric Ton`,
+    `${formatTons(input.contracted_tons)} METRIC TONS`,
   );
   cur = drawLabelValue(
     ctx, cur, "PRICE:",
@@ -302,8 +313,9 @@ export async function renderContractPDF(input: RenderInput): Promise<Uint8Array>
   );
 
   cur = drawLabelValue(ctx, cur, "SHIPMENT:", `Not later than ${input.due_date_text}.`);
-  cur = drawParagraph(ctx, cur,
-    "WEIGHTS: Delivered net resecada weights in BUYER'S warehouse basis moisture meter final (Moisture table and analysis per COPRA MOISTURE (NEW TABLE)).",
+  cur = drawLabelValue(
+    ctx, cur, "WEIGHTS:",
+    "Delivered net resecada weights in BUYER'S warehouse basis moisture meter final (Moisture table and analysis per COPRA MOISTURE (NEW TABLE)).",
   );
 
   // Section header

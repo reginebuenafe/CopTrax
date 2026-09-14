@@ -2,9 +2,12 @@ import { useEffect, useState, useCallback } from "react";
 import {
   LuFlaskConical, LuTruck, LuFileText, LuCheck, LuX,
   LuCircleAlert, LuArrowLeft, LuDroplets,
+  LuFlag, LuX as LuClose,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+
+function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 export default function InspectionQueuePage() {
   const { user } = useAuth();
@@ -17,6 +20,10 @@ export default function InspectionQueuePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  const [reportingIssue, setReportingIssue] = useState(false);
+  const [issueNote, setIssueNote] = useState("");
+  const [issueError, setIssueError] = useState("");
+  const [issueSaved, setIssueSaved] = useState(false);
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -146,7 +153,7 @@ export default function InspectionQueuePage() {
       if (supplierId) {
         const notifType = preview.result === "Accepted" ? "Delivery Accepted" : "Delivery Rejected";
         const notifMsg = preview.result === "Accepted"
-          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${Number(netKg).toFixed(2)} kg net) has been accepted. Moisture: ${mc}cc.`
+          ? `Your delivery${contractRef ? ` under ${contractRef}` : ""} (${fmtKg(netKg)} kg net) has been accepted. Moisture: ${mc}cc.`
           : `Your delivery${contractRef ? ` under ${contractRef}` : ""} has been rejected. Moisture content ${mc}cc exceeds 20.2cc.`;
 
         await supabase.from("notifications").insert({
@@ -181,7 +188,32 @@ export default function InspectionQueuePage() {
     setPreview(null);
     setError("");
     setSuccess(null);
+    setReportingIssue(false);
+    setIssueNote("");
+    setIssueError("");
+    setIssueSaved(false);
     fetchQueue();
+  }
+
+  async function submitIssueReport() {
+    const note = issueNote.trim();
+    if (!note) { setIssueError("Describe the problem before submitting."); return; }
+
+    setIssueError("");
+    const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
+      delivery_id: selected.delivery_id,
+      reported_by: user.id,
+      issue_note: note,
+    });
+
+    if (reportError) {
+      setIssueError("Could not save the issue report. Please try again.");
+      return;
+    }
+
+    setIssueNote("");
+    setIssueSaved(true);
+    setReportingIssue(false);
   }
 
   // ── Success screen ───────────────────────────────────────────
@@ -208,18 +240,18 @@ export default function InspectionQueuePage() {
           {success.result === "Accepted" ? (
             <div className="bg-green-pale rounded-xl px-4 py-3 text-sm text-left mb-6 space-y-2">
               <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-1">Quality Summary</p>
-              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{Number(success.netKg).toFixed(2)} kg</span></p>
+              <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{fmtKg(success.netKg)} kg</span></p>
               <p className="text-brown-mid">Moisture discount: <span className="font-semibold text-brown-dark">{success.discount ?? 0}%</span></p>
               <p className="text-brown-mid">
                 Moisture deduction:{" "}
                 <span className="font-semibold text-brown-dark">
-                  {(Number(success.netKg) * ((success.discount ?? 0) / 100)).toFixed(2)} kg
+                  {fmtKg(Number(success.netKg) * ((success.discount ?? 0) / 100))} kg
                 </span>
               </p>
               <p className="text-brown-mid">
                 Final weight:{" "}
                 <span className="font-bold text-green-dark">
-                  {(Number(success.netKg) * (1 - (success.discount ?? 0) / 100)).toFixed(2)} kg
+                  {fmtKg(Number(success.netKg) * (1 - (success.discount ?? 0) / 100))} kg
                 </span>
               </p>
             </div>
@@ -278,7 +310,7 @@ export default function InspectionQueuePage() {
             </div>
             <div>
               <p className="text-brown-light text-xs">Net Weight</p>
-              <p className="font-semibold text-brown-dark">{Number(netKg).toFixed(2)} kg</p>
+              <p className="font-semibold text-brown-dark">{fmtKg(netKg)} kg</p>
             </div>
             <div>
               <p className="text-brown-light text-xs">Delivery Date</p>
@@ -346,15 +378,15 @@ export default function InspectionQueuePage() {
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Moisture Deduction</p>
-                    <p className="font-bold text-brown-dark">{deductionKg.toFixed(2)} kg</p>
+                    <p className="font-bold text-brown-dark">{fmtKg(deductionKg)} kg</p>
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Net Weight</p>
-                    <p className="text-brown-mid">{Number(netKg).toFixed(2)} kg</p>
+                    <p className="text-brown-mid">{fmtKg(netKg)} kg</p>
                   </div>
                   <div>
                     <p className="text-brown-light text-xs mb-0.5">Final Weight</p>
-                    <p className="font-bold text-green-dark text-base">{finalKg.toFixed(2)} kg</p>
+                    <p className="font-bold text-green-dark text-base">{fmtKg(finalKg)} kg</p>
                   </div>
                 </div>
               ) : (
@@ -384,6 +416,31 @@ export default function InspectionQueuePage() {
               ) : preview?.result === "Rejected" ? "Confirm Rejection" : "Confirm Acceptance"}
             </button>
           </div>
+          {issueSaved && <p className="text-sm text-green-dark text-center mt-3">Issue report sent for staff review.</p>}
+          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
+            className="w-full mt-3 inline-flex items-center justify-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
+            <LuFlag className="w-4 h-4" /> Report Issue
+          </button>
+
+          {reportingIssue && (
+            <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
+              <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
+                  <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuClose /></button>
+                </div>
+                <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or inspection.</p>
+                <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
+                  placeholder="Enter the issue or correction needed..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
+                {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
+                <button type="button" onClick={submitIssueReport}
+                  className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
+                  Submit Issue Report
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       </div>
     );
@@ -425,7 +482,16 @@ export default function InspectionQueuePage() {
               return (
                 <li key={d.delivery_id}>
                   <button
-                    onClick={() => { setSelected(d); setMoisture(""); setPreview(null); setError(""); }}
+                    onClick={() => {
+                      setSelected(d);
+                      setMoisture("");
+                      setPreview(null);
+                      setError("");
+                      setReportingIssue(false);
+                      setIssueNote("");
+                      setIssueError("");
+                      setIssueSaved(false);
+                    }}
                     className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/40 transition-colors text-left"
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
@@ -450,7 +516,7 @@ export default function InspectionQueuePage() {
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                         </p>
                         {netKg && (
-                          <p className="text-brown-light text-xs">· {Number(netKg).toFixed(2)} kg net</p>
+                          <p className="text-brown-light text-xs">· {fmtKg(netKg)} kg net</p>
                         )}
                         {d.contract?.contract_number && (
                           <p className="text-brown-light text-xs">· {d.contract.contract_number}</p>

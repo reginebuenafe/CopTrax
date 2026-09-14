@@ -14,10 +14,14 @@
  *   - Responds are inserted as messages from the Business Owner.
  *
  * This function has no access to any live database content beyond the
- * ai_faq_global flag and the conversation's business_owner_id (used only to
- * attribute the reply) — the model only ever answers from the static,
- * allowlisted knowledge text below, so it cannot leak real supplier/contract/
- * payment records or secrets even if asked.
+ * ai_faq_global flag, the conversation's business_owner_id (used only to
+ * attribute the reply), and the public, non-sensitive `pca_discount_table`
+ * (used ONLY to answer moisture-content questions deterministically with
+ * the real official discount values — see isMoistureContentQuestion below;
+ * this table has no supplier/contract/payment data, it's a static reference
+ * table also readable by every authenticated user) — the model otherwise
+ * only ever answers from the static, allowlisted knowledge text below, so it
+ * cannot leak real supplier/contract/payment records or secrets even if asked.
  *
  * Called from NegotiationChatWidget and SupplierChatLayout after a Supplier
  * sends a normal text message. Fire-and-forget — the Supplier sees the
@@ -136,6 +140,59 @@ NOTIFICATIONS
 --- REMINDER ---
 Before answering, check: is this public CopTrax/NERC Copra Trading information or documented help-center functionality? If yes, answer briefly. If it touches anything from the STRICT PRIVACY & SECURITY BOUNDARY above, refuse with the exact sentence given there instead of answering.`;
 
+// ── Moisture Content FAQ interception ───────────────────────────────────────
+// Moisture content questions are intercepted BEFORE calling Gemini and
+// answered deterministically from the real `pca_discount_table` (the same
+// official PCA reference data used by Laboratory Staff during inspection —
+// see InspectionQueuePage.jsx's identical lookup logic). This guarantees the
+// discount values shown can never be invented/approximated/hallucinated by
+// the model, and lets the response render as a proper table in the chat UI
+// (see MC_TABLE: message marker below) instead of one long paragraph. The
+// payload includes every row of `pca_discount_table` (5.0cc–20.2cc, one row
+// per 0.1cc increment) so the rendered table is complete, never a 3-row
+// summary — the frontend component must not collapse these into ranges.
+
+/** Detects moisture-content/PCA/MC-discount related questions. */
+function isMoistureContentQuestion(text: string): boolean {
+  return /\bmoisture\b|\bmc\b|\bpca\b/i.test(text);
+}
+
+/** Extracts a specific MC value (e.g. "10", "10.5") from the question, if present. */
+function extractMcValue(text: string): number | null {
+  const unitMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:cc|%)/i);
+  if (unitMatch) return parseFloat(unitMatch[1]);
+  const mcNumMatch = text.match(/\bmc\b[^0-9]{0,12}(\d+(?:\.\d+)?)/i);
+  if (mcNumMatch) return parseFloat(mcNumMatch[1]);
+  return null;
+}
+
+/**
+ * Looks up the exact Accept/Reject + discount outcome for a specific MC
+ * value, using the same boundary rules and table lookup as the Laboratory
+ * Staff's inspection screen:
+ *   MC <= 5.0   → Accepted, 0% discount
+ *   MC > 20.2   → Rejected, no payment
+ *   otherwise   → Accepted, discount from pca_discount_table (rounded to 0.1)
+ */
+async function lookupMcResult(
+  // deno-lint-ignore no-explicit-any
+  db: ReturnType<typeof createClient<any, any>>,
+  mc: number,
+): Promise<{ mc: number; result: "Accepted" | "Rejected"; discount: number | null }> {
+  if (mc > 20.2) return { mc, result: "Rejected", discount: null };
+  if (mc <= 5.0)  return { mc, result: "Accepted", discount: 0.0 };
+
+  const rounded = Math.round(mc * 10) / 10;
+  const { data } = await db
+    .from("pca_discount_table")
+    .select("discount_value")
+    .eq("moisture_content_pct", rounded)
+    .maybeSingle();
+
+  const discountValue: number | null = data?.discount_value ?? null;
+  return { mc, result: "Accepted", discount: discountValue != null ? Number(discountValue) : 0.0 };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -187,6 +244,57 @@ Deno.serve(async (req) => {
     if (!conv?.business_owner_id) {
       return new Response(JSON.stringify({ error: "Conversation not found" }), {
         status: 404, headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
+    // 2b. Moisture content questions are answered deterministically, as a
+    // structured table, instead of via Gemini — see helpers above. This is
+    // MANDATORY for every moisture-related question (not just explicit
+    // requests for the table): direct 1-2 sentence answer first, then the
+    // table is always rendered immediately underneath.
+    if (isMoistureContentQuestion(message_text)) {
+      const mcValue = extractMcValue(message_text);
+      const specific = mcValue != null ? await lookupMcResult(db, mcValue) : null;
+
+      let intro: string;
+      if (specific) {
+        if (specific.result === "Rejected") {
+          intro = `A moisture content of ${specific.mc} cc is rejected and will not receive payment.`;
+        } else if (specific.discount && specific.discount > 0) {
+          intro = `A moisture content of ${specific.mc} cc is accepted, but a discount will be applied based on the official PCA discount table.`;
+        } else {
+          intro = `A moisture content of ${specific.mc} cc is accepted with no discount applied.`;
+        }
+      } else {
+        intro = "Moisture content (MC) determines whether a delivery is accepted and what discount, if any, applies:";
+      }
+
+      // Full row-by-row PCA table (5.0cc–20.2cc), the same official data
+      // Laboratory Staff use during inspection — never approximated/merged.
+      const { data: fullTableRows, error: tableErr } = await db
+        .from("pca_discount_table")
+        .select("moisture_content_pct, discount_value")
+        .order("moisture_content_pct", { ascending: true });
+
+      console.log("ai-faq: pca_discount_table rows fetched =", fullTableRows?.length ?? 0, "err:", tableErr?.message ?? null);
+
+      const fullTable = (fullTableRows ?? []).map((r: { moisture_content_pct: number; discount_value: number }) => ({
+        mc: Number(r.moisture_content_pct),
+        discount: Number(r.discount_value),
+      }));
+
+      const { error: mcInsertErr } = await db.from("messages").insert({
+        conversation_id,
+        sender_id:       conv.business_owner_id,
+        message_type:    "Text",
+        is_ai_generated: true,
+        message_text:    `MC_TABLE:${JSON.stringify({ intro, specific, fullTable })}`,
+      });
+
+      console.log("ai-faq: MC table message inserted, err=", mcInsertErr?.message ?? null);
+
+      return new Response(JSON.stringify({ success: true, intercepted: "moisture_content_table" }), {
+        status: 200, headers: { ...CORS, "Content-Type": "application/json" },
       });
     }
 
@@ -252,12 +360,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 4. Insert the AI response as a message from the Business Owner
+    // 4. Insert the AI response as a message from the Business Owner, flagged
+    //    as AI-generated so the Supplier UI can clearly indicate this came
+    //    from Coco (the AI assistant) rather than a human BO reply.
     const { error: insertErr } = await db.from("messages").insert({
       conversation_id,
-      sender_id:    conv.business_owner_id,
-      message_type: "Text",
-      message_text: aiText,
+      sender_id:       conv.business_owner_id,
+      message_type:    "Text",
+      is_ai_generated: true,
+      message_text:    aiText,
     });
     console.log("ai-faq: message inserted, err=", insertErr?.message ?? null);
 

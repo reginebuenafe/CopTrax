@@ -3,6 +3,8 @@ import { LuClipboardList, LuCheck, LuX, LuFlaskConical } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
+function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
 export default function LabHistoryPage() {
   const { user } = useAuth();
   const [records, setRecords] = useState([]);
@@ -102,13 +104,13 @@ export default function LabHistoryPage() {
                         <td className="px-5 py-3.5 text-brown-mid">
                           {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
-                        <td className="px-5 py-3.5 text-brown-mid">{Number(netKg).toFixed(2)} kg</td>
+                        <td className="px-5 py-3.5 text-brown-mid">{fmtKg(netKg)} kg</td>
                         <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}cc</td>
                         <td className="px-5 py-3.5 text-brown-mid">
                           {result === "Rejected" ? "—" : `${discountPct}%`}
                         </td>
                         <td className="px-5 py-3.5 font-semibold text-brown-dark">
-                          {result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}
+                          {result === "Rejected" ? "—" : `${fmtKg(finalKg)} kg`}
                         </td>
                         <td className="px-5 py-3.5">
                           <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${
@@ -173,7 +175,7 @@ export default function LabHistoryPage() {
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-brown-light">Net Weight</span>
-                        <span className="font-semibold text-brown-dark text-right">{Number(netKg).toFixed(2)} kg</span>
+                        <span className="font-semibold text-brown-dark text-right">{fmtKg(netKg)} kg</span>
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-brown-light">Moisture (cc)</span>
@@ -185,7 +187,7 @@ export default function LabHistoryPage() {
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-brown-light">Final Weight</span>
-                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</span>
+                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${fmtKg(finalKg)} kg`}</span>
                       </div>
                     </div>
                   </div>

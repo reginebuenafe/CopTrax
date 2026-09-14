@@ -12,6 +12,7 @@ import { MotionDiv } from "../../components/landing/motion-elements";
 
 const STATUS_META = {
   Pending:   { label: "Pending",   color: "bg-beige text-brown-mid",        dot: "bg-brown-light" },
+  "Pending Owner Review": { label: "Pending Review", color: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
   Active:    { label: "Active",    color: "bg-green-pale text-green-dark",   dot: "bg-green-mid" },
   Completed: { label: "Completed", color: "bg-emerald-50 text-emerald-700",  dot: "bg-emerald-500" },
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",          dot: "bg-red-500" },
@@ -676,11 +677,11 @@ function SupplierBatchesModal({ contract, onClose }) {
                       <span className="text-sm text-brown-light break-words">
                         {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         {wr?.copra_condition && ` · ${wr.copra_condition}`}
-                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toFixed(0)}kg N:${Number(wr.net_weight_kg ?? 0).toFixed(0)}kg`}
+                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toLocaleString("en-PH")}kg N:${Number(wr.net_weight_kg ?? 0).toLocaleString("en-PH")}kg`}
                       </span>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toFixed(2)} kg</span>
+                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
                       <span className={`ml-2 text-sm font-semibold ${a.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>
                         {a.price_type}
                       </span>

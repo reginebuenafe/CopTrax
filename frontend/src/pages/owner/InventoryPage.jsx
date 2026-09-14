@@ -6,7 +6,8 @@ import { supabase } from "../../lib/supabase";
 
 const TABS = ["Resecada Pool", "Walk-in Holding"];
 
-function fmt3(n) { return Number(n ?? 0).toFixed(2); }
+function fmt3(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtTons(n) { return (Number(n ?? 0) / 1000).toFixed(2); }
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
@@ -87,7 +88,7 @@ export default function InventoryPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <SummaryCard
           label="Resecada Pool"
-          value={`${fmt3(resecadaTotal)} kg`}
+          value={`${fmtTons(resecadaTotal)} t`}
           count={resecada.length}
           color="bg-green-pale"
           textColor="text-green-dark"
@@ -163,14 +164,14 @@ function ResecadaTab({ batches, total }) {
     <div>
       <div className="bg-green-pale rounded-xl px-4 py-3 mb-4 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-green-dark font-semibold">Total Resecada Stock</p>
-        <p className="text-xl font-extrabold text-green-dark">{fmt3(total)} kg</p>
+        <p className="text-xl font-extrabold text-green-dark">{fmtTons(total)} t</p>
       </div>
       <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
-                {["Supplier", "Source", "Delivery Date", "Recorded", "Weight (kg)"].map(h => (
+                {["Supplier", "Source", "Delivery Date", "Recorded", "Weight (t)"].map(h => (
                   <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                 ))}
               </tr>
@@ -190,7 +191,7 @@ function ResecadaTab({ batches, total }) {
                   </td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.delivery?.delivery_date)}</td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.recorded_date)}</td>
-                  <td className="px-5 py-3.5 font-bold text-green-dark">{fmt3(b.weight_kg)}</td>
+                  <td className="px-5 py-3.5 font-bold text-green-dark">{fmtTons(b.weight_kg)}</td>
                 </tr>
               ))}
             </tbody>
@@ -227,8 +228,8 @@ function ResecadaTab({ batches, total }) {
                   <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span className="text-brown-light">Weight (kg)</span>
-                  <span className="font-semibold text-green-dark text-right">{fmt3(b.weight_kg)}</span>
+                  <span className="text-brown-light">Weight (t)</span>
+                  <span className="font-semibold text-green-dark text-right">{fmtTons(b.weight_kg)}</span>
                 </div>
               </div>
             </div>
@@ -256,7 +257,7 @@ function WalkinHoldingTab({ batches, total }) {
           <table className="w-full text-sm">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
-                {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Eligible to Merge", "Days Left"].map(h => (
+                {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Ready to Sell", "Days Left"].map(h => (
                   <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                 ))}
               </tr>
@@ -311,7 +312,7 @@ function WalkinHoldingTab({ batches, total }) {
                     <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <span className="text-brown-light">Eligible to Merge</span>
+                    <span className="text-brown-light">Ready to Sell</span>
                     <span className="font-semibold text-brown-dark text-right">{fmtDate(b.merge_eligible_date)}</span>
                   </div>
                   <div className="flex justify-between gap-3">

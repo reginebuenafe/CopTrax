@@ -21,6 +21,7 @@ const TYPE_ICON = {
   "Merge Pending":        { icon: LuPackage,       bg: "bg-purple-50",   text: "text-purple-600" },
   "Merge Ready":          { icon: LuPackage,       bg: "bg-amber-50",    text: "text-amber-700" },
   "Merge Completed":      { icon: LuPackage,       bg: "bg-green-pale",  text: "text-green-dark" },
+  "Inventory Capacity Warning": { icon: LuPackage, bg: "bg-orange-50", text: "text-orange-600" },
   "Supplier Approved":    { icon: LuUserCheck,     bg: "bg-purple-50",   text: "text-purple-600" },
   "Supplier Rated":       { icon: LuStar,          bg: "bg-amber-50",    text: "text-amber-700" },
 };
