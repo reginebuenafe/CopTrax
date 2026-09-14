@@ -136,7 +136,7 @@ export default function SupplierDeliveriesPage() {
             const wr = d.weighing_records?.[0];
             const li = d.laboratory_inspections?.[0];
             const qr = d.quality_results?.[0];
-            const remarkMatch = qr?.remarks?.match(/Discount:\s*([\d.]+)%/);
+            const remarkMatch = qr?.remarks?.match(/(?:Discount|Deduction):\s*([\d.]+)%/);
             const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
             const finalKg = wr ? Number(wr.net_weight_kg) * (1 - discountPct / 100) : null;
             const contractRef = contractLabel(d);
@@ -184,7 +184,7 @@ export default function SupplierDeliveriesPage() {
                       </>}
                       {li ? <>
                         <InfoItem label="Moisture (cc)" value={`${li.moisture_content_pct}cc`} />
-                        <InfoItem label="PCA Discount"  value={`${discountPct}%`} />
+                        <InfoItem label="PCA Deduction"  value={`${discountPct}%`} />
                         <InfoItem label="Final Weight"  value={finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—"} />
                         <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
                       </> : (

@@ -1,0 +1,30 @@
+-- ============================================================
+-- Migration 060: Supplier "talk to the Business Owner" assistance
+-- request notifications
+--
+-- Adds the notification type used when a Supplier's chat message is
+-- detected (by the ai-faq Edge Function) as a request for human
+-- assistance from the Business Owner (e.g. "Can I talk to the
+-- owner?"). Reuses the EXISTING notifications table/RLS — no new
+-- table is needed:
+--   - user_id            -> the conversation's business_owner_id
+--   - notification_type  -> 'Supplier Assistance Requested'
+--   - message            -> "<Supplier Name> would like to speak with you."
+--   - related_entity_type -> 'conversations'
+--   - related_entity_id   -> the EXISTING conversation_id (never a new one)
+--   - is_read             -> FALSE until the Business Owner opens/
+--                            acknowledges it (existing mark-as-read flow)
+--
+-- Existing RLS already covers this safely with zero changes required:
+--   - notifications_select_own: a user can only ever SELECT their own
+--     notifications (user_id = auth.uid()), so suppliers can never see
+--     another supplier's or the Business Owner's notifications.
+--   - notifications_update_own: a user can only mark their own
+--     notifications read.
+--   - There is no client-side INSERT policy on notifications at all —
+--     rows are only ever inserted by Edge Functions using the service
+--     role, so a Supplier can never create an arbitrary notification
+--     for another user or impersonate another supplier.
+-- ============================================================
+
+ALTER TYPE public.notification_type_enum ADD VALUE IF NOT EXISTS 'Supplier Assistance Requested';

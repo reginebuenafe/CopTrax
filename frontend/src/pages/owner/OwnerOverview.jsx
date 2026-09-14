@@ -676,10 +676,14 @@ export default function OwnerOverview() {
       });
 
       // ── 5. Top suppliers by rating ───────────────────────────────────
+      // Order by created_at (newest first, an unambiguous insertion
+      // timestamp) so dedup below keeps each supplier's CURRENT overall
+      // rating, not just their highest-ever one. snapshot_date alone is
+      // date-only and ties when a supplier has multiple same-day snapshots.
       const { data: snapshots } = await supabase
         .from("supplier_performance_snapshot")
-        .select("supplier_id, overall_supplier_rating, supplier:supplier_id(first_name, last_name)")
-        .order("overall_supplier_rating", { ascending: false });
+        .select("supplier_id, created_at, overall_supplier_rating, supplier:supplier_id(first_name, last_name)")
+        .order("created_at", { ascending: false });
 
       if (snapshots?.length) {
         // Keep latest snapshot per supplier (deduplicated)
@@ -691,6 +695,8 @@ export default function OwnerOverview() {
             deduped.push(s);
           }
         }
+        // Rank by each supplier's current (latest) rating, highest first
+        deduped.sort((a, b) => Number(b.overall_supplier_rating ?? 0) - Number(a.overall_supplier_rating ?? 0));
         setTopSuppliers(deduped); // store all for rankings modal; card shows top 4
       }
 

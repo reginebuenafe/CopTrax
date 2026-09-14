@@ -38,8 +38,8 @@ function computeLine(delivery, spot) {
   const grossKg = parseFloat(wr.gross_weight_kg);
   const tareKg  = parseFloat(wr.tare_weight_kg);
 
-  // Derive discount % from quality result remarks
-  const remarkMatch = (qr.remarks ?? "").match(/Discount:\s*([\d.]+)%/);
+  // Derive deduction % from quality result remarks
+  const remarkMatch = (qr.remarks ?? "").match(/(?:Discount|Deduction):\s*([\d.]+)%/);
   const discountPct  = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
   const deductionKg  = netKg * (discountPct / 100);
   const finalKgTotal = netKg - deductionKg;
@@ -1038,7 +1038,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
             <div className="flex justify-between"><span className="text-brown-light">Tare Weight</span><span className="text-brown-dark">{fmt3(tareKg)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Net Weight</span><span className="text-brown-dark">{fmt3(netKg)} kg</span></div>
             <div className="flex justify-between"><span className="text-brown-light">Moisture (cc)</span><span className="text-brown-dark">{mc}cc</span></div>
-            <div className="flex justify-between"><span className="text-brown-light">PCA Discount</span><span className="text-brown-dark">{pcaPct}%</span></div>
+            <div className="flex justify-between"><span className="text-brown-light">PCA Deduction</span><span className="text-brown-dark">{pcaPct}%</span></div>
             <div className="flex justify-between font-semibold"><span className="text-brown-light">Final Weight</span><span className="text-brown-dark">{fmt3(finalKg)} kg</span></div>
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />

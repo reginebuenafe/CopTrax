@@ -130,7 +130,7 @@ export default function InspectionQueuePage() {
       result: preview.result,
       remarks: preview.result === "Rejected"
         ? `Moisture content ${mc}cc exceeds 20.2cc. Automatic rejection.`
-        : `Moisture content ${mc}cc. Discount: ${preview.discountValue ?? 0}%.`,
+        : `Moisture content ${mc}cc. Deduction: ${preview.discountValue ?? 0}%.`,
     });
 
     if (qErr) { console.error("Failed to save quality result:", qErr); setError("Failed to submit quality assessment. Please try again."); setSubmitting(false); setShowConfirmModal(false); return; }
@@ -243,34 +243,36 @@ export default function InspectionQueuePage() {
   // ── Success screen ───────────────────────────────────────────
   if (success) {
     return (
-      <div className="max-w-md mx-auto">
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-8 text-center">
-          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 ${
-            success.result === "Accepted" ? "bg-green-pale" : "bg-red-50"
-          }`}>
-            {success.result === "Accepted"
-              ? <LuCheck className="w-8 h-8 text-green-dark" />
-              : <LuX className="w-8 h-8 text-red-500" />
-            }
-          </div>
-          <h2 className="text-xl font-bold text-brown-dark mb-2">
-            {success.result === "Accepted" ? "Quality Assessment Submitted" : "Quality Assessment Failed"}
-          </h2>
-          <p className="text-brown-light text-sm mb-5">
-            <span className="font-semibold text-brown-dark">{success.supplierName}</span> ·{" "}
-            Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
-          </p>
-
-          {success.result === "Rejected" && (
-            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
-              Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected. No payment will be processed.
+      <div className="min-h-[calc(100vh-137px)] flex items-center justify-center">
+        <div className="max-w-md w-full mx-auto">
+          <div className="bg-white border border-beige-dark/40 rounded-xl p-8 text-center">
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 ${
+              success.result === "Accepted" ? "bg-green-pale" : "bg-red-50"
+            }`}>
+              {success.result === "Accepted"
+                ? <LuCheck className="w-8 h-8 text-green-dark" />
+                : <LuX className="w-8 h-8 text-red-500" />
+              }
             </div>
-          )}
+            <h2 className="text-xl font-bold text-brown-dark mb-2">
+              {success.result === "Accepted" ? "Quality Assessment Submitted" : "Quality Assessment Failed"}
+            </h2>
+            <p className="text-brown-light text-sm mb-5">
+              <span className="font-semibold text-brown-dark">{success.supplierName}</span> ·{" "}
+              Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
+            </p>
 
-          <button onClick={resetInspection}
-            className="w-full py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
-            Back to Queue
-          </button>
+            {success.result === "Rejected" && (
+              <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
+                Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected. No payment will be processed.
+              </div>
+            )}
+
+            <button onClick={resetInspection}
+              className="w-full py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
+              Back to Queue
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -342,9 +344,6 @@ export default function InspectionQueuePage() {
                 </div>
               )}
             </div>
-            <p className="text-xs text-brown-light mt-2">
-              Above 20.2cc → Automatic Rejection
-            </p>
           </div>
 
           {/* Note: the live Accepted/Rejected preview box was removed from here.
@@ -427,9 +426,9 @@ export default function InspectionQueuePage() {
                   className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60
                     ${preview?.result === "Rejected" ? "bg-red-500 hover:bg-red-600" : "bg-green-dark hover:bg-green-dark/90"}`}>
                   {submitting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Submitting assessment…
+                    <span className="flex items-center justify-center gap-2 whitespace-nowrap">
+                      <span className="w-4 h-4 shrink-0 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Submitting…
                     </span>
                   ) : "Confirm"}
                 </button>

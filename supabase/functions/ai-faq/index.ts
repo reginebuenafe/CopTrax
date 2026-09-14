@@ -113,13 +113,13 @@ DELIVERIES
 
 QUALITY ASSESSMENT
 - After weighing, Laboratory Staff test the copra for Moisture Content (MC), measured in cc.
-- MC below 5.0 cc: no discount applied.
+- MC below 5.0 cc: no deduction applied.
 - MC above 20.2 cc: delivery is automatically rejected. No payment is made.
-- MC between 5.0 and 20.2 cc: a discount is applied based on the official PCA discount table.
+- MC between 5.0 and 20.2 cc: a deduction is applied based on the official PCA deduction table.
 - Quality results are visible in the My Deliveries page after inspection.
 
 PAYMENTS
-- Payment amount = net weight (kg) × negotiated price per kg, minus any moisture discount.
+- Payment amount = net weight (kg) × negotiated price per kg, minus any moisture deduction.
 - Payments are processed by the Business Owner after quality results are confirmed.
 - Payment statuses: Pending (not yet released), Released (sent to your bank), Failed (issue with transfer).
 - Payments are sent to your registered bank account.
@@ -139,6 +139,21 @@ NOTIFICATIONS
 
 --- REMINDER ---
 Before answering, check: is this public CopTrax/NERC Copra Trading information or documented help-center functionality? If yes, answer briefly. If it touches anything from the STRICT PRIVACY & SECURITY BOUNDARY above, refuse with the exact sentence given there instead of answering.`;
+
+// ── Owner-assistance-request FAQ interception ───────────────────────────────
+// Detects a Supplier asking to speak with a human / the Business Owner
+// (e.g. "Can I talk to the owner?"). Intercepted BEFORE calling Gemini so
+// the response is deterministic and never falls back to the generic
+// "I can't provide private, sensitive, or restricted information" refusal —
+// this is a request for human assistance, not a request for private data.
+// Reuses the EXISTING conversation/notification system — no new chat,
+// conversation, or table is created.
+function isOwnerAssistanceRequest(text: string): boolean {
+  const t = text.toLowerCase();
+  const verbTarget = /\b(talk|speak|chat|connect|contact|reach|escalate)\b.{0,25}?\b(owner|business\s*owner|bo|human|real\s+person|actual\s+person|person|someone|staff|representative|agent)\b/;
+  const assistanceFrom = /\b(assistance|help|support)\b.{0,25}?\bfrom\b.{0,20}?\b(owner|business\s*owner|bo)\b/;
+  return verbTarget.test(t) || assistanceFrom.test(t);
+}
 
 // ── Moisture Content FAQ interception ───────────────────────────────────────
 // Moisture content questions are intercepted BEFORE calling Gemini and
@@ -232,10 +247,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Get the BO's user_id so the reply is attributed to them
+    // 2. Get the BO's user_id so the reply is attributed to them, plus the
+    //    supplier's own id/name (from the conversation record itself, never
+    //    trusted from the request body) for the owner-assistance-request
+    //    notification below.
     const { data: conv, error: convErr } = await db
       .from("conversations")
-      .select("business_owner_id")
+      .select("business_owner_id, supplier_id, supplier:supplier_id(first_name, last_name)")
       .eq("conversation_id", conversation_id)
       .single();
 
@@ -244,6 +262,64 @@ Deno.serve(async (req) => {
     if (!conv?.business_owner_id) {
       return new Response(JSON.stringify({ error: "Conversation not found" }), {
         status: 404, headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
+    // 2a. Supplier asking to speak with the Business Owner: notify the BO
+    // (via the existing notifications table/bell) and reply in THIS SAME
+    // conversation — never a new one, and never an unrelated negotiation.
+    if (isOwnerAssistanceRequest(message_text)) {
+      const supplierName = conv.supplier
+        ? `${conv.supplier.first_name ?? ""} ${conv.supplier.last_name ?? ""}`.trim()
+        : "";
+
+      // Spam guard: skip creating a duplicate notification if an unread
+      // one already exists for THIS conversation. Once the Business Owner
+      // marks it read (e.g. by opening the chat), a future request may
+      // create a new one.
+      const { data: existingNotif } = await db
+        .from("notifications")
+        .select("notification_id")
+        .eq("user_id", conv.business_owner_id)
+        .eq("notification_type", "Supplier Assistance Requested")
+        .eq("related_entity_type", "conversations")
+        .eq("related_entity_id", conversation_id)
+        .eq("is_read", false)
+        .limit(1)
+        .maybeSingle();
+
+      let replyText: string;
+      if (existingNotif) {
+        replyText = "The Business Owner has already been notified. You can leave your message here while waiting for their response.";
+      } else {
+        const { error: notifErr } = await db.from("notifications").insert({
+          user_id: conv.business_owner_id,
+          notification_type: "Supplier Assistance Requested",
+          message: `${supplierName || "A supplier"} would like to speak with you.`,
+          related_entity_type: "conversations",
+          related_entity_id: conversation_id,
+          is_read: false,
+        });
+
+        if (notifErr) {
+          console.error("ai-faq: failed to create owner-assistance notification:", notifErr.message);
+          replyText = "I wasn't able to reach the Business Owner right now — please try again in a moment, or continue describing your concern here.";
+        } else {
+          replyText = "Sure. I've notified the Business Owner that you'd like to speak with them. You can continue typing your concern here while waiting for their response.";
+        }
+      }
+
+      const { error: replyInsertErr } = await db.from("messages").insert({
+        conversation_id,
+        sender_id:       conv.business_owner_id,
+        message_type:    "Text",
+        is_ai_generated: true,
+        message_text:    replyText,
+      });
+      console.log("ai-faq: owner-assistance reply inserted, err=", replyInsertErr?.message ?? null);
+
+      return new Response(JSON.stringify({ success: true, intercepted: "owner_assistance_request" }), {
+        status: 200, headers: { ...CORS, "Content-Type": "application/json" },
       });
     }
 
@@ -261,12 +337,12 @@ Deno.serve(async (req) => {
         if (specific.result === "Rejected") {
           intro = `A moisture content of ${specific.mc} cc is rejected and will not receive payment.`;
         } else if (specific.discount && specific.discount > 0) {
-          intro = `A moisture content of ${specific.mc} cc is accepted, but a discount will be applied based on the official PCA discount table.`;
+          intro = `A moisture content of ${specific.mc} cc is accepted, but a deduction will be applied based on the official PCA deduction table.`;
         } else {
-          intro = `A moisture content of ${specific.mc} cc is accepted with no discount applied.`;
+          intro = `A moisture content of ${specific.mc} cc is accepted with no deduction applied.`;
         }
       } else {
-        intro = "Moisture content (MC) determines whether a delivery is accepted and what discount, if any, applies:";
+        intro = "Moisture content (MC) determines whether a delivery is accepted and what deduction, if any, applies:";
       }
 
       // Full row-by-row PCA table (5.0cc–20.2cc), the same official data

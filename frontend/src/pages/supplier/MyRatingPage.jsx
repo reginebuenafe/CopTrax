@@ -46,7 +46,7 @@ export default function MyRatingPage() {
       const { data } = await supabase
         .from("supplier_performance_snapshot")
         .select(`
-          snapshot_id, snapshot_date, performance_score, supplier_rating,
+          snapshot_id, snapshot_date, created_at, performance_score, supplier_rating,
           overall_supplier_rating, contract_fulfillment_score,
           delivered_volume_score, copra_quality_score,
           contract:contract_id(
@@ -55,7 +55,7 @@ export default function MyRatingPage() {
           )
         `)
         .eq("supplier_id", user.id)
-        .order("snapshot_date", { ascending: false });
+        .order("created_at", { ascending: false });
 
       setSnapshots(data ?? []);
       setLoading(false);

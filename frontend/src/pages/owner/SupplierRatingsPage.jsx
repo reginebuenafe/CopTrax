@@ -36,13 +36,13 @@ export default function SupplierRatingsPage() {
       const { data } = await supabase
         .from("supplier_performance_snapshot")
         .select(`
-          snapshot_id, snapshot_date, performance_score, supplier_rating,
+          snapshot_id, snapshot_date, created_at, performance_score, supplier_rating,
           overall_supplier_rating, contract_fulfillment_score,
           delivered_volume_score, copra_quality_score,
           supplier:supplier_id(user_id, first_name, last_name, email),
           contract:contract_id(contract_number, status, due_date)
         `)
-        .order("snapshot_date", { ascending: false });
+        .order("created_at", { ascending: false });
 
       if (!data) { setLoading(false); return; }
 
@@ -51,19 +51,20 @@ export default function SupplierRatingsPage() {
         const sid = snap.supplier?.user_id;
         if (!sid) return acc;
         if (!acc[sid]) {
+          // Data is already ordered by created_at DESC (an unambiguous
+          // insertion timestamp, unlike the date-only snapshot_date column
+          // which can tie when a supplier has multiple same-day snapshots),
+          // so the first row seen for a supplier is their current/latest
+          // overall rating — pin it here and never reassign it below.
           acc[sid] = {
             supplier: snap.supplier,
             overall: snap.overall_supplier_rating,
             snapshots: {},
           };
         }
-        // Always keep the latest overall rating
-        if (new Date(snap.snapshot_date) >= new Date(Object.values(acc[sid].snapshots)[0]?.snapshot_date ?? "2000-01-01")) {
-          acc[sid].overall = snap.overall_supplier_rating;
-        }
         // Keep only the latest snapshot per contract_id
         const cid = snap.contract?.contract_number ?? snap.snapshot_id;
-        if (!acc[sid].snapshots[cid] || new Date(snap.snapshot_date) > new Date(acc[sid].snapshots[cid].snapshot_date)) {
+        if (!acc[sid].snapshots[cid] || new Date(snap.created_at) > new Date(acc[sid].snapshots[cid].created_at)) {
           acc[sid].snapshots[cid] = snap;
         }
         return acc;
