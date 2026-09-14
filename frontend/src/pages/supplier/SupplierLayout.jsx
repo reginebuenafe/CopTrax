@@ -94,7 +94,7 @@ export default function SupplierLayout() {
 
       {/* ── Sidebar ─────────────────────────────────────────── */}
       <aside
-        className={`fixed top-0 left-0 h-screen bg-[#FFFEFB] border-r border-[#E4D5BD] z-40 shadow-[2px_0_12px_rgba(93,64,55,0.06)]
+        className={`fixed top-0 left-0 h-screen bg-[#3E2723] border-r border-[#E4D5BD] z-40 shadow-[2px_0_12px_rgba(93,64,55,0.06)]
           flex flex-col overflow-hidden
           w-64 lg:w-[var(--sidebar-w)]
           transition-[width,transform] duration-300 ease-in-out
@@ -107,8 +107,8 @@ export default function SupplierLayout() {
           </div>
           <div className={`overflow-hidden transition-[opacity,max-width] duration-300 ease-in-out whitespace-nowrap
             ${collapsed ? "lg:opacity-0 lg:max-w-0" : "opacity-100 max-w-[160px]"}`}>
-            <p className="font-extrabold text-[#4E342E] text-sm leading-none">CopTrax</p>
-            <p className="text-[#9A8176] text-[10px] mt-0.5">Supplier Portal</p>
+            <p className="font-extrabold text-white text-sm leading-none">CopTrax</p>
+            <p className="text-white/70 text-[10px] mt-0.5">Supplier Portal</p>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -135,7 +135,7 @@ export default function SupplierLayout() {
                  }
                  ${isActive
                   ? "bg-[#2E7D32] text-white font-semibold shadow-sm"
-                  : "text-[#765D52] hover:bg-[#F7F0E5] hover:text-[#4E342E]"}`
+                  : "text-white hover:bg-[#2d1713] hover:text-white"}`
               }
             >
               {({ isActive }) => (
@@ -143,7 +143,7 @@ export default function SupplierLayout() {
                   {createElement(Icon, {
                     className: `shrink-0 transition-all duration-200
                       ${collapsed ? "lg:w-6 lg:h-6 w-4.5 h-4.5" : "w-4.5 h-4.5"}
-                      ${isActive ? "text-white" : "text-[#A18D82] group-hover:text-[#6D5147]"}`,
+                      ${isActive ? "text-white" : "text-[#A18D82] group-hover:text-white"}`,
                   })}
                   <span className={`flex-1 whitespace-nowrap transition-[opacity,max-width] duration-300 ease-in-out
                     ${collapsed ? "lg:opacity-0 lg:max-w-0 lg:overflow-hidden" : "opacity-100 max-w-[160px]"}`}>

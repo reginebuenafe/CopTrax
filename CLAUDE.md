@@ -345,6 +345,17 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
+### 2026-09-14 — Supplier contracts/deliveries UX and realtime updates
+
+- **Supplier My Contracts (`MyContractsPage.jsx`)**: rebuilt the Delivery Batches modal as a structured, responsive view—a nine-column desktop table with a sticky header and row hover state, plus stacked mobile cards. Dates, locale-formatted weights, moisture, quality, and semantic status pills are display-only; net weight is derived from gross minus tare. Removed the sort arrows and now use a stable natural batch-order sort. Increased the contract statistic-card borders to `border-2`.
+- **Supplier Deliveries (`SupplierDeliveriesPage.jsx`)**: delivery rows now show a contract-specific, two-tone `Batch N of CTR-XXXXX` label. Expanded rows use a responsive four-stage lifecycle stepper (`Pending → Weighed → Lab Assessment → Accepted/Rejected`) with state icons and record-aware completion: an existing weighing record checks Weighed, an existing lab inspection checks Lab Assessment, Accepted completes in green, and Rejected terminates in red. Replaced the scattered detail boxes with a roomy seven-column desktop table and stacked mobile details; net weight remains derived and bold, quality results use semantic pills, and staff names use deterministic initial avatars. Removed Allocation Breakdown from this page only and applied `border-2 border-beige-dark/80` to every delivery row across Pending, Weighed, Inspected, Accepted, and Rejected filters.
+- **Responsive behavior**: delivery list headers wrap cleanly on narrow screens, mobile filters and controls retain touch-friendly sizing, the stepper becomes icon-focused without page-level horizontal overflow, and expanded delivery details switch from the desktop table to labeled mobile fields.
+- **Supplier sidebar (`SupplierLayout.jsx`)**: changed the side menu background from off-white to dark brown (`#3E2723`). Updated the CopTrax branding and inactive navigation text to white, kept the active item green, and added a darker brown hover state with white text/icons for clear contrast.
+- **Realtime supplier updates**: My Contracts, its open Delivery Batches modal, and Supplier Deliveries now subscribe to relevant contract, delivery, allocation, weighing, lab-inspection, and quality-result changes. Updates are debounced and refresh in the background without replacing current content with a loading screen.
+- **Realtime migration (`20260914000058_supplier_delivery_realtime.sql`)**: idempotently adds the supplier delivery tables to the `supabase_realtime` publication and enables `REPLICA IDENTITY FULL`. Apply this migration (for example, with `supabase db push`) before expecting cross-user changes to appear live in a deployed environment.
+- **Lab Inspection Queue (`InspectionQueuePage.jsx`)**: rows now order newest stored records first (`created_at` descending, then `delivery_id` descending as a deterministic tie-breaker).
+- Validation completed with targeted ESLint checks and a production frontend build. The build still reports the repository's existing Node-version, custom-CSS-selector, and chunk-size warnings.
+
 ### 2026-09-14 — AI FAQ moisture content table now shows every PCA row (no more 3-row summary)
 
 - **`ai-faq/index.ts`**: the moisture-content interception now also fetches **every row** of `pca_discount_table` (5.0cc–20.2cc, one row per 0.1cc increment, ordered ascending) and includes it as `fullTable` in the `MC_TABLE:<json>` payload alongside the existing `intro`/`specific` fields. Still the same deterministic, pre-Gemini interception (mandatory for every moisture/MC/PCA question) — only the payload grew, no other logic changed.
@@ -502,7 +513,7 @@ Newest first. When you land a meaningful change, add a bullet here so teammates 
 **Authentication, registration, and dashboard UI:**
 - App-wide idle security now uses a 15-minute default timeout with a warning at 14 minutes and a one-minute Stay Signed In action. Sensitive bank/payment contexts can request the scoped 5-minute timeout without changing the global default.
 - Supplier registration now formats phone input as `0917 123 4567`. Bank registration supports a Philippine bank dropdown and local QR decoding with file type/size/dimension/payload limits; recognized bank, account-holder, and account-number data are filled when present, while unclear account numbers remain masked/manual rather than guessed.
-- Owner and Supplier sidebars use the cleaner light cream/white palette with green active-page highlighting, responsive drawers, persistent collapse state, and centered collapsed Sign Out controls.
+- The Owner sidebar uses the light cream/white palette, while the Supplier sidebar now uses a dark-brown palette with white navigation text; both retain green active-page highlighting, responsive drawers, persistent collapse state, and centered collapsed Sign Out controls.
 - Owner Overview now shows the current day/date, time-aware Admin greeting, and an editable spot-price card matching the Supplier dashboard style while retaining the BO pencil action.
 
 ### 2026-08-18 — Negotiation, Realtime Chat, Contract Viewing, Contracts Page

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import {
@@ -69,9 +69,10 @@ export default function MyContractsPage() {
   const [loading, setLoading] = useState(true);
   const [batchesModal, setBatchesModal] = useState(null); // contract object
   const [viewContract, setViewContract] = useState(null); // { contractId, contractNumber, documentPath }
+  const realtimeRefreshTimer = useRef(null);
 
-  const fetchContracts = useCallback(async () => {
-    setLoading(true);
+  const fetchContracts = useCallback(async ({ showLoading = false } = {}) => {
+    if (showLoading) setLoading(true);
 
     // 1. Fetch contracts belonging to this Supplier
     const { data: contractData, error: contractErr } = await supabase
@@ -140,18 +141,36 @@ export default function MyContractsPage() {
     setLoading(false);
   }, [user.id]);
 
-  useEffect(() => { (async () => { await fetchContracts(); })(); }, [fetchContracts]);
+  useEffect(() => { (async () => { await fetchContracts({ showLoading: true }); })(); }, [fetchContracts]);
 
-  // Realtime: re-fetch when any of this supplier's contracts change
+  // Keep contract cards, fulfillment totals, and conversation links current.
   useEffect(() => {
+    function scheduleRefresh() {
+      clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = setTimeout(() => fetchContracts(), 150);
+    }
+
     const channel = supabase
       .channel(`supplier-contracts:${user.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
-        () => fetchContracts())
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
-        () => fetchContracts())
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "contracts", filter: `supplier_id=eq.${user.id}`,
+      }, scheduleRefresh)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "conversations", filter: `supplier_id=eq.${user.id}`,
+      }, scheduleRefresh)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "deliveries", filter: `supplier_id=eq.${user.id}`,
+      }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "delivery_allocations" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "weighing_records" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_inspections" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "quality_results" }, scheduleRefresh)
       .subscribe();
-    return () => supabase.removeChannel(channel);
+
+    return () => {
+      clearTimeout(realtimeRefreshTimer.current);
+      supabase.removeChannel(channel);
+    };
   }, [user.id, fetchContracts]);
 
   const viewStatuses = CONTRACT_VIEWS[contractView].statuses;
@@ -335,7 +354,7 @@ export default function MyContractsPage() {
 
       {/* Delivery Batches Modal */}
       {batchesModal && (
-        <SupplierBatchesModal contract={batchesModal} onClose={() => setBatchesModal(null)} />
+        <SupplierBatchesModal contract={batchesModal} userId={user.id} onClose={() => setBatchesModal(null)} />
       )}
 
       {/* Contract Document Modal */}
@@ -562,7 +581,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
 
 function Stat({ label, value, highlighted = false }) {
   return (
-    <div className={`min-w-0 rounded-xl border border-beige-dark px-4 py-3 ${highlighted ? "bg-green-pale" : "bg-white"}`}>
+    <div className={`min-w-0 rounded-xl border-2 border-beige-dark px-4 py-3 ${highlighted ? "bg-green-pale" : "bg-white"}`}>
       <p className="mb-0.5 text-xs text-brown-light">{label}</p>
       <p className="break-words text-sm font-semibold text-brown-dark">{value}</p>
     </div>
@@ -598,109 +617,260 @@ function DetailRow({ label, value, valueClass = "text-brown-dark" }) {
   );
 }
 
-function SupplierBatchesModal({ contract, onClose }) {
-  const [batches, setBatches] = useState([]);
-  const [loading, setLoading] = useState(true);
+const BATCH_STATUS_META = {
+  Pending: {
+    label: "Pending",
+    color: "border-beige-dark bg-beige text-brown-mid",
+  },
+  Weighed: {
+    label: "Weighed",
+    color: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  Inspected: {
+    label: "Lab Assessment",
+    color: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  Accepted: {
+    label: "Accepted",
+    color: "border-green-200 bg-green-50 text-green-700",
+  },
+  Rejected: {
+    label: "Rejected",
+    color: "border-red-200 bg-red-50 text-red-700",
+  },
+};
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const { data } = await supabase
-        .from("delivery_allocations")
-        .select(`
-          allocated_weight_kg, price_type, sequence_order,
-          delivery:delivery_id(
-            delivery_id, batch_number, delivery_date, delivery_status,
-            weighing_records(net_weight_kg, gross_weight_kg, copra_condition),
-            quality_results(result)
-          )
-        `)
-        .eq("contract_id", contract.contract_id)
-        .order("sequence_order", { ascending: true });
-      setBatches(data ?? []);
-      setLoading(false);
-    }
-    load();
-  }, [contract.contract_id]);
+function batchDate(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
 
-  const RESULT_STYLE = {
-    Accepted: "bg-green-pale text-green-dark",
-    Rejected:  "bg-red-50 text-red-600",
+function batchWeight(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return `${Number(value).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} kg`;
+}
+
+function batchMoisture(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return `${Number(value).toLocaleString("en-PH", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+function BatchStatusBadge({ status }) {
+  const meta = BATCH_STATUS_META[status] ?? {
+    label: status || "Pending",
+    color: "border-beige-dark bg-beige text-brown-mid",
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-2xl flex flex-col max-h-[88vh]">
-        <div className="flex items-center justify-between px-4 sm:px-7 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b border-beige-dark/20 shrink-0 gap-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="w-11 h-11 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
-              <LuTruck className="w-6 h-6 text-amber-600" />
+    <span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold ${meta.color}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function MobileBatchField({ label, value, numeric = false }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-beige-dark/20 py-2.5 last:border-0">
+      <dt className="text-xs font-medium text-brown-light">{label}</dt>
+      <dd className={`text-sm font-semibold text-brown-dark ${numeric ? "text-right tabular-nums" : "text-right"}`}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function SupplierBatchesModal({ contract, userId, onClose }) {
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const realtimeRefreshTimer = useRef(null);
+
+  const loadBatches = useCallback(async ({ showLoading = false } = {}) => {
+    if (showLoading) setLoading(true);
+    const { data } = await supabase
+      .from("delivery_allocations")
+      .select(`
+        allocation_id, allocated_weight_kg, price_type, sequence_order,
+        delivery:delivery_id(
+          delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number,
+          weighing_records(gross_weight_kg, tare_weight_kg, copra_condition),
+          laboratory_inspections(moisture_content_pct)
+        )
+      `)
+      .eq("contract_id", contract.contract_id)
+      .order("sequence_order", { ascending: true });
+    setBatches(data ?? []);
+    setLoading(false);
+  }, [contract.contract_id]);
+
+  useEffect(() => {
+    (async () => { await loadBatches({ showLoading: true }); })();
+  }, [loadBatches]);
+
+  useEffect(() => {
+    function scheduleRefresh() {
+      clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = setTimeout(() => loadBatches(), 150);
+    }
+
+    const channel = supabase
+      .channel(`supplier-contract-batches:${contract.contract_id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "delivery_allocations", filter: `contract_id=eq.${contract.contract_id}`,
+      }, scheduleRefresh)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "deliveries", filter: `supplier_id=eq.${userId}`,
+      }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "weighing_records" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_inspections" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "quality_results" }, scheduleRefresh)
+      .subscribe();
+
+    return () => {
+      clearTimeout(realtimeRefreshTimer.current);
+      supabase.removeChannel(channel);
+    };
+  }, [contract.contract_id, userId, loadBatches]);
+
+  const rows = batches.map((allocation, index) => {
+    const delivery = allocation.delivery;
+    const weighing = delivery?.weighing_records?.[0];
+    const inspection = delivery?.laboratory_inspections?.[0];
+    const grossWeight = weighing?.gross_weight_kg;
+    const tareWeight = weighing?.tare_weight_kg;
+    const hasWeights = grossWeight !== null && grossWeight !== undefined
+      && tareWeight !== null && tareWeight !== undefined;
+
+    return {
+      key: allocation.allocation_id ?? delivery?.delivery_id ?? index,
+      batch: delivery?.batch_number ?? `Batch ${index + 1}`,
+      date: delivery?.delivery_date,
+      truck: delivery?.truck_plate_number || "—",
+      grossWeight,
+      tareWeight,
+      netWeight: hasWeights ? Number(grossWeight) - Number(tareWeight) : null,
+      moisture: inspection?.moisture_content_pct,
+      status: delivery?.delivery_status,
+    };
+  }).sort((a, b) => a.batch.localeCompare(b.batch, "en", { numeric: true, sensitivity: "base" }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm sm:p-4">
+      <div
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-beige-dark bg-white shadow-card sm:max-h-[88vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delivery-batches-title"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-beige-dark/30 px-4 py-4 sm:px-7 sm:py-5">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+              <LuTruck className="h-6 w-6 text-amber-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-brown-dark">Delivery Batches</h2>
-              <p className="text-sm text-brown-light break-words">{contract.contract_number}</p>
+              <h2 id="delivery-batches-title" className="text-lg font-bold text-brown-dark">Delivery Batches</h2>
+              <p className="break-words text-sm text-brown-light">{contract.contract_number}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors shrink-0">
-            <LuX className="w-5 h-5" />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close delivery batches"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brown-light transition-colors hover:bg-beige hover:text-brown-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-dark/25"
+          >
+            <LuX className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-7 py-5">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-7">
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <LuLoader className="w-6 h-6 text-brown-light animate-spin" />
+            <div className="flex items-center justify-center py-16" role="status" aria-label="Loading delivery batches">
+              <LuLoader className="h-6 w-6 animate-spin text-brown-light" />
             </div>
-          ) : batches.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-12 h-12 bg-beige rounded-2xl flex items-center justify-center mb-3">
-                <LuPackage className="w-6 h-6 text-brown-light" />
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-beige">
+                <LuPackage className="h-6 w-6 text-brown-light" />
               </div>
-              <p className="text-brown-dark font-semibold">No deliveries yet</p>
-              <p className="text-brown-light text-sm mt-1">Your delivered batches under this contract will appear here.</p>
+              <p className="font-semibold text-brown-dark">No delivery batches yet</p>
+              <p className="mt-1 text-sm text-brown-light">Delivered batches under this contract will appear here.</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {batches.map((a, i) => {
-                const d = a.delivery;
-                const wr = d?.weighing_records?.[0];
-                const result = d?.quality_results?.[0]?.result;
-                return (
-                  <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 rounded-xl bg-beige/50 border border-beige-dark/20">
-                    <div className="flex items-start gap-2.5 flex-wrap min-w-0 flex-1">
-                      <span className="font-semibold text-brown-dark whitespace-nowrap">{d?.batch_number ?? `Batch ${i + 1}`}</span>
-                      {result && (
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${RESULT_STYLE[result] ?? "bg-beige text-brown-mid"}`}>
-                          {result}
-                        </span>
-                      )}
-                      <span className="text-sm text-brown-light break-words">
-                        {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                        {wr?.copra_condition && ` · ${wr.copra_condition}`}
-                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toLocaleString("en-PH")}kg N:${Number(wr.net_weight_kg ?? 0).toLocaleString("en-PH")}kg`}
-                      </span>
+            <>
+              <div className="hidden rounded-xl border border-beige-dark/50 md:block">
+                <table className="min-w-[1120px] w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-beige-dark/50">
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
+                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-beige-dark/30">
+                    {rows.map(row => (
+                      <tr key={row.key} className="transition-colors hover:bg-beige/50">
+                        <td className="whitespace-nowrap px-4 py-3.5 font-bold text-brown-dark">{row.batch}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-brown-mid">{batchDate(row.date)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 font-medium text-brown-mid">{row.truck}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.grossWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.tareWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right font-bold tabular-nums text-brown-dark">{batchWeight(row.netWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchMoisture(row.moisture)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5"><BatchStatusBadge status={row.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-3 md:hidden">
+                {rows.map(row => (
+                  <article key={row.key} className="rounded-2xl border border-beige-dark/50 bg-white p-4 shadow-sm">
+                    <div className="flex min-h-11 items-start justify-between gap-3 border-b border-beige-dark/30 pb-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</p>
+                        <h3 className="break-words text-base font-extrabold text-brown-dark">{row.batch}</h3>
+                      </div>
+                      <BatchStatusBadge status={row.status} />
                     </div>
-                    <div className="text-right shrink-0">
-                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
-                      <span className={`ml-2 text-sm font-semibold ${a.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>
-                        {a.price_type}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    <dl className="pt-1">
+                      <MobileBatchField label="Date" value={batchDate(row.date)} />
+                      <MobileBatchField label="Truck" value={row.truck} />
+                      <MobileBatchField label="Gross Weight" value={batchWeight(row.grossWeight)} numeric />
+                      <MobileBatchField label="Tare Weight" value={batchWeight(row.tareWeight)} numeric />
+                      <MobileBatchField label="Net Weight" value={batchWeight(row.netWeight)} numeric />
+                      <MobileBatchField label="Moisture" value={batchMoisture(row.moisture)} numeric />
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </>
           )}
         </div>
 
-        {!loading && batches.length > 0 && (
-          <div className="px-4 sm:px-7 py-4 border-t border-beige-dark/20 shrink-0">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-brown-light">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
-              <span className="font-bold text-brown-dark">
-                {(batches.reduce((s, a) => s + Number(a.allocated_weight_kg ?? 0), 0) / 1000).toFixed(2)} tons total
-              </span>
-            </div>
+        {!loading && rows.length > 0 && (
+          <div className="flex shrink-0 items-center justify-between gap-4 border-t border-beige-dark/30 px-4 py-4 sm:px-7">
+            <span className="text-sm text-brown-light">{rows.length} batch{rows.length !== 1 ? "es" : ""}</span>
+            <span className="text-right font-bold text-brown-dark">
+              {(batches.reduce((sum, item) => sum + Number(item.allocated_weight_kg ?? 0), 0) / 1000).toLocaleString("en-PH", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} tons Allocated
+            </span>
           </div>
         )}
       </div>
