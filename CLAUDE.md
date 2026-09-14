@@ -345,7 +345,6 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
-<<<<<<< HEAD
 ### 2026-09-14 — Supplier "talk to the Business Owner" assistance requests (reuses the EXISTING chat/notifications — no new chat system)
 
 - **What it does**: when a Supplier's message is detected as asking for human/BO assistance (e.g. "Can I talk to the owner?", "I need to talk to a real person.") the AI no longer falls back to the generic "I can help with general information... but I can't provide private, sensitive, or restricted information." refusal (verified this was the actual prior bug — a real Supplier's "Can I talk to the business owner?" got exactly that wrong refusal). Instead it replies "Sure. I've notified the Business Owner that you'd like to speak with them..." and creates a notification for the Business Owner — all inside the SAME EXISTING conversation, never a new chat.
