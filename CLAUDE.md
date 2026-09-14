@@ -339,6 +339,10 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 ## Recent changes (keep this updated)
 
+- 2026-09-10: Restyled the Supplier My Contracts page with an animated Active/Past segmented toggle, live contract ID/date search, a titled three-dropdown filter surface with result counts, animated list/detail transitions, selectable contract cards, and a responsive two-panel progress/detail view. Existing contract queries, field values, document/batch modals, and chat navigation remain unchanged.
+- 2026-09-10: Fixed login redirects by deriving them directly from resolved AuthContext user/profile state, preventing fast sign-ins and restored sessions from remaining on the login page.
+- 2026-09-09: Added a root `package.json` that forwards `npm run dev` to the frontend, so the dev server can start from the repository root.
+
 Newest first. When you land a meaningful change, add a bullet here so teammates who "read CLAUDE.md" see what shifted.
 
 ### 2026-08-31 — Business Owner and Supplier responsive layout pass

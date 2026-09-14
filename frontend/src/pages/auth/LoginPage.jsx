@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -15,7 +15,7 @@ const ROLE_REDIRECT = {
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { isLoading, role, accountStatus } = useAuth();
+  const { isLoading, user, role, accountStatus } = useAuth();
 
   // Suppress dark mode on auth pages
   useEffect(() => {
@@ -23,10 +23,6 @@ export default function LoginPage() {
     document.documentElement.setAttribute("data-theme", "");
     return () => { if (prev) document.documentElement.setAttribute("data-theme", prev); };
   }, []);
-
-  // Set to true after a successful signInWithPassword so the useEffect below
-  // knows to wait for AuthContext to finish loading before redirecting.
-  const signingInRef = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,14 +52,11 @@ export default function LoginPage() {
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  // After signInWithPassword succeeds, AuthContext will fetch the profile via
-  // onAuthStateChange. Wait for isLoading to become false, then redirect using
-  // the now-resolved role and accountStatus from AuthContext.
+  // Redirect whenever AuthContext resolves an authenticated user. This covers
+  // fresh sign-ins as well as a session restored before the login page mounts.
   useEffect(() => {
-    if (!signingInRef.current) return;
-    if (isLoading) return; // still fetching profile — keep waiting
+    if (isLoading || !user) return;
 
-    signingInRef.current = false;
     setLoading(false);
 
     if (!role && !accountStatus) {
@@ -89,7 +82,7 @@ export default function LoginPage() {
       localStorage.setItem("coptrax_chat_widget_open", "false");
     }
     navigate(ROLE_REDIRECT[role] ?? "/");
-  }, [isLoading, role, accountStatus, navigate]);
+  }, [isLoading, user, role, accountStatus, navigate]);
 
   async function handleForgotPassword(e) {
     e.preventDefault();
@@ -139,9 +132,7 @@ export default function LoginPage() {
         return;
       }
 
-      // Auth succeeded — hand off to the useEffect below which waits for
-      // AuthContext to finish loading the profile before redirecting.
-      signingInRef.current = true;
+      // Auth succeeded — the effect above redirects after the profile loads.
     } catch (err) {
       // Unexpected throw (network failure, Supabase client error, etc.)
       console.error("[login] unexpected error:", err);
