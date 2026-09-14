@@ -25,8 +25,8 @@ export default function BOQualityPage() {
           lab_staff:lab_staff_id(first_name, last_name),
           delivery:delivery_id(
             delivery_id, delivery_source, delivery_date,
-            contract:contract_id(contract_number),
             supplier:supplier_id(first_name, last_name),
+            contract:contract_id(contract_number, supplier:supplier_id(first_name, last_name)),
             walkin_supplier:walkin_supplier_id(first_name, last_name),
             weighing_records(net_weight_kg)
           ),
@@ -41,9 +41,12 @@ export default function BOQualityPage() {
 
   function getSupplierName(d) {
     if (!d) return "—";
-    return d.delivery_source === "Walkin"
-      ? `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim()
-      : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
+    if (d.delivery_source === "Walkin")
+      return `${d.walkin_supplier?.first_name ?? ""} ${d.walkin_supplier?.last_name ?? ""}`.trim();
+    // Contract-based: try contract supplier first, fall back to direct supplier_id join
+    const fromContract = `${d.contract?.supplier?.first_name ?? ""} ${d.contract?.supplier?.last_name ?? ""}`.trim();
+    if (fromContract) return fromContract;
+    return `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim() || "—";
   }
 
   const filtered = inspections.filter(i => {

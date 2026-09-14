@@ -141,7 +141,7 @@ export default function InspectionQueuePage() {
       .update({ delivery_status: newStatus, lab_staff_id: user.id })
       .eq("delivery_id", selected.delivery_id);
 
-    if (dErr) { console.error("Failed to update delivery status:", dErr); setError("Failed to submit quality assessment. Please try again."); setSubmitting(false); setShowConfirmModal(false); return; }
+    if (dErr) { console.error("Failed to update delivery status:", dErr); setError("Inspection saved but delivery status update failed. Please reload and try again."); setSubmitting(false); setShowConfirmModal(false); return; }
 
     // 4. For accepted contractual deliveries → add to Resecada inventory
     // (Walk-in batches are already inserted into Walk-in Holding by WalkinDeliveryForm at record time)
@@ -262,7 +262,25 @@ export default function InspectionQueuePage() {
               Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
             </p>
 
-            {success.result === "Rejected" && (
+            {success.result === "Accepted" ? (
+              <div className="bg-green-pale rounded-xl px-4 py-3 text-sm text-left mb-6 space-y-2">
+                <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-1">Quality Summary</p>
+                <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{fmtKg(success.netKg)} kg</span></p>
+                <p className="text-brown-mid">PCA deduction: <span className="font-semibold text-brown-dark">{success.discount ?? 0}%</span></p>
+                <p className="text-brown-mid">
+                  Deducted weight:{" "}
+                  <span className="font-semibold text-brown-dark">
+                    {fmtKg(Number(success.netKg) * ((success.discount ?? 0) / 100))} kg
+                  </span>
+                </p>
+                <p className="text-brown-mid">
+                  Final weight:{" "}
+                  <span className="font-bold text-green-dark">
+                    {fmtKg(Number(success.netKg) * (1 - (success.discount ?? 0) / 100))} kg
+                  </span>
+                </p>
+              </div>
+            ) : (
               <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
                 Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected. No payment will be processed.
               </div>
@@ -307,6 +325,18 @@ export default function InspectionQueuePage() {
             <div>
               <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Supplier</p>
               <p className="font-bold text-brown-dark truncate">{getSupplierName(selected)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Type</p>
+              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                selected.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
+              }`}>
+                {selected.delivery_source === "Walkin" ? <><LuTruck className="w-3 h-3" />Walk-in</> : <><LuFileText className="w-3 h-3" />Contractual</>}
+              </span>
+            </div>
+            <div>
+              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Net Weight</p>
+              <p className="font-bold text-brown-dark">{fmtKg(netKg)} kg</p>
             </div>
             <div>
               <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Delivery Date</p>
@@ -478,6 +508,7 @@ export default function InspectionQueuePage() {
           <ul className="divide-y divide-beige-dark/20">
             {deliveries.map(d => {
               const supplierName = getSupplierName(d);
+              const netKg = d.weighing_records?.[0]?.net_weight_kg;
               return (
                 <li key={d.delivery_id}>
                   <button
@@ -509,6 +540,9 @@ export default function InspectionQueuePage() {
                         <p className="text-brown-light text-xs">
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
                         </p>
+                        {netKg && (
+                          <p className="text-brown-light text-xs">· {fmtKg(netKg)} kg net</p>
+                        )}
                         {d.contract?.contract_number && (
                           <p className="text-brown-light text-xs">· {d.contract.contract_number}</p>
                         )}
