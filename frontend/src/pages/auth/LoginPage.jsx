@@ -153,9 +153,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen-safe bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))]">
       <Link to="/" aria-label="Back to homepage"
-        className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
+        className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all"
+        style={{ top: "max(1.25rem, calc(env(safe-area-inset-top) + 0.5rem))" }}>
         <LuArrowLeft className="w-4 h-4 text-green-dark" />
       </Link>
       {/* Background decoration */}

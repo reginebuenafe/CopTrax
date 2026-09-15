@@ -35,7 +35,7 @@ function Hero() {
     <section
       ref={heroRef}
       id="top"
-      className="relative flex items-center overflow-hidden grain"
+      className="relative flex items-center overflow-hidden grain pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       style={{ minHeight: "calc(var(--vh-unit) * 100)" }}
     >
       {/* Full-bleed background photo with a slow Ken Burns zoom as the user
@@ -57,8 +57,8 @@ function Hero() {
           having their animation paused. */}
       {!prefersReducedMotion && (
         <>
-          <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full bg-white/5 animate-float" />
-          <div className="absolute -bottom-20 -left-20 w-[350px] h-[350px] rounded-full bg-white/5 animate-float-slow" />
+          <div className="absolute -top-20 -right-20 w-[280px] h-[280px] sm:-top-32 sm:-right-32 sm:w-[500px] sm:h-[500px] rounded-full bg-white/5 animate-float" />
+          <div className="absolute -bottom-10 -left-10 w-[200px] h-[200px] sm:-bottom-20 sm:-left-20 sm:w-[350px] sm:h-[350px] rounded-full bg-white/5 animate-float-slow" />
           <div className="absolute top-1/2 right-10 w-24 h-24 rounded-full border-2 border-white/10 animate-pulse-ring" />
         </>
       )}

@@ -201,12 +201,6 @@ export default function InspectionQueuePage() {
       : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
   }
 
-  function getSupplierContact(d) {
-    return d.delivery_source === "Walkin"
-      ? (d.walkin_supplier?.number ?? "")
-      : (d.supplier?.phone ?? "");
-  }
-
   function resetInspection() {
     setSelected(null);
     setMoisture("");
@@ -283,10 +277,6 @@ export default function InspectionQueuePage() {
   if (selected) {
     const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
     const mc = parseFloat(moisture);
-    const deductionKg = preview?.result === "Accepted" && preview?.discountValue
-      ? (netKg * (preview.discountValue / 100))
-      : 0;
-    const finalKg = netKg - deductionKg;
 
     return (
       <div className="max-w-lg mx-auto">

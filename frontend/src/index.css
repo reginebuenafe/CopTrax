@@ -253,8 +253,8 @@
 
   /* Proposal card — received (EDF7EF green tint) */
   html[data-theme="dark"] [class*="bg-\[#EDF7EF"]  { background-color: #1a2a1e !important; }
-  html[data-theme="dark"] [class*="border-\[#2E7D32"]\/20 { border-color: #2d5a27 !important; }
-  html[data-theme="dark"] [class*="border-\[#A2D5AB"]\/50 { border-color: #2d4030 !important; }
+  html[data-theme="dark"] [class*="border-[#2E7D32]/20"] { border-color: #2d5a27 !important; }
+  html[data-theme="dark"] [class*="border-[#A2D5AB]/50"] { border-color: #2d4030 !important; }
   html[data-theme="dark"] [class*="border-\[#B7DDBD"] { border-color: #2d4030 !important; }
 
   /* Proposal card header (EAF6EC) */
@@ -317,6 +317,22 @@
   html[data-compact="true"] th { padding-top: 6px !important; padding-bottom: 6px !important; }
   html[data-compact="true"] .py-3   { padding-top: 6px !important; padding-bottom: 6px !important; }
   html[data-compact="true"] .py-2\.5 { padding-top: 5px !important; padding-bottom: 5px !important; }
+}
+
+@layer utilities {
+  /* Same reasoning as the html/body/#root min-height fallback above: a
+     plain `100vh` line first (pre-`svh` browser fallback), then `100svh`
+     for browsers that support it, so full-screen pages like the login
+     card never fall short of — or jump against — the real visible
+     viewport as Safari's toolbar shows/hides. Written as actual stacked
+     declarations in one rule (not two separate Tailwind utility classes)
+     because Tailwind's generated utility order does not follow class
+     order in markup, so two classes competing for the same CSS property
+     can't reliably guarantee which one wins the cascade. */
+  .min-h-screen-safe {
+    min-height: 100vh;
+    min-height: 100svh;
+  }
 }
 
 @layer utilities {
