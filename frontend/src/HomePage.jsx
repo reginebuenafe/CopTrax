@@ -4,8 +4,8 @@ import { useScroll, useTransform, useReducedMotion, useMotionValueEvent } from "
 import { LuTreePalm, LuArrowRight, LuPhone } from "react-icons/lu";
 import { MotionDiv } from "./components/landing/motion-elements";
 import ScrollStory from "./components/landing/ScrollStory";
-import NercStory from "./components/landing/NercStory";
-import BeforeStory from "./components/landing/BeforeStory";
+import { AboutNerc, PoweredByCopTrax, ContactSection, FinalBrandStatement, AboutCopra } from "./components/landing/NercStory";
+import { WhatWeDo, WhySellToNerc } from "./components/landing/BeforeStory";
 import useViewportHeightUnit from "./hooks/useViewportHeightUnit";
 import useThemeColor from "./hooks/useThemeColor";
 
@@ -116,13 +116,18 @@ export default function HomePage() {
     <div className="bg-cream">
       <Hero />
 
-      <BeforeStory />
+      <WhatWeDo />
+      <WhySellToNerc />
+      <AboutCopra />
 
       <div id="story" className="scroll-mt-0">
         <ScrollStory />
       </div>
 
-      <NercStory />
+      <AboutNerc />
+      <PoweredByCopTrax />
+      <ContactSection />
+      <FinalBrandStatement />
     </div>
   );
 }

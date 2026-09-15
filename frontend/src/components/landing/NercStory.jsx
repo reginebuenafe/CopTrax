@@ -7,7 +7,7 @@ const EASE = [0.16, 1, 0.3, 1];
 const COPRA_STEPS = ["Coconut", "Drying", "Copra", "Trading"];
 
 /* ── 05 — About NERC Copra Trading ────────────────────────────────────── */
-function AboutNerc() {
+export function AboutNerc() {
   return (
     <section id="about" className="py-20 sm:py-28 border-t border-beige-dark/60 scroll-mt-20">
       <div className="max-w-6xl mx-auto px-4 sm:px-5">
@@ -64,7 +64,7 @@ function AboutNerc() {
 }
 
 /* ── 06 — About Copra ──────────────────────────────────────────────────── */
-function AboutCopra() {
+export function AboutCopra() {
   return (
     <section className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60">
       <div className="max-w-6xl mx-auto px-4 sm:px-5 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -138,7 +138,7 @@ function AboutCopra() {
 }
 
 /* ── 07 — Quality ─────────────────────────────────────────────────────── */
-function Quality() {
+export function Quality() {
   return (
     <section className="py-20 sm:py-28">
       <div className="max-w-2xl mx-auto px-4 sm:px-5 text-center">
@@ -176,7 +176,7 @@ function Quality() {
 }
 
 /* ── 08 — Powered by CopTrax (short) ──────────────────────────────────── */
-function PoweredByCopTrax() {
+export function PoweredByCopTrax() {
   return (
     <section className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60">
       <div className="max-w-6xl mx-auto px-4 sm:px-5 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -247,7 +247,7 @@ function PoweredByCopTrax() {
 }
 
 /* ── 09 — Contact / Visit NERC ────────────────────────────────────────── */
-function ContactSection() {
+export function ContactSection() {
   const details = [
     { icon: <LuMapPin className="w-5 h-5" />, title: "Buying Station", body: <>Poblacion, Kumalarang<br />Zamboanga del Sur</> },
     { icon: <LuPhone className="w-5 h-5" />, title: "Phone", body: <a href="tel:+639186062580" className="hover:text-green-dark transition-colors">+63 918 606 2580</a> },
@@ -344,7 +344,7 @@ function ContactSection() {
 }
 
 /* ── 10 — Final CTA ───────────────────────────────────────────────────── */
-function FinalBrandStatement() {
+export function FinalBrandStatement() {
   return (
     <section className="py-28 sm:py-40 border-t border-beige-dark/60">
       <div className="max-w-lg mx-auto px-4 sm:px-5 text-center">
@@ -400,15 +400,3 @@ function FinalBrandStatement() {
   );
 }
 
-export default function NercStory() {
-  return (
-    <>
-      <AboutNerc />
-      <AboutCopra />
-      <Quality />
-      <PoweredByCopTrax />
-      <ContactSection />
-      <FinalBrandStatement />
-    </>
-  );
-}

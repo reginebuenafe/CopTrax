@@ -870,7 +870,7 @@ export default function RegisterPage() {
                 placeholder="Min. 8 characters" className={`${inputClass} pl-10 pr-10`} />
               <button type="button" onClick={() => setShowPassword(p => !p)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-                {showPassword ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+                {showPassword ? <LuEye className="w-4 h-4" /> : <LuEyeOff className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -885,7 +885,7 @@ export default function RegisterPage() {
                 placeholder="Re-enter password" className={`${inputClass} pl-10 pr-10`} />
               <button type="button" onClick={() => setShowConfirm(p => !p)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-                {showConfirm ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+                {showConfirm ? <LuEye className="w-4 h-4" /> : <LuEyeOff className="w-4 h-4" />}
               </button>
             </div>
           </div>

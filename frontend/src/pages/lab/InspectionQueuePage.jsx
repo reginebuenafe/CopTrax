@@ -263,25 +263,7 @@ export default function InspectionQueuePage() {
               Moisture: <span className="font-semibold text-brown-dark">{success.moisture}cc</span>
             </p>
 
-            {success.result === "Accepted" ? (
-              <div className="bg-green-pale rounded-xl px-4 py-3 text-sm text-left mb-6 space-y-2">
-                <p className="text-xs text-brown-light font-semibold uppercase tracking-wide mb-1">Quality Summary</p>
-                <p className="text-brown-mid">Net weight: <span className="font-semibold text-brown-dark">{fmtKg(success.netKg)} kg</span></p>
-                <p className="text-brown-mid">PCA deduction: <span className="font-semibold text-brown-dark">{success.discount ?? 0}%</span></p>
-                <p className="text-brown-mid">
-                  Deducted weight:{" "}
-                  <span className="font-semibold text-brown-dark">
-                    {fmtKg(Number(success.netKg) * ((success.discount ?? 0) / 100))} kg
-                  </span>
-                </p>
-                <p className="text-brown-mid">
-                  Final weight:{" "}
-                  <span className="font-bold text-green-dark">
-                    {fmtKg(Number(success.netKg) * (1 - (success.discount ?? 0) / 100))} kg
-                  </span>
-                </p>
-              </div>
-            ) : (
+            {success.result !== "Accepted" && (
               <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 mb-6">
                 Moisture content {success.moisture}cc exceeds 20.2cc. This delivery is automatically rejected. No payment will be processed.
               </div>

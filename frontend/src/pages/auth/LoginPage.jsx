@@ -268,7 +268,7 @@ export default function LoginPage() {
                   onClick={() => setShowPassword(p => !p)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors"
                 >
-                  {showPassword ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+                  {showPassword ? <LuEye className="w-4 h-4" /> : <LuEyeOff className="w-4 h-4" />}
                 </button>
               </div>
             </div>
