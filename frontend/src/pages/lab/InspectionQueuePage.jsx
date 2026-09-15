@@ -339,7 +339,7 @@ export default function InspectionQueuePage() {
         <form onSubmit={openConfirmModal} className="space-y-4">
           {/* Moisture input */}
           <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
-            <label className="block text-sm font-semibold text-brown-dark mb-3 flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm font-semibold text-brown-dark mb-3">
               <LuDroplets className="w-4 h-4 text-blue-400" /> Moisture Content (cc)
             </label>
             <div className="relative">
