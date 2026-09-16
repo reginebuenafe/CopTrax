@@ -12,6 +12,7 @@ import ProposePriceModal from "../../components/ProposePriceModal";
 import ContractDocumentModal from "../../components/ContractDocumentModal";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
+import MoistureContentTable from "../../components/MoistureContentTable";
 
 const BO_QUICK_ACTIONS = [
   ["Ask Proposal", "I would like to buy some copras. Have you harvested some?"],
@@ -317,7 +318,7 @@ export default function BOChatLayout() {
         .from("supplier_performance_snapshot")
         .select("overall_supplier_rating")
         .eq("supplier_id", conv.supplier.user_id)
-        .order("snapshot_date", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -732,6 +733,23 @@ export default function BOChatLayout() {
                       <p className="text-[#2d5a27] text-xs italic text-center max-w-xs">{msg.message_text}</p>
                     </div>
                   );
+                }
+
+                if (!messageEl && msg.message_text?.startsWith("MC_TABLE:")) {
+                  try {
+                    const { intro, specific, fullTable } = JSON.parse(msg.message_text.replace("MC_TABLE:", ""));
+                    messageEl = (
+                      <div className={`flex px-3 sm:px-5 ${isMine ? "justify-end" : "justify-start"}`}>
+                        <div className={`max-w-[85%] sm:max-w-[65%] rounded-2xl px-4 py-3 shadow-sm ${
+                          isMine
+                            ? "bg-[#2d5a27] text-white rounded-br-sm"
+                            : "bg-white text-[#3d2b1f] border border-[#e8e0d0] rounded-bl-sm"
+                        }`}>
+                          <MoistureContentTable intro={intro} specific={specific} fullTable={fullTable} />
+                        </div>
+                      </div>
+                    );
+                  } catch { /* fall through */ }
                 }
 
                 if (!messageEl) {

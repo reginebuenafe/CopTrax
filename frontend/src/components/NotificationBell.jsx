@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   LuBell, LuCheck, LuCheckCheck,
   LuTruck, LuFileText, LuWallet, LuPackage, LuTriangleAlert,
-  LuCalendarClock, LuStar, LuUserCheck,
+  LuCalendarClock, LuStar, LuUserCheck, LuMessageCircle, LuX,
 } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
@@ -24,6 +26,7 @@ const TYPE_ICON = {
   "Inventory Capacity Warning": { icon: LuPackage, bg: "bg-orange-50", text: "text-orange-600" },
   "Supplier Approved":    { icon: LuUserCheck,     bg: "bg-purple-50",   text: "text-purple-600" },
   "Supplier Rated":       { icon: LuStar,          bg: "bg-amber-50",    text: "text-amber-700" },
+  "Supplier Assistance Requested": { icon: LuMessageCircle, bg: "bg-blue-50", text: "text-blue-600" },
 };
 const FALLBACK_ICON = { icon: LuBell, bg: "bg-beige", text: "text-brown-mid" };
 
@@ -40,16 +43,18 @@ function fmtRelative(dateStr) {
 
 export default function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [toasts, setToasts] = useState([]);
   const panelRef = useRef(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
       .from("notifications")
-      .select("notification_id, notification_type, message, is_read, created_at")
+      .select("notification_id, notification_type, message, related_entity_type, related_entity_id, is_read, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(30);
@@ -73,6 +78,18 @@ export default function NotificationBell() {
         (payload) => {
           setNotifications(prev => [payload.new, ...prev].slice(0, 30));
           setUnreadCount(c => c + 1);
+
+          // Small transient toast for a Supplier assistance request, in
+          // addition to the persistent bell entry above. The bell/unread
+          // count is the source of truth — this toast just surfaces it
+          // immediately while the BO has CopTrax open.
+          if (payload.new?.notification_type === "Supplier Assistance Requested") {
+            const toastId = payload.new.notification_id;
+            setToasts(prev => [...prev, payload.new]);
+            setTimeout(() => {
+              setToasts(prev => prev.filter(t => t.notification_id !== toastId));
+            }, 8000);
+          }
         }
       )
       .subscribe();
@@ -103,6 +120,22 @@ export default function NotificationBell() {
     await supabase.from("notifications").update({ is_read: true }).eq("notification_id", notifId);
     setNotifications(prev => prev.map(n => n.notification_id === notifId ? { ...n, is_read: true } : n));
     setUnreadCount(c => Math.max(0, c - 1));
+  }
+
+  // Opens the EXISTING conversation a "Supplier Assistance Requested"
+  // notification points to (never creates a new one), and marks the
+  // notification read since the Business Owner has now acknowledged it.
+  function openRelatedChat(n) {
+    if (n.related_entity_type === "conversations" && n.related_entity_id) {
+      if (!n.is_read) markOneRead(n.notification_id);
+      setToasts(prev => prev.filter(t => t.notification_id !== n.notification_id));
+      setOpen(false);
+      navigate(`/dashboard/owner/conversations/${n.related_entity_id}`);
+    }
+  }
+
+  function dismissToast(notifId) {
+    setToasts(prev => prev.filter(t => t.notification_id !== notifId));
   }
 
   return (
@@ -164,6 +197,14 @@ export default function NotificationBell() {
                       </p>
                       <p className="text-[11px] text-brown-mid leading-snug mt-0.5 line-clamp-2">{n.message}</p>
                       <p className="text-[10px] text-brown-light mt-0.5">{fmtRelative(n.created_at)}</p>
+                      {n.notification_type === "Supplier Assistance Requested" && n.related_entity_type === "conversations" && (
+                        <button
+                          onClick={() => openRelatedChat(n)}
+                          className="mt-1.5 text-[11px] font-semibold text-green-dark hover:text-green-mid transition-colors"
+                        >
+                          Open Chat →
+                        </button>
+                      )}
                     </div>
                     {!n.is_read && (
                       <button onClick={() => markOneRead(n.notification_id)}
@@ -178,6 +219,37 @@ export default function NotificationBell() {
             })}
           </ul>
         </div>
+      )}
+
+      {/* Transient "Supplier needs assistance" toasts — the persistent
+          notification stays in the bell above regardless of this toast's
+          lifetime. Portalled to <body> so it floats above every layout. */}
+      {toasts.length > 0 && createPortal(
+        <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 w-[90vw] max-w-sm">
+          {toasts.map(t => (
+            <div key={t.notification_id} className="bg-white border border-beige-dark/40 rounded-xl shadow-card p-4">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                  <LuMessageCircle className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-brown-dark">Supplier needs assistance</p>
+                  <p className="text-xs text-brown-mid mt-0.5">{t.message}</p>
+                  <button
+                    onClick={() => openRelatedChat(t)}
+                    className="mt-2 text-xs font-semibold text-white bg-green-dark hover:bg-green-dark/90 rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    Open Chat
+                  </button>
+                </div>
+                <button onClick={() => dismissToast(t.notification_id)} className="shrink-0 text-brown-light hover:text-brown-dark transition-colors" aria-label="Dismiss">
+                  <LuX className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>,
+        document.body
       )}
     </div>
   );

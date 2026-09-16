@@ -60,7 +60,7 @@ export default function SupplierOverview() {
         supabase.from("supplier_performance_snapshot")
           .select("overall_supplier_rating")
           .eq("supplier_id", user.id)
-          .order("snapshot_date", { ascending: false })
+          .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
 
@@ -175,7 +175,12 @@ export default function SupplierOverview() {
             <StatCard
               icon={LuStar}
               label="My Rating"
-              value={stats.overallRating !== null ? `${Number(stats.overallRating).toFixed(1)} / 5` : "—"}
+              value={stats.overallRating !== null
+                ? <span className="inline-flex items-center gap-1.5">
+                    <LuStar className="w-5 h-5 text-amber-400 fill-amber-400 shrink-0" />
+                    {Number(stats.overallRating).toFixed(1)} / 5
+                  </span>
+                : "—"}
               sub={stats.overallRating !== null ? "Overall Performance" : "No Rated Contracts Yet"}
               color="bg-amber-50 text-amber-500"
               onClick={() => navigate("/dashboard/supplier/rating")}

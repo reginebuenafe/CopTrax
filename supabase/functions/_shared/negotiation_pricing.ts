@@ -66,7 +66,7 @@ export async function computeNegotiationPrice(
     .from("supplier_performance_snapshot")
     .select("overall_supplier_rating")
     .eq("supplier_id", supplierId)
-    .order("snapshot_date", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 

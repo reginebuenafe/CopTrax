@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { LuMapPin, LuPhone, LuMail, LuClock } from "react-icons/lu";
+import { LuMapPin, LuPhone, LuMail, LuClock, LuTreePalm } from "react-icons/lu";
 import { MotionDiv, MotionP, MotionH2 } from "./motion-elements";
 
 const EASE = [0.16, 1, 0.3, 1];
@@ -7,10 +7,10 @@ const EASE = [0.16, 1, 0.3, 1];
 const COPRA_STEPS = ["Coconut", "Drying", "Copra", "Trading"];
 
 /* ── 05 — About NERC Copra Trading ────────────────────────────────────── */
-function AboutNerc() {
+export function AboutNerc() {
   return (
-    <section id="about" className="py-20 sm:py-28 border-t border-beige-dark/60 scroll-mt-20">
-      <div className="max-w-6xl mx-auto px-4 sm:px-5">
+    <section id="about" className="relative py-20 sm:py-28 border-t border-beige-dark/60 scroll-mt-20 grain overflow-hidden">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5">
         <div className="max-w-2xl mb-14 sm:mb-16">
           <MotionP
             initial={{ opacity: 0, y: 16 }}
@@ -40,7 +40,8 @@ function AboutNerc() {
             Based in Poblacion, Kumalarang, Zamboanga del Sur, NERC Copra Trading is a local
             copra buying business serving farmers and suppliers in the community. Built on
             long-standing relationships, the business continues to connect local copra
-            producers with a reliable place to sell their produce.
+            producers with a reliable place to sell their produce. That same trust now carries
+            through into how the business keeps its records.
           </MotionP>
         </div>
 
@@ -64,7 +65,7 @@ function AboutNerc() {
 }
 
 /* ── 06 — About Copra ──────────────────────────────────────────────────── */
-function AboutCopra() {
+export function AboutCopra() {
   return (
     <section className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60">
       <div className="max-w-6xl mx-auto px-4 sm:px-5 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -109,10 +110,21 @@ function AboutCopra() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-15% 0px" }}
             transition={{ duration: 0.6, delay: 0.1, ease: EASE }}
-            className="text-brown-mid/90 text-base leading-relaxed mb-8"
+            className="text-brown-mid/90 text-base leading-relaxed mb-5"
           >
             Copra is the dried meat of the coconut. Once harvested and dried, it becomes the
             commodity NERC buys and trades, not the raw coconut itself.
+          </MotionP>
+          <MotionP
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-15% 0px" }}
+            transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
+            className="text-brown-mid/90 text-base leading-relaxed mb-8"
+          >
+            Its quality is not fixed once it's dried. Moisture content is measured at the
+            buying station and factored into the transaction, so how well the copra was dried
+            before delivery directly affects the outcome.
           </MotionP>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {COPRA_STEPS.map((step, i) => (
@@ -137,46 +149,8 @@ function AboutCopra() {
   );
 }
 
-/* ── 07 — Quality ─────────────────────────────────────────────────────── */
-function Quality() {
-  return (
-    <section className="py-20 sm:py-28">
-      <div className="max-w-2xl mx-auto px-4 sm:px-5 text-center">
-        <MotionP
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-15% 0px" }}
-          transition={{ duration: 0.6, ease: EASE }}
-          className="text-[11px] font-bold uppercase tracking-[0.18em] text-green-dark mb-5"
-        >
-          Copra Quality
-        </MotionP>
-        <MotionH2
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-15% 0px" }}
-          transition={{ duration: 0.7, delay: 0.05, ease: EASE }}
-          className="text-3xl sm:text-4xl font-extrabold text-brown-dark leading-tight mb-5"
-        >
-          Quality matters.
-        </MotionH2>
-        <MotionP
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-15% 0px" }}
-          transition={{ duration: 0.6, delay: 0.1, ease: EASE }}
-          className="text-brown-mid/90 text-base leading-relaxed"
-        >
-          The moisture content of your copra is measured at the buying station and factored
-          into the transaction, so the condition of what you bring in affects the outcome.
-        </MotionP>
-      </div>
-    </section>
-  );
-}
-
-/* ── 08 — Powered by CopTrax (short) ──────────────────────────────────── */
-function PoweredByCopTrax() {
+/* ── 07 — Powered by CopTrax (short) ──────────────────────────────────── */
+export function PoweredByCopTrax() {
   return (
     <section className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60">
       <div className="max-w-6xl mx-auto px-4 sm:px-5 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -246,8 +220,8 @@ function PoweredByCopTrax() {
   );
 }
 
-/* ── 09 — Contact / Visit NERC ────────────────────────────────────────── */
-function ContactSection() {
+/* ── 08 — Contact / Visit NERC ────────────────────────────────────────── */
+export function ContactSection() {
   const details = [
     { icon: <LuMapPin className="w-5 h-5" />, title: "Buying Station", body: <>Poblacion, Kumalarang<br />Zamboanga del Sur</> },
     { icon: <LuPhone className="w-5 h-5" />, title: "Phone", body: <a href="tel:+639186062580" className="hover:text-green-dark transition-colors">+63 918 606 2580</a> },
@@ -343,11 +317,20 @@ function ContactSection() {
   );
 }
 
-/* ── 10 — Final CTA ───────────────────────────────────────────────────── */
-function FinalBrandStatement() {
+/* ── 09 — Final CTA ───────────────────────────────────────────────────── */
+export function FinalBrandStatement() {
   return (
-    <section className="py-28 sm:py-40 border-t border-beige-dark/60">
-      <div className="max-w-lg mx-auto px-4 sm:px-5 text-center">
+    <section className="relative overflow-hidden py-28 sm:py-40 border-t border-beige-dark/60">
+      {/* Extremely faint palm silhouette — echoes the palm icon used in the
+          Hero's CTA, tying the page's end back to its beginning without
+          introducing a new visual motif. Purely atmospheric: near-invisible
+          opacity, no interaction, clipped to this section only. */}
+      <LuTreePalm
+        aria-hidden="true"
+        strokeWidth={0.6}
+        className="pointer-events-none select-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[200px] h-[200px] sm:w-[380px] sm:h-[380px] lg:w-[520px] lg:h-[520px] text-green-dark/[0.035]"
+      />
+      <div className="relative z-10 max-w-lg mx-auto px-4 sm:px-5 text-center">
         <MotionP
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -400,15 +383,3 @@ function FinalBrandStatement() {
   );
 }
 
-export default function NercStory() {
-  return (
-    <>
-      <AboutNerc />
-      <AboutCopra />
-      <Quality />
-      <PoweredByCopTrax />
-      <ContactSection />
-      <FinalBrandStatement />
-    </>
-  );
-}

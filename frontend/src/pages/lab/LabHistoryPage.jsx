@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { LuClipboardList, LuCheck, LuX, LuFlaskConical } from "react-icons/lu";
+import { LuClipboardList, LuFlaskConical } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
-
-function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 export default function LabHistoryPage() {
   const { user } = useAuth();
@@ -65,12 +63,12 @@ export default function LabHistoryPage() {
           </div>
         ) : (
           <>
-            {/* Desktop table */}
+            {/* Desktop table — Supplier, Date, Net Weight, Moisture (cc) only */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                   <tr>
-                    {["Supplier", "Type", "Date", "Net Weight", "Moisture (cc)", "Discount (%)", "Final Weight", "Result"].map(h => (
+                    {["Supplier", "Date", "Moisture (cc)"].map(h => (
                       <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
                     ))}
                   </tr>
@@ -78,52 +76,16 @@ export default function LabHistoryPage() {
                 <tbody className="divide-y divide-beige-dark/20">
                   {records.map(r => {
                     const d = r.delivery;
-                    const result = r.quality_results?.[0]?.result ?? "—";
-                    const netKg = d?.weighing_records?.[0]?.net_weight_kg ?? 0;
                     const mc = r.moisture_content_pct;
-
-                    // Parse discount from remarks: "Discount: X%"
-                    const remarksMatch = r.quality_results?.[0]?.remarks?.match(/Discount: ([\d.]+)%/);
-                    const discountPct = remarksMatch ? parseFloat(remarksMatch[1]) : 0;
-                    const finalKg = netKg * (1 - discountPct / 100);
-
                     return (
                       <tr key={r.inspection_id} className="hover:bg-beige/30 transition-colors">
                         <td className="px-5 py-3.5 font-medium text-brown-dark">
                           {getSupplierName(d) || <span className="text-brown-light italic text-xs">Unknown supplier</span>}
                         </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            d?.delivery_source === "Walkin"
-                              ? "bg-orange-50 text-orange-600"
-                              : "bg-green-pale text-green-dark"
-                          }`}>
-                            {d?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
-                          </span>
-                        </td>
                         <td className="px-5 py-3.5 text-brown-mid">
                           {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
-                        <td className="px-5 py-3.5 text-brown-mid">{fmtKg(netKg)} kg</td>
-                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc}cc</td>
-                        <td className="px-5 py-3.5 text-brown-mid">
-                          {result === "Rejected" ? "—" : `${discountPct}%`}
-                        </td>
-                        <td className="px-5 py-3.5 font-semibold text-brown-dark">
-                          {result === "Rejected" ? "—" : `${fmtKg(finalKg)} kg`}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${
-                            result === "Accepted"
-                              ? "bg-green-pale text-green-dark"
-                              : "bg-red-50 text-red-600"
-                          }`}>
-                            {result === "Accepted"
-                              ? <><LuCheck className="w-3 h-3" />Accepted</>
-                              : <><LuX className="w-3 h-3" />Rejected</>
-                            }
-                          </span>
-                        </td>
+                        <td className="px-5 py-3.5 font-semibold text-brown-dark">{mc} cc</td>
                       </tr>
                     );
                   })}
@@ -131,42 +93,21 @@ export default function LabHistoryPage() {
               </table>
             </div>
 
-            {/* Mobile cards */}
+            {/* Mobile cards — Supplier, Date, Moisture (cc) only */}
             <div className="md:hidden space-y-3 p-4">
               {records.map(r => {
                 const d = r.delivery;
-                const result = r.quality_results?.[0]?.result ?? "—";
-                const netKg = d?.weighing_records?.[0]?.net_weight_kg ?? 0;
                 const mc = r.moisture_content_pct;
-                const remarksMatch = r.quality_results?.[0]?.remarks?.match(/Discount: ([\d.]+)%/);
-                const discountPct = remarksMatch ? parseFloat(remarksMatch[1]) : 0;
-                const finalKg = netKg * (1 - discountPct / 100);
 
                 return (
                   <div key={r.inspection_id} className="bg-white rounded-xl border border-beige-dark/40 p-4 space-y-2 text-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2.5 mb-1">
                         <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
                           <LuFlaskConical className="w-4 h-4 text-purple-500" />
                         </div>
                         <p className="font-semibold text-brown-dark">{getSupplierName(d)}</p>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                        result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
-                      }`}>
-                        {result === "Accepted" ? <LuCheck className="w-3 h-3" /> : <LuX className="w-3 h-3" />}
-                        {result}
-                      </span>
                     </div>
                     <div className="space-y-2 text-xs">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-brown-light">Type</span>
-                        <span className={`font-semibold ${
-                          d?.delivery_source === "Walkin" ? "text-orange-600" : "text-green-dark"
-                        }`}>
-                          {d?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
-                        </span>
-                      </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-brown-light">Date</span>
                         <span className="font-semibold text-brown-dark text-right">
@@ -174,20 +115,8 @@ export default function LabHistoryPage() {
                         </span>
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className="text-brown-light">Net Weight</span>
-                        <span className="font-semibold text-brown-dark text-right">{fmtKg(netKg)} kg</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
                         <span className="text-brown-light">Moisture (cc)</span>
-                        <span className="font-semibold text-brown-dark text-right">{mc}cc</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-brown-light">Discount (%)</span>
-                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${discountPct}%`}</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-brown-light">Final Weight</span>
-                        <span className="font-semibold text-brown-dark text-right">{result === "Rejected" ? "—" : `${fmtKg(finalKg)} kg`}</span>
+                        <span className="font-semibold text-brown-dark text-right">{mc} cc</span>
                       </div>
                     </div>
                   </div>

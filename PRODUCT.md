@@ -14,7 +14,7 @@ web
 
 **Weigher** — NERC staff at the station who weighs incoming deliveries. Needs a fast, focused form flow — walk-in or contractual. Does not manage finances or contracts.
 
-**Laboratory Staff** — NERC staff who tests copra moisture content (cc) and PCA discount. Records inspection results that feed into payment calculation. Receives notifications when deliveries are queued for assessment.
+**Laboratory Staff** — NERC staff who tests copra moisture content (cc) and PCA deduction. Records inspection results that feed into payment calculation. Receives notifications when deliveries are queued for assessment.
 
 Both the Business Owner and Supplier are equal primary users: the system only works when both sides are active.
 
@@ -24,13 +24,13 @@ CopTrax digitizes the full copra procurement cycle for NERC Copra Trading: suppl
 
 ## Positioning
 
-CopTrax is the only system purpose-built for Philippine copra trading that ties chatbased price negotiation, cryptographic contract signing, PCA moisture-discount lookup, and multi-contract delivery allocation into one workflow — rather than stitching together separate tools. The system knows the domain: it enforces the PCA discount table exactly, prices walk-in deliveries at spot rate, prices contractual deliveries at negotiated rate, and cascades excess delivery weight across active contracts to the next eligible one automatically.
+CopTrax is the only system purpose-built for Philippine copra trading that ties chatbased price negotiation, cryptographic contract signing, PCA moisture-deduction lookup, and multi-contract delivery allocation into one workflow — rather than stitching together separate tools. The system knows the domain: it enforces the PCA deduction table exactly, prices walk-in deliveries at spot rate, prices contractual deliveries at negotiated rate, and cascades excess delivery weight across active contracts to the next eligible one automatically.
 
 ## Operating Context
 
 - **Physical stations** across the Zamboanga del Sur region; staff use desktop/laptop; suppliers may use mobile
 - **Key workflows:** supplier self-registration with AI-assisted ID OCR → BO approval → chat negotiation → contract generation + signing → weigher records delivery → lab inspects moisture → BO releases payment (Xendit bank transfer) → inventory batch management → performance snapshots on contract completion or breach
-- **Domain terminology in use:** MC (moisture content in cc), PCA Discount (%), Spot Price (₱/kg), Negotiated Price, Contractual vs Walk-in delivery, Resecada, Breach, Fulfillment %, Sacks Deduction
+- **Domain terminology in use:** MC (moisture content in cc), PCA Deduction (%), Spot Price (₱/kg), Negotiated Price, Contractual vs Walk-in delivery, Resecada, Breach, Fulfillment %, Sacks Deduction
 - **Scheduling:** contracts have a fixed deadline (activation date + 1 month + 1 day); breach and merge checks run via pg_cron
 
 ## Capabilities and Constraints
@@ -38,8 +38,8 @@ CopTrax is the only system purpose-built for Philippine copra trading that ties 
 - React + Vite + Tailwind frontend; Supabase (Postgres, Auth, Edge Functions, Realtime, Storage) backend
 - Payments via Xendit (sandbox/test mode); contract signing is in-house cryptographic (SHA-256 + pdf-lib)
 - ID OCR via Google Gemini Vision (extract-id-info Edge Function)
-- PCA discount is a literal lookup table (seed/pca_discount_table.sql) — never a formula
-- MC > 20.2 cc → automatic rejection, no payment; MC < 5.0 cc → 0% discount
+- PCA deduction is a literal lookup table (seed/pca_discount_table.sql) — never a formula
+- MC > 20.2 cc → automatic rejection, no payment; MC < 5.0 cc → 0% deduction
 - All business logic lives in Edge Functions or SQL (RLS), never client-side
 - Dark mode and compact tables are user-level preferences stored in localStorage keyed by user ID
 - School thesis / capstone project context; not yet in production
@@ -58,7 +58,7 @@ CopTrax is the only system purpose-built for Philippine copra trading that ties 
 - Full working codebase at `frontend/src/`
 - Supabase schema migrations in `supabase/migrations/`
 - Contract template at `docs/contract_template.docx`
-- PCA discount table at `seed/pca_discount_table.sql`
+- PCA deduction table at `seed/pca_discount_table.sql`
 - No real user testimonials, benchmarks, or production usage data
 
 ## Product Principles

@@ -4,7 +4,7 @@
 
 Improve the **AI FAQ response for Moisture Content** in CopTrax.
 
-When a user asks about **moisture content, MC limits, acceptable MC, MC discounts, rejection due to MC, or PCA moisture-content rules**, the AI Assistant must **NOT** return all of the information as one long paragraph.
+When a user asks about **moisture content, MC limits, acceptable MC, MC deductions, rejection due to MC, or PCA moisture-content rules**, the AI Assistant must **NOT** return all of the information as one long paragraph.
 
 Instead, display a **clean, responsive Moisture Content Table inside the AI chat response**.
 
@@ -12,22 +12,22 @@ Instead, display a **clean, responsive Moisture Content Table inside the AI chat
 
 ## Required Moisture Content Table
 
-| Moisture Content (MC) | Result | Discount / Action |
+| Moisture Content (MC) | Result | Deduction / Action |
 |---|---|---|
-| **Below 5.0 cc** | Accepted | No discount |
-| **5.0 cc – 20.2 cc** | Accepted | Apply the corresponding discount based on the official PCA discount table |
+| **Below 5.0 cc** | Accepted | No deduction |
+| **5.0 cc – 20.2 cc** | Accepted | Apply the corresponding deduction based on the official PCA deduction table |
 | **Above 20.2 cc** | Rejected | No payment |
 
 ---
 
 ## IMPORTANT LOGIC — DO NOT CHANGE
 
-- **Below 5.0 cc** → Accepted, **no discount**.
-- **5.0 cc through 20.2 cc** → Accepted, but the appropriate **PCA discount applies**.
+- **Below 5.0 cc** → Accepted, **no deduction**.
+- **5.0 cc through 20.2 cc** → Accepted, but the appropriate **PCA deduction applies**.
 - **Above 20.2 cc** → Automatically **rejected and receives no payment**.
-- Do **NOT** simply state that “below 20.2 cc is acceptable” without explaining the different discount ranges.
-- Preserve the existing official PCA moisture-content and discount data already implemented in the project.
-- **DO NOT invent, modify, approximate, or hallucinate PCA discount values.**
+- Do **NOT** simply state that “below 20.2 cc is acceptable” without explaining the different deduction ranges.
+- Preserve the existing official PCA moisture-content and deduction data already implemented in the project.
+- **DO NOT invent, modify, approximate, or hallucinate PCA deduction values.**
 
 ---
 
@@ -40,7 +40,7 @@ Instead, display a **clean, responsive Moisture Content Table inside the AI chat
 5. Use clear column headings:
    - Moisture Content (MC)
    - Result
-   - Discount / Action
+   - Deduction / Action
 6. Visually distinguish **Accepted** and **Rejected** results without making the UI excessive or distracting.
 7. The table must be **fully responsive on desktop and mobile**.
 8. On small screens, prevent the table from breaking or overflowing the entire chat layout. Use responsive sizing or contained horizontal scrolling if necessary.
@@ -58,8 +58,8 @@ The Moisture Content Table should be used for relevant questions such as:
 - “What are the moisture content ranges?”
 - “What happens if my MC is 10 cc?”
 - “What MC gets rejected?”
-- “Is there a moisture discount?”
-- “How does the PCA moisture discount work?”
+- “Is there a moisture deduction?”
+- “How does the PCA moisture deduction work?”
 - “Show me the moisture content table.”
 
 The implementation should also recognize reasonably similar wording instead of depending only on these exact sentences.
@@ -72,7 +72,7 @@ Example:
 
 > **User:** Is 10 cc accepted?
 >
-> **AI:** Yes. A moisture content of 10 cc is accepted, but a discount applies based on the official PCA discount table.
+> **AI:** Yes. A moisture content of 10 cc is accepted, but a deduction applies based on the official PCA deduction table.
 
 The table may then be shown as a supporting reference when appropriate.
 
@@ -80,11 +80,11 @@ The table may then be shown as a supporting reference when appropriate.
 
 ## DATA INTEGRITY
 
-The AI response must use the **existing official PCA moisture-content/discount data in the project as the source of truth**.
+The AI response must use the **existing official PCA moisture-content/deduction data in the project as the source of truth**.
 
-Do not hard-code invented discount percentages or values just to complete the table.
+Do not hard-code invented deduction percentages or values just to complete the table.
 
-If a more detailed PCA discount table already exists in the codebase, **reuse the existing data rather than creating a second conflicting version**.
+If a more detailed PCA deduction table already exists in the codebase, **reuse the existing data rather than creating a second conflicting version**.
 
 ---
 
@@ -114,7 +114,7 @@ Before editing code:
 
 1. Inspect the existing AI Assistant / FAQ implementation.
 2. Locate where FAQ responses are generated and rendered.
-3. Locate the existing PCA moisture-content/discount data.
+3. Locate the existing PCA moisture-content/deduction data.
 4. Reuse existing components/data where possible.
 5. Implement the table without breaking normal text-based AI responses.
 
@@ -128,10 +128,10 @@ The task is complete only when:
 
 - [ ] Moisture-content FAQ responses are no longer presented as one large paragraph.
 - [ ] A proper Moisture Content Table renders inside the AI Assistant.
-- [ ] Below 5.0 cc is shown as Accepted / No Discount.
-- [ ] 5.0–20.2 cc is shown as Accepted / PCA Discount Applies.
+- [ ] Below 5.0 cc is shown as Accepted / No Deduction.
+- [ ] 5.0–20.2 cc is shown as Accepted / PCA Deduction Applies.
 - [ ] Above 20.2 cc is shown as Rejected / No Payment.
-- [ ] Existing official PCA discount data remains unchanged.
+- [ ] Existing official PCA deduction data remains unchanged.
 - [ ] Specific MC questions receive a direct answer.
 - [ ] The table works correctly on desktop.
 - [ ] The table works correctly on mobile.

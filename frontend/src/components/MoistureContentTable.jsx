@@ -3,7 +3,7 @@ import { formatMessageText } from "../utils/formatMessageText";
 
 /**
  * MoistureContentTable — renders the AI FAQ assistant's moisture-content
- * answer as the COMPLETE official PCA discount table instead of one long
+ * answer as the COMPLETE official PCA deduction table instead of one long
  * paragraph or a 3-row summary.
  *
  * Rendered whenever a chat message's text starts with "MC_TABLE:" (see
@@ -42,8 +42,8 @@ export default function MoistureContentTable({ intro, specific, fullTable }) {
             {specific.mc}cc &rarr; {specific.result}
             {specific.result === "Accepted" && specific.discount != null && (
               specific.discount > 0
-                ? ` (${specific.discount}% discount applied)`
-                : " (no discount)"
+                ? ` (${specific.discount}% deduction applied)`
+                : " (no deduction)"
             )}
           </span>
         </div>
@@ -60,14 +60,14 @@ export default function MoistureContentTable({ intro, specific, fullTable }) {
                 <th className="whitespace-nowrap px-2.5 py-2 text-left font-bold">
                   <span className="inline-flex items-center gap-1"><LuDroplets className="h-3.5 w-3.5" /> MC</span>
                 </th>
-                <th className="whitespace-nowrap px-2.5 py-2 text-left font-bold">Discount</th>
+                <th className="whitespace-nowrap px-2.5 py-2 text-left font-bold">Deduction</th>
                 <th className="px-2.5 py-2 text-left font-bold">Result</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#e8e0d0] bg-white">
               <tr>
                 <td className="whitespace-nowrap px-2.5 py-2 text-[#3d2b1f]">Below 5.0cc</td>
-                <td className="px-2.5 py-2 text-[#5c4a32]">No discount</td>
+                <td className="px-2.5 py-2 text-[#5c4a32]">No deduction</td>
                 <td className="px-2.5 py-2">
                   <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-700">
                     Accepted

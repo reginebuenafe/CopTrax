@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { useScroll, useTransform, useReducedMotion } from "framer-motion";
 import { MotionDiv, MotionP, MotionH2 } from "./motion-elements";
+import whySellNercImage from "../../assets/images/why-sell-nerc.webp";
 
 const EASE = [0.16, 1, 0.3, 1];
 
@@ -28,8 +29,32 @@ const REASONS = [
   },
 ];
 
+/* ── Right-side editorial visual for "Why Sell to NERC" ───────────────────
+   Real photography (a supplier harvesting coconut), same rounded/bordered
+   treatment used by the other photo sections on this page — a tall
+   editorial crop rather than a full-bleed image, kept at rest (not
+   sticky/pinned) since ScrollStory immediately follows with its own
+   pinned-scroll interaction. */
+function WhySellVisual() {
+  return (
+    <MotionDiv
+      initial={{ opacity: 0, scale: 0.96 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true, margin: "-10% 0px" }}
+      transition={{ duration: 0.8, ease: EASE }}
+      className="rounded-2xl overflow-hidden border border-beige-dark/60"
+    >
+      <img
+        src={whySellNercImage}
+        alt="Supplier harvesting coconut for copra"
+        className="w-full h-[320px] sm:h-[420px] lg:h-[520px] object-cover"
+      />
+    </MotionDiv>
+  );
+}
+
 /* ── 02 — What We Do ──────────────────────────────────────────────────── */
-function WhatWeDo() {
+export function WhatWeDo() {
   // As this section enters the viewport it rises and its top corners
   // flatten out — reading as a rounded sheet sliding up to cover the Hero's
   // bottom edge (the `-mt` overlap plus the top shadow sell the layering).
@@ -107,11 +132,11 @@ function WhatWeDo() {
 }
 
 /* ── 03 — Why Sell to NERC ────────────────────────────────────────────── */
-function WhySellToNerc() {
+export function WhySellToNerc() {
   return (
-    <section id="why-nerc" className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60 scroll-mt-20">
-      <div className="max-w-6xl mx-auto px-4 sm:px-5">
-        <div className="max-w-2xl mb-14 sm:mb-16">
+    <section id="why-nerc" className="py-20 sm:py-28 bg-beige/60 border-y border-beige-dark/60 scroll-mt-20 overflow-hidden">
+      <div className="max-w-6xl mx-auto px-4 sm:px-5 grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+        <div>
           <MotionP
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -126,51 +151,44 @@ function WhySellToNerc() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-15% 0px" }}
             transition={{ duration: 0.7, delay: 0.05, ease: EASE }}
-            className="text-3xl sm:text-4xl font-extrabold text-brown-dark leading-tight"
+            className="text-3xl sm:text-4xl font-extrabold text-brown-dark leading-tight mb-10 sm:mb-12"
           >
             A straightforward way<br />to sell your copra.
           </MotionH2>
-        </div>
 
-        <div className="max-w-2xl">
-          {REASONS.map((reason, i) => (
-            <MotionDiv
-              key={reason.title}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-15% 0px" }}
-              transition={{ duration: 0.5, delay: i * 0.06, ease: EASE }}
-              className="grid grid-cols-[1fr_1.6fr] sm:grid-cols-[220px_1fr] gap-6 py-6 border-t border-beige-dark/60 first:border-t-0"
-            >
-              <span className="text-base sm:text-lg font-bold text-brown-dark">{reason.title}</span>
-              <span className="text-brown-mid/90 text-sm sm:text-base leading-relaxed">{reason.body}</span>
-            </MotionDiv>
-          ))}
-        </div>
+          <div>
+            {REASONS.map((reason, i) => (
+              <MotionDiv
+                key={reason.title}
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-15% 0px" }}
+                transition={{ duration: 0.5, delay: i * 0.06, ease: EASE }}
+                className="grid grid-cols-[1fr_1.6fr] sm:grid-cols-[160px_1fr] gap-6 py-6 border-t border-beige-dark/60 first:border-t-0"
+              >
+                <span className="text-base sm:text-lg font-bold text-brown-dark">{reason.title}</span>
+                <span className="text-brown-mid/90 text-sm sm:text-base leading-relaxed">{reason.body}</span>
+              </MotionDiv>
+            ))}
+          </div>
 
-        <MotionDiv
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-10% 0px" }}
-          transition={{ duration: 0.5, delay: 0.3, ease: EASE }}
-        >
-          <Link
-            to="/register"
-            className="inline-flex items-center gap-2 bg-green-dark text-white font-semibold px-7 py-3.5 rounded-full hover:bg-green-mid transition-colors duration-300 mt-10"
+          <MotionDiv
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-10% 0px" }}
+            transition={{ duration: 0.5, delay: 0.3, ease: EASE }}
           >
-            Sell to NERC
-          </Link>
-        </MotionDiv>
+            <Link
+              to="/register"
+              className="inline-flex items-center gap-2 bg-green-dark text-white font-semibold px-7 py-3.5 rounded-full hover:bg-green-mid transition-colors duration-300 mt-10"
+            >
+              Sell to NERC
+            </Link>
+          </MotionDiv>
+        </div>
+
+        <WhySellVisual />
       </div>
     </section>
-  );
-}
-
-export default function BeforeStory() {
-  return (
-    <>
-      <WhatWeDo />
-      <WhySellToNerc />
-    </>
   );
 }
