@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import {
-  LuArrowLeft, LuSearch, LuChevronDown, LuUserRound, LuHandshake,
+  LuSearch, LuChevronDown, LuUserRound, LuHandshake,
   LuTruck, LuWallet, LuFileText, LuShieldCheck, LuMail, LuPhone, LuClock, LuSendHorizontal,
 } from "react-icons/lu";
+import SupportReturnLink from "../../components/SupportReturnLink";
 
 const SUPPORT_EMAIL = "support@coptrax.com";
 const SUPPORT_PHONE = "+63 967 304 2580";
@@ -543,6 +544,7 @@ function FaqItem({ id, q, a, open, onToggle }) {
 }
 
 export default function HelpSupportPage() {
+  const { showPublicNavbar } = useOutletContext();
   const [query, setQuery] = useState("");
   const [openIds, setOpenIds] = useState(() => new Set());
 
@@ -569,14 +571,9 @@ export default function HelpSupportPage() {
   const hasSupportContact = SUPPORT_EMAIL || SUPPORT_PHONE || SUPPORT_HOURS;
 
   return (
-    <div className="bg-beige min-h-screen pt-28 sm:pt-32 pb-20 px-4 sm:px-6">
+    <div className={`bg-beige min-h-screen ${showPublicNavbar ? "pt-28 sm:pt-32" : "pt-8 sm:pt-12"} pb-20 px-4 sm:px-6`}>
       <div className="max-w-3xl mx-auto">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brown-mid hover:text-green-dark transition-colors mb-8"
-        >
-          <LuArrowLeft className="w-4 h-4" /> Back to Homepage
-        </Link>
+        <SupportReturnLink />
 
         <header className="mb-8 pb-8 border-b border-beige-dark/40">
           <div className="flex items-center gap-3 mb-2">
@@ -682,11 +679,11 @@ export default function HelpSupportPage() {
             </div>
 
             <p className="text-sm text-brown-mid mt-8 pt-6 border-t border-beige-dark/30">
-              <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
+              <Link to="/privacy-policy" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
                 Privacy Policy
               </Link>
               {" · "}
-              <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
+              <Link to="/terms" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
                 Terms & Conditions
               </Link>
             </p>

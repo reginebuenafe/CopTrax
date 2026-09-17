@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   LuTruck, LuFlaskConical, LuCheck, LuX, LuClock,
-  LuChevronDown, LuChevronUp, LuSearch,
+  LuChevronDown, LuChevronUp, LuSearch, LuArrowUpDown,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
@@ -28,7 +28,7 @@ const STATUS_META = {
   Pending:   { color: "bg-beige text-brown-mid",          label: "Pending",   icon: LuClock },
   Weighed:   { color: "bg-blue-50 text-blue-600",          label: "Weighed",   icon: LuTruck },
   Inspected: { color: "bg-purple-50 text-purple-600",      label: "Inspected", icon: LuFlaskConical },
-  Accepted:  { color: "bg-green-pale text-green-dark",     label: "Accepted",  icon: LuCheck },
+  Accepted:  { color: "bg-green-dark text-white",         label: "Accepted",  icon: LuCheck },
   Rejected:  { color: "bg-red-50 text-red-600",            label: "Rejected",  icon: LuX },
 };
 const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
@@ -39,6 +39,8 @@ export default function BODeliveriesPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [deliveryType, setDeliveryType] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const linkedDeliveryId = searchParams.get("deliveryId");
 
@@ -73,7 +75,13 @@ export default function BODeliveriesPage() {
       : `${d.supplier?.first_name ?? ""} ${d.supplier?.last_name ?? ""}`.trim();
   }
 
+  const activeDeliveryType = deliveryType ?? (
+    deliveries.find(d => d.delivery_id === linkedDeliveryId)?.delivery_source === "Walkin"
+      ? "Walkin" : "Contract-based"
+  );
+
   const filtered = deliveries.filter(d => {
+    if (d.delivery_source !== activeDeliveryType) return false;
     if (linkedDeliveryId) return d.delivery_id === linkedDeliveryId;
     if (filter !== "All" && d.delivery_status !== filter) return false;
     if (search) {
@@ -83,6 +91,12 @@ export default function BODeliveriesPage() {
         d.batch_number?.toLowerCase().includes(q);
     }
     return true;
+  }).sort((a, b) => {
+    if (sort === "az") return getSupplierName(a).localeCompare(getSupplierName(b), "en-PH", { sensitivity: "base", numeric: true });
+    if (sort === "za") return getSupplierName(b).localeCompare(getSupplierName(a), "en-PH", { sensitivity: "base", numeric: true });
+    const recordedA = Date.parse(a.created_at ?? a.delivery_date ?? "") || 0;
+    const recordedB = Date.parse(b.created_at ?? b.delivery_date ?? "") || 0;
+    return sort === "oldest" ? recordedA - recordedB : recordedB - recordedA;
   });
 
   return (
@@ -95,29 +109,58 @@ export default function BODeliveriesPage() {
         {!loading && <span className="text-xs text-brown-light shrink-0">{deliveries.length} total</span>}
       </div>
 
-      {/* Search + Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="relative flex-1">
-          <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
-          <input
-            type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search supplier, contract, batch…"
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
-              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
-          />
+      {/* Type toggle + search/sort; controls stack at narrow mobile widths. */}
+      <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div role="group" aria-label="Delivery type" className="flex w-full shrink-0 items-center gap-1 rounded-full border border-beige-dark bg-beige p-0.5 md:w-auto">
+          {[{ value: "Contract-based", label: "Contractual" }, { value: "Walkin", label: "Walk-in" }].map(type => (
+            <button key={type.value} type="button" aria-pressed={activeDeliveryType === type.value}
+              onClick={() => setDeliveryType(type.value)}
+              className="group inline-flex min-h-11 flex-1 items-center justify-center rounded-full p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brown-dark/25 md:min-h-8">
+              <span className={`inline-flex h-8 w-full items-center justify-center rounded-full px-3 text-xs font-semibold transition-colors ${activeDeliveryType === type.value ? "bg-brown-dark text-white" : "text-brown-mid group-hover:bg-white group-hover:text-brown-dark"}`}>
+                {type.label}
+              </span>
+            </button>
+          ))}
         </div>
-        {/* Mobile: compact select */}
+        <div className="flex w-full min-w-0 flex-col gap-3 min-[480px]:flex-row md:max-w-xl">
+          <div className="relative min-w-0 w-full min-[480px]:flex-1 md:max-w-sm">
+            <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
+            <input
+              type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search supplier, contract, batch…"
+              aria-label="Search deliveries"
+              className="min-h-11 w-full pl-10 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
+                placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
+            />
+          </div>
+          <div className="relative w-full min-[480px]:w-auto min-[480px]:shrink-0">
+            <LuArrowUpDown aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-brown-light" />
+            <select
+              aria-label="Sort deliveries"
+              value={sort}
+              onChange={e => setSort(e.target.value)}
+              className="min-h-11 w-full appearance-none cursor-pointer rounded-xl border border-beige-dark bg-beige py-2.5 pl-8 pr-8 text-sm text-brown-dark transition-all focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="az">Supplier A → Z</option>
+              <option value="za">Supplier Z → A</option>
+            </select>
+            <LuChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-brown-light" />
+          </div>
+        </div>
+      </div>
+      {/* Mobile: compact status select */}
         <select value={filter} onChange={e => setFilter(e.target.value)}
-          className="sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
+          aria-label="Filter delivery status"
+          className="mb-4 min-h-11 w-full sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
           {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
-      </div>
-
       {/* Desktop: underline tabs */}
-      <div className="hidden sm:flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
+      <div className="hidden sm:flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
         {FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+            className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
               ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
             {f}
           </button>
@@ -154,11 +197,35 @@ export default function BODeliveriesPage() {
               .sort((a, b) => a.sequence_order - b.sequence_order);
 
             return (
-              <div key={d.delivery_id} className={`bg-white border border-beige-dark/40 rounded-xl overflow-hidden ${linkedDeliveryId === d.delivery_id ? "ring-2 ring-green-mid/40" : ""}`}>
+              <div key={d.delivery_id} className={`min-w-0 bg-white border-2 border-beige-dark/80 rounded-xl overflow-hidden md:border md:border-beige-dark/40 ${linkedDeliveryId === d.delivery_id ? "ring-2 ring-green-mid/40" : ""}`}>
                 <button
+                  type="button"
+                  aria-expanded={isOpen}
                   onClick={() => setExpanded(isOpen ? null : d.delivery_id)}
                   className="w-full flex flex-col items-stretch gap-3 px-4 py-4 hover:bg-beige/30 transition-colors text-left sm:flex-row sm:items-center sm:gap-4 sm:px-5"
                 >
+                  <div className="w-full min-w-0 md:hidden">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="break-words text-sm font-bold text-brown-dark">{getSupplierName(d)}</p>
+                        <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${d.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"}`}>
+                          {d.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${meta.color}`}>
+                          <StatusIcon className="h-3 w-3" aria-hidden="true" />{meta.label}
+                        </span>
+                        {isOpen ? <LuChevronUp className="h-4 w-4 shrink-0 text-brown-light" /> : <LuChevronDown className="h-4 w-4 shrink-0 text-brown-light" />}
+                      </div>
+                    </div>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-brown-light">
+                      <span>{fmtDate(d.delivery_date)}</span>
+                      {contractRef && <><span aria-hidden="true">·</span><span>{contractRef}</span></>}
+                      {wr && <><span aria-hidden="true">·</span><span>{fmt3(wr.net_weight_kg)} kg net</span></>}
+                    </p>
+                  </div>
+                  <div className="hidden md:contents">
                   <div className="flex min-w-0 items-start gap-3 sm:flex-1">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -170,7 +237,7 @@ export default function BODeliveriesPage() {
                         </span>
                       </div>
                       <p className="text-brown-light text-xs break-words">
-                        {fmtDate(d.delivery_date)}
+                        Date Delivered: {fmtDate(d.delivery_date)}
                         {contractRef ? ` · ${contractRef}` : ""}
                         {wr ? ` · ${fmt3(wr.net_weight_kg)} kg net` : ""}
                       </p>
@@ -182,68 +249,12 @@ export default function BODeliveriesPage() {
                     </span>
                     {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0" />}
                   </div>
+                  </div>
                 </button>
 
                 {isOpen && (
-                  <div className="border-t border-beige-dark/20 px-5 py-4">
-                    {/* Weighing + Quality grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-3">
-                      {wr && d.delivery_source === "Walkin" ? <>
-                        {/* Walk-in: show only Gross Weight, Quality, Net Weight, Weigher */}
-                        <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
-                        <InfoItem label="Quality" value={wr.copra_condition ?? "—"} />
-                        <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
-                        <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
-                      </> : !wr && d.delivery_source === "Walkin" ? (
-                        <div className="col-span-4 text-center py-2 text-brown-light text-xs italic">
-                          Weighing record unavailable. This delivery was recorded before the condition tracking update. Please delete and re-record it.
-                        </div>
-                      ) : wr ? <>
-                        <InfoItem label="Gross Weight" value={`${fmt3(wr.gross_weight_kg)} kg`} />
-                        <InfoItem label="Tare Weight"  value={`${fmt3(wr.tare_weight_kg)} kg`} />
-                        <InfoItem label="Net Weight"   value={`${fmt3(wr.net_weight_kg)} kg`} />
-                        <InfoItem label="Weigher"      value={`${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—"} />
-                      </> : null}
-                      {d.delivery_source !== "Walkin" && (
-                        li ? <>
-                          <InfoItem label="Moisture (cc)" value={`${li.moisture_content_pct}cc`} />
-                          <InfoItem label="PCA Deduction" value={`${discountPct}%`} />
-                          <InfoItem label="Final Weight" value={finalKg !== null ? `${finalKg.toFixed(2)} kg` : "—"} />
-                          <InfoItem label="Quality Result" value={qr?.result ?? "—"} highlight={qr?.result} />
-                        </> : (
-                          <InfoItem label="Quality Result" value="Pending" />
-                        )
-                      )}
-                    </div>
-                    {/* Lab staff + inspected date — contractual only */}
-                    {d.delivery_source !== "Walkin" && li && (
-                      <div className="flex flex-wrap gap-4 text-xs text-brown-light mb-3">
-                        <span>
-                          Lab Staff:{" "}
-                          <span className="font-semibold text-brown-mid">
-                            {`${li.lab_staff?.first_name ?? ""} ${li.lab_staff?.last_name ?? ""}`.trim() || "—"}
-                          </span>
-                        </span>
-                        {li.inspected_at && (
-                          <span>
-                            Inspected:{" "}
-                            <span className="font-semibold text-brown-mid">{fmtDate(li.inspected_at)}</span>
-                          </span>
-                        )}
-                        {qr?.remarks && (
-                          <span>
-                            Remarks:{" "}
-                            <span className="font-semibold text-brown-mid">{qr.remarks}</span>
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {(d.truck_plate_number || d.batch_number) && (
-                      <div className="flex gap-4 text-xs text-brown-light">
-                        {d.batch_number && <span>Batch: <span className="font-semibold text-brown-mid">{d.batch_number}</span></span>}
-                        {d.truck_plate_number && <span>Plate: <span className="font-semibold text-brown-mid">{d.truck_plate_number}</span></span>}
-                      </div>
-                    )}
+                  <div className="border-t border-beige-dark/20 px-4 py-5 sm:px-5 md:py-4">
+                    <DeliveryDetailTable delivery={d} weighing={wr} inspection={li} discountPct={discountPct} finalKg={finalKg} />
                     {/* Allocation breakdown — shown only for contractual deliveries with allocation data */}
                     {d.delivery_source === "Contract-based" && allocs.length > 0 && (
                       <div className="mt-3 bg-beige rounded-xl px-4 py-3">
@@ -251,31 +262,34 @@ export default function BODeliveriesPage() {
                           Allocation Breakdown
                         </p>
                         <div className="space-y-1.5">
-                          {allocs.map((a, i) => (
-                            <div key={i} className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
-                              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
-                                  a.price_type === "Spot"
+                          {allocs.map((a, i) => {
+                            const priceType = a.price_type ?? (a.contract_id ? "Negotiated" : "Spot");
+                            return (
+                            <div key={a.allocation_id ?? i} className="flex min-w-0 flex-nowrap items-center justify-between gap-1 text-[9px] max-[359px]:text-[8px] min-[480px]:text-[10px] md:gap-2 md:text-xs">
+                              <div className="flex shrink-0 flex-nowrap items-center gap-1 md:min-w-0 md:shrink md:flex-wrap md:gap-2">
+                                <span className={`whitespace-nowrap px-1 py-0.5 rounded-full font-semibold md:px-1.5 ${
+                                  priceType === "Spot"
                                     ? "bg-amber-50 text-amber-700"
                                     : "bg-green-pale text-green-dark"
                                 }`}>
-                                  {a.price_type}
+                                  {priceType}
                                 </span>
-                                <span className="font-semibold text-brown-dark">
+                                <span className="whitespace-nowrap font-semibold text-brown-dark">
                                   {a.contract_id
                                     ? (a.contract?.contract_number ?? "Contract")
                                     : "Spot Price"
                                   }
                                 </span>
                               </div>
-                              <div className="text-left text-brown-mid sm:text-right">
-                                <span className="font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
-                                {a.contract_id && a.contract?.negotiated_price_per_kg && (
-                                  <span className="text-brown-light ml-2">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
+                              <div className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-1 text-right text-brown-mid md:flex-none md:shrink-0 md:flex-wrap md:gap-3">
+                                <span className="shrink-0 whitespace-nowrap font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
+                                {a.contract_id && a.contract?.negotiated_price_per_kg !== null && a.contract?.negotiated_price_per_kg !== undefined && (
+                                  <span title={`${peso(a.contract.negotiated_price_per_kg)}/kg`} className="min-w-0 truncate text-brown-light md:overflow-visible md:whitespace-normal md:text-clip">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
                                 )}
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -290,14 +304,92 @@ export default function BODeliveriesPage() {
   );
 }
 
-function InfoItem({ label, value, highlight }) {
+const DETAIL_COLUMNS = [
+  { label: "Truck Number", short: "Truck", width: 10 },
+  { label: "Gross Weight", short: "Gross", width: 10, numeric: true },
+  { label: "Tare Weight", short: "Tare", width: 10, numeric: true },
+  { label: "Net Weight", short: "Net", width: 10, numeric: true, prominent: true },
+  { label: "Weighing Staff", short: "Weigher", width: 13 },
+  { label: "Moisture", short: "Moisture", width: 9, numeric: true },
+  { label: "PCA Deduction", short: "PCA Ded.", width: 11, numeric: true },
+  { label: "Final Weight", short: "Final", width: 11, numeric: true, prominent: true },
+  { label: "Lab Staff", short: "Lab Staff", width: 16 },
+];
+
+function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discountPct, finalKg }) {
+  const isWalkin = d.delivery_source === "Walkin";
+  const missingLab = isWalkin ? "Not applicable" : "Not yet assessed";
+  const weight = value => value == null ? "—" : `${fmt3(value)} kg`;
+  const weigherName = `${d.weigher?.first_name ?? ""} ${d.weigher?.last_name ?? ""}`.trim() || "—";
+  const labName = `${li?.lab_staff?.first_name ?? ""} ${li?.lab_staff?.last_name ?? ""}`.trim();
+  const hasMoisture = li?.moisture_content_pct != null;
+  const hasFinalWeight = Boolean(li) && finalKg !== null;
+  const labStaff = labName ? (
+    <span className="block">
+      <span className="block font-medium text-brown-dark">{labName}</span>
+      <span className={`mt-0.5 block text-xs md:text-[11px] ${li?.inspected_at || isWalkin ? "font-normal text-brown-light" : "font-medium text-orange-600"}`}>
+        {li?.inspected_at ? fmtDate(li.inspected_at) : missingLab}
+      </span>
+    </span>
+  ) : missingLab;
+  const values = [
+    { value: d.truck_plate_number || "—" },
+    { value: weight(wr?.gross_weight_kg) },
+    { value: weight(wr?.tare_weight_kg) },
+    { value: weight(wr?.net_weight_kg) },
+    { value: weigherName },
+    { value: hasMoisture ? `${li.moisture_content_pct}cc` : missingLab, missing: !hasMoisture },
+    { value: li ? `${discountPct}%` : missingLab, missing: !li },
+    { value: hasFinalWeight ? weight(finalKg) : missingLab, missing: !hasFinalWeight },
+    { value: labStaff, missing: !labName },
+  ];
+  const textClass = (field, col) => [
+    col.numeric ? "text-right tabular-nums" : "text-left",
+    col.prominent ? "font-bold" : "font-medium",
+    field.missing ? (isWalkin ? "text-brown-light" : "text-orange-600") : col.prominent ? "text-brown-dark" : "text-brown-mid",
+  ].join(" ");
   return (
-    <div className="bg-beige rounded-xl px-3 py-2.5 min-w-0">
-      <p className="text-brown-light text-xs mb-0.5">{label}</p>
-      <p className={`font-semibold text-sm ${
-        highlight === "Accepted" ? "text-green-dark" :
-        highlight === "Rejected" ? "text-red-600" : "text-brown-dark"
-      } break-words`}>{value}</p>
-    </div>
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-beige-dark/50 md:block">
+        <table className="w-full table-fixed border-collapse text-xs text-brown-mid">
+          <caption className="sr-only">Delivery weighing and laboratory details</caption>
+          <colgroup>{DETAIL_COLUMNS.map(col => <col key={col.label} style={{ width: `${col.width}%` }} />)}</colgroup>
+          <thead className="bg-beige">
+            <tr>
+              {DETAIL_COLUMNS.map(col => (
+                <th key={col.label} scope="col" title={col.label}
+                  className={`whitespace-nowrap px-2 py-3 text-[10px] font-bold uppercase tracking-tight text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>
+                  <span className="xl:hidden">{col.short}</span>
+                  <span className="hidden xl:inline">{col.label}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-beige-dark/30 transition-colors hover:bg-beige/30">
+              {values.map((field, i) => (
+                <td key={DETAIL_COLUMNS[i].label} className={`break-words px-2 py-4 align-middle ${textClass(field, DETAIL_COLUMNS[i])}`}>
+                  {field.value}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <dl className="rounded-xl border border-beige-dark/50 bg-white px-4 py-1 md:hidden">
+        {values.map((field, i) => {
+          const col = DETAIL_COLUMNS[i];
+          return (
+            <div key={col.label} className="flex min-w-0 items-start justify-between gap-4 border-b border-beige-dark/40 py-3 last:border-0">
+              <dt className="shrink-0 text-xs font-medium text-brown-light">{col.label}</dt>
+              <dd className={`min-w-0 break-words text-right text-sm ${col.numeric ? "tabular-nums" : ""} ${col.prominent || i === 0 ? "font-bold" : "font-medium"} ${field.missing ? (isWalkin ? "text-brown-light" : "text-orange-600") : "text-brown-dark"}`}>{field.value}</dd>
+            </div>
+          );
+        })}
+      </dl>
+      {isWalkin && wr?.copra_condition && (
+        <p className="mt-3 text-xs text-brown-light">Quality: <span className="font-semibold text-brown-mid">{wr.copra_condition}</span></p>
+      )}
+    </>
   );
 }

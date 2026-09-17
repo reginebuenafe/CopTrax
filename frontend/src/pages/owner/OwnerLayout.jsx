@@ -456,8 +456,6 @@ export default function OwnerLayout() {
                 <div className="flex flex-nowrap items-center justify-center gap-x-2 px-4 py-2.5 border-t border-beige-dark/20 bg-[#FBF7EF]">
                   <Link
                     to="/help"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >
@@ -466,8 +464,6 @@ export default function OwnerLayout() {
                   <span className="text-[11px] text-brown-light/50">&middot;</span>
                   <Link
                     to="/privacy-policy"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >
@@ -476,8 +472,6 @@ export default function OwnerLayout() {
                   <span className="text-[11px] text-brown-light/50">&middot;</span>
                   <Link
                     to="/terms"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import {
-  LuFileText, LuMessageSquare, LuCalendar, LuChevronDown, LuTruck, LuArrowLeft,
+  LuFileText, LuMessageSquare, LuChevronDown, LuTruck, LuArrowLeft,
   LuSearch, LuX, LuLoader, LuPackage,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -18,10 +18,7 @@ const STATUS_META = {
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",          dot: "bg-red-500" },
 };
 
-const CONTRACT_VIEWS = {
-  Active: { label: "Active Contracts", statuses: ["Pending", "Active"] },
-  Past: { label: "Past Contracts", statuses: ["Completed", "Breached"] },
-};
+const CONTRACT_TABS = ["All", "Pending", "Active", "Completed", "Breached"];
 
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
@@ -44,6 +41,20 @@ function daysLabel(days) {
   return `${days}d left`;
 }
 
+function deadlineTimingLabel(days) {
+  if (days === null) return null;
+  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
+  if (days === 0) return "Due today";
+  return `${days} day${days === 1 ? "" : "s"} left`;
+}
+
+function tons(value) {
+  return `${Number(value ?? 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} tons`;
+}
+
 function contractMatchesSearch(contract, query) {
   const term = query.trim().toLowerCase();
   if (!term) return true;
@@ -60,9 +71,7 @@ export default function MyContractsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [contracts, setContracts] = useState([]);
-  const [contractView, setContractView] = useState("Active");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [yearFilter, setYearFilter] = useState("All");
   const [sortOrder, setSortOrder] = useState("newest");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedContractId, setSelectedContractId] = useState(null);
@@ -173,27 +182,13 @@ export default function MyContractsPage() {
     };
   }, [user.id, fetchContracts]);
 
-  const viewStatuses = CONTRACT_VIEWS[contractView].statuses;
-  const viewContracts = contracts.filter(c => viewStatuses.includes(c.status));
-  const availableYears = [...new Set(viewContracts
-    .map(c => c.created_at ? new Date(c.created_at).getFullYear() : null)
-    .filter(Boolean))].sort((a, b) => b - a);
-  const filtered = viewContracts
+  const filtered = contracts
     .filter(c => contractMatchesSearch(c, searchQuery))
     .filter(c => statusFilter === "All" || c.status === statusFilter)
-    .filter(c => yearFilter === "All" || new Date(c.created_at).getFullYear() === Number(yearFilter))
     .sort((a, b) => sortOrder === "newest"
       ? new Date(b.created_at) - new Date(a.created_at)
       : new Date(a.created_at) - new Date(b.created_at));
   const selectedContract = filtered.find(c => c.contract_id === selectedContractId) ?? null;
-
-  function changeContractView(nextView) {
-    setContractView(nextView);
-    setStatusFilter("All");
-    setYearFilter("All");
-    setSearchQuery("");
-    setSelectedContractId(null);
-  }
 
   return (
     <div className="pt-6 pb-8">
@@ -202,92 +197,54 @@ export default function MyContractsPage() {
         <p className="text-brown-light text-sm mt-0.5">All negotiated contracts with NERC Copra Trading</p>
       </div>
 
-      {/* Active / past segmented toggle + search */}
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative inline-grid w-fit grid-cols-2 rounded-full border border-beige-dark bg-beige-dark p-1 shadow-sm">
-          {Object.entries(CONTRACT_VIEWS).map(([key, option]) => {
-            const selected = contractView === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => changeContractView(key)}
-                className={`relative rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors duration-300 sm:px-5 ${selected ? "text-brown-dark" : "text-brown-light hover:text-brown-mid"}`}
-              >
-                {selected && (
-                  <MotionDiv
-                    layoutId="contract-view-pill"
-                    className="absolute inset-0 rounded-full bg-white shadow-[0_2px_6px_rgba(62,39,35,0.16)]"
-                    transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  />
-                )}
-                <span className="relative z-10">{option.label}</span>
-              </button>
-            );
-          })}
+      <div className="mt-6 flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <nav aria-label="Contract status filters" className="min-w-0 overflow-x-auto border-b border-beige-dark/70">
+          <div className="flex w-max min-w-full items-end gap-1 sm:gap-3">
+            {CONTRACT_TABS.map(status => {
+              const selected = statusFilter === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => { setStatusFilter(status); setSelectedContractId(null); }}
+                  className={`relative min-h-11 shrink-0 px-3 pb-3 pt-2 text-sm font-semibold transition-colors sm:px-4 ${selected ? "text-green-dark" : "text-brown-light hover:text-brown-dark"}`}
+                >
+                  {status}{status === "All" ? ` (${contracts.length})` : ""}
+                  {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-green-dark" />}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row xl:w-auto xl:shrink-0">
+          <label className="relative block min-w-0 flex-1 sm:min-w-64 xl:w-72">
+            <span className="sr-only">Search contracts by contract ID or date</span>
+            <LuSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-brown-light/70" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setSelectedContractId(null); }}
+              placeholder="Search contract # or date..."
+              className="min-h-11 w-full rounded-xl border border-beige-dark bg-white py-2.5 pl-11 pr-4 text-sm font-medium text-brown-dark shadow-sm outline-none transition-all placeholder:text-brown-light/60 hover:border-brown-light/50 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
+            />
+          </label>
+
+          <label className="relative block w-full sm:w-44">
+            <span className="sr-only">Sort contracts</span>
+            <select
+              aria-label="Sort contracts"
+              value={sortOrder}
+              onChange={e => { setSortOrder(e.target.value); setSelectedContractId(null); }}
+              className="min-h-11 w-full appearance-none rounded-xl border border-beige-dark bg-white py-2.5 pl-4 pr-10 text-sm font-semibold text-brown-mid shadow-sm outline-none transition-all hover:border-brown-light/50 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+            <LuChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-brown-light" />
+          </label>
         </div>
-
-        <label className="relative block w-full sm:max-w-sm">
-          <span className="sr-only">Search contracts by contract ID or date</span>
-          <LuSearch className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-brown-light/70" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setSelectedContractId(null); }}
-            placeholder="Search by ID or date..."
-            className="w-full rounded-full border border-beige-dark bg-white py-2.5 pl-11 pr-4 text-xs font-medium text-brown-dark shadow-sm outline-none transition-all duration-300 placeholder:text-brown-light/60 hover:border-brown-light/40 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
-          />
-        </label>
-      </div>
-
-      {/* Contract filter surface */}
-      <div className="mt-3 rounded-2xl border border-green-dark/10 bg-[#1b5e20] px-4 py-5 shadow-card sm:px-6 sm:py-6">
-        <p className="text-sm font-semibold text-white">Contract Filter</p>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="relative">
-          <select
-            aria-label="Filter contracts by status"
-            value={statusFilter}
-            onChange={e => { setStatusFilter(e.target.value); setSelectedContractId(null); }}
-            className="w-full appearance-none rounded-full border border-beige-dark bg-white py-2.5 pl-4 pr-10 text-xs font-semibold text-brown-mid shadow-sm outline-none transition-all duration-300 hover:border-brown-light/40 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
-          >
-            <option value="All">All statuses</option>
-            {viewStatuses.map(status => <option key={status} value={status}>{status}</option>)}
-          </select>
-          <LuChevronDown className="pointer-events-none absolute right-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-brown-light" />
-          </div>
-          <div className="relative">
-          <select
-            aria-label="Filter contracts by year"
-            value={yearFilter}
-            onChange={e => { setYearFilter(e.target.value); setSelectedContractId(null); }}
-            className="w-full appearance-none rounded-full border border-beige-dark bg-white py-2.5 pl-4 pr-10 text-xs font-semibold text-brown-mid shadow-sm outline-none transition-all duration-300 hover:border-brown-light/40 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
-          >
-            <option value="All">All years</option>
-            {availableYears.map(year => <option key={year} value={year}>{year}</option>)}
-          </select>
-          <LuChevronDown className="pointer-events-none absolute right-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-brown-light" />
-          </div>
-          <div className="relative">
-          <select
-            aria-label="Sort contracts"
-            value={sortOrder}
-            onChange={e => { setSortOrder(e.target.value); setSelectedContractId(null); }}
-            className="w-full appearance-none rounded-full border border-beige-dark bg-white py-2.5 pl-4 pr-10 text-xs font-semibold text-brown-mid shadow-sm outline-none transition-all duration-300 hover:border-brown-light/40 focus:border-green-dark focus:ring-2 focus:ring-green-dark/10"
-          >
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-          </select>
-          <LuChevronDown className="pointer-events-none absolute right-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-brown-light" />
-          </div>
-        </div>
-
-        {!loading && (
-          <p className="mt-4 text-right text-xs font-medium text-white/80">
-            {filtered.length} of {viewContracts.length} Contracts
-          </p>
-        )}
       </div>
 
       {loading ? (
@@ -308,7 +265,7 @@ export default function MyContractsPage() {
             <p className="text-brown-light text-sm mt-1">
               {statusFilter === "All" ? "Start a negotiation to get your first contract." : "Try a different filter."}
             </p>
-            {contractView === "Active" && statusFilter === "All" && (
+            {statusFilter === "All" && (
               <button onClick={() => navigate("/dashboard/supplier/conversations")}
                 className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-dark text-white font-bold text-sm hover:bg-green-mid hover:-translate-y-0.5 transition-all">
                 <LuMessageSquare className="w-4 h-4" /> Start a Negotiation
@@ -319,11 +276,11 @@ export default function MyContractsPage() {
       ) : (
         <AnimatePresence mode="wait" initial={false}>
           <MotionDiv
-            key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${contractView}`}
-            initial={{ opacity: 0, y: 8 }}
+            key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${statusFilter}`}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="mt-5"
           >
             {selectedContract ? (
@@ -332,21 +289,15 @@ export default function MyContractsPage() {
                 onBack={() => setSelectedContractId(null)}
                 onViewContract={setViewContract}
                 onViewBatches={setBatchesModal}
-                onViewChat={conversationId => navigate(`/dashboard/supplier/conversations/${conversationId}`)}
               />
             ) : (
-              <div className="space-y-4">
-                {filtered.map(c => (
-                  <ContractListCard
-                    key={c.contract_id}
-                    contract={c}
-                    onSelect={() => setSelectedContractId(c.contract_id)}
-                    onViewContract={setViewContract}
-                    onViewBatches={setBatchesModal}
-                    onViewChat={conversationId => navigate(`/dashboard/supplier/conversations/${conversationId}`)}
-                  />
-                ))}
-              </div>
+              <ContractList
+                contracts={filtered}
+                totalCount={contracts.length}
+                onSelect={contractId => setSelectedContractId(contractId)}
+                onViewContract={setViewContract}
+                onViewBatches={setBatchesModal}
+              />
             )}
           </MotionDiv>
         </AnimatePresence>
@@ -370,105 +321,223 @@ export default function MyContractsPage() {
   );
 }
 
-function ContractListCard({ contract: c, onSelect, onViewContract, onViewBatches, onViewChat }) {
-  const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
-  const days = daysLeft(c.due_date);
+function contractDisplayValues(c) {
   const contractedKg = Number(c.contracted_tons ?? 0) * 1000;
-  const deliveredKg = c.delivered_kg ?? 0;
+  const deliveredKg = Number(c.delivered_kg ?? 0);
   const remainingKg = Math.max(0, contractedKg - deliveredKg);
-  const fulfillment = contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0;
+
+  return {
+    deliveredKg,
+    remainingKg,
+    fulfillment: contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0,
+    days: daysLeft(c.due_date),
+  };
+}
+
+function ContractStatusBadge({ status, compact = false }) {
+  const meta = STATUS_META[status] ?? STATUS_META.Pending;
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full py-1 font-semibold ${compact ? "gap-1 px-2 text-[10px]" : "gap-1.5 px-2.5 text-[11px]"} ${meta.color}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  );
+}
+
+function ContractActions({ contract: c, onViewContract, onViewBatches, revealOnRowInteraction = false }) {
+  const buttonClass = "inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
+  const iconClass = "h-4 w-4";
+
+  return (
+    <div className={`flex shrink-0 items-center justify-center gap-1 ${revealOnRowInteraction ? "opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100" : ""}`}>
+      <button
+        type="button"
+        aria-label="View Contract"
+        title="View Contract"
+        onClick={e => {
+          e.stopPropagation();
+          onViewContract({
+            contractId: c.contract_id,
+            contractNumber: c.contract_number,
+            documentPath: c.contract_document_url,
+          });
+        }}
+        className={`${buttonClass} text-brown-dark hover:text-brown-mid focus-visible:ring-brown-dark/25`}
+      >
+        <LuFileText aria-hidden="true" className={iconClass} />
+      </button>
+      <button
+        type="button"
+        aria-label="View Delivery Batches"
+        title="View Batches"
+        onClick={e => { e.stopPropagation(); onViewBatches(c); }}
+        className={`${buttonClass} text-green-dark hover:text-green-mid focus-visible:ring-green-dark/25`}
+      >
+        <LuTruck aria-hidden="true" className={iconClass} />
+      </button>
+    </div>
+  );
+}
+
+function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches }) {
+  const { deliveredKg, remainingKg, fulfillment, days } = contractDisplayValues(c);
+  const timing = deadlineTimingLabel(days);
+
+  return (
+    <tr
+      tabIndex={0}
+      aria-label={`Open details for ${c.contract_number}`}
+      onClick={() => onSelect(c.contract_id)}
+      onKeyDown={e => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onSelect(c.contract_id);
+        }
+      }}
+      className="group cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors duration-150 ease-out last:border-0 hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25"
+    >
+      <td className="border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark">
+        <p className="font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
+        <p className="mt-1 whitespace-nowrap text-[10px] text-brown-light">Created {fmtDate(c.created_at)}</p>
+      </td>
+      <td className="px-2 py-4 text-center align-middle"><ContractStatusBadge status={c.status} compact /></td>
+      <td className="whitespace-nowrap px-2 py-4 text-right text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(c.contracted_tons)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(deliveredKg / 1000)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(remainingKg / 1000)}</td>
+      <td className="px-2 py-4 text-left text-xs text-brown-mid">{fmtDate(c.activation_date)}</td>
+      <td className="px-2 py-4 text-left text-xs text-brown-mid">
+        <p>{fmtDate(c.due_date)}</p>
+        {timing && (
+          <p className={`mt-1 text-[11px] font-semibold ${days < 0 ? "text-red-500" : days === 0 ? "text-amber-600" : "text-green-dark"}`}>
+            {timing}
+          </p>
+        )}
+      </td>
+      <td className="px-2 py-4 text-left align-middle">
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1"><ProgressBar value={fulfillment} status={c.status} /></div>
+          <span className="w-10 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">{fulfillment.toFixed(1)}%</span>
+        </div>
+      </td>
+      <td className="px-0 py-4 text-left align-middle">
+        <ContractActions
+          contract={c}
+          onViewContract={onViewContract}
+          onViewBatches={onViewBatches}
+          revealOnRowInteraction
+        />
+      </td>
+    </tr>
+  );
+}
+
+function ContractMobileCard({ contract: c, onSelect, onViewContract, onViewBatches }) {
+  const { fulfillment } = contractDisplayValues(c);
 
   return (
     <article
       tabIndex={0}
       aria-label={`Open details for ${c.contract_number}`}
-      onClick={onSelect}
+      onClick={() => onSelect(c.contract_id)}
       onKeyDown={e => {
         if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
-          onSelect();
+          onSelect(c.contract_id);
         }
       }}
-      className="cursor-pointer rounded-2xl border border-beige-dark bg-white p-4 shadow-card outline-none transition-all duration-300 hover:-translate-y-0.5 hover:border-green-dark/25 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-green-dark/25 sm:p-6"
+      className="cursor-pointer rounded-2xl border-2 border-beige-dark/80 bg-white p-4 shadow-card outline-none transition-colors hover:border-green-dark/30 focus-visible:ring-2 focus-visible:ring-green-dark/25"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2.5">
-            <p className="break-words font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
-            <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${meta.color}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-              {meta.label}
-            </span>
-          </div>
-          <p className="flex items-center gap-1.5 text-xs text-brown-light">
-            <LuCalendar className="h-3.5 w-3.5 shrink-0" />
-            Created {fmtDate(c.created_at)}
-          </p>
+      <div className="border-b border-beige-dark/40 pb-3">
+        <div className="flex min-w-0 flex-nowrap items-center justify-between gap-2">
+          <h2 className="min-w-0 flex-1 truncate whitespace-nowrap font-extrabold tracking-wide text-brown-dark" title={c.contract_number}>
+            {c.contract_number}
+          </h2>
+          <ContractStatusBadge status={c.status} />
+          <ContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
         </div>
-
-        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-          {c.contract_document_url && (
-            <button
-              type="button"
-              onClick={e => {
-                e.stopPropagation();
-                onViewContract({
-                  contractId: c.contract_id,
-                  contractNumber: c.contract_number,
-                  documentPath: c.contract_document_url,
-                });
-              }}
-              className="flex items-center gap-1.5 rounded-full border border-beige-dark bg-beige px-4 py-2 text-xs font-semibold text-brown-mid shadow-sm transition-all hover:-translate-y-0.5 hover:bg-beige-dark hover:text-brown-dark"
-            >
-              <LuFileText className="h-3.5 w-3.5" /> View Contract
-            </button>
-          )}
-          {c.conversation_id && (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); onViewChat(c.conversation_id); }}
-              className="flex items-center gap-1.5 rounded-full border border-beige-dark bg-beige px-4 py-2 text-xs font-semibold text-brown-mid shadow-sm transition-all hover:-translate-y-0.5 hover:bg-beige-dark hover:text-brown-dark"
-            >
-              <LuMessageSquare className="h-3.5 w-3.5" /> View Chat
-            </button>
-          )}
-        </div>
+        <p className="mt-2 text-xs text-brown-light">Created {fmtDate(c.created_at)}</p>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
-        <Stat label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
-        <Stat label="Delivered Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} highlighted />
-        <Stat label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(2)} tons`} />
+      <div className="py-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold text-brown-light">Progress</span>
+          <span className="whitespace-nowrap text-sm font-extrabold tabular-nums text-green-dark">{fulfillment.toFixed(1)}%</span>
+        </div>
+        <ProgressBar value={fulfillment} status={c.status} />
+        <p className="mt-2 text-[11px] text-brown-light">Accepted allocated net weight only</p>
       </div>
 
-      <div className="mt-4">
-        <div className="mb-1.5 flex items-center justify-between gap-3">
-          <p className="text-xs text-brown-light">Fulfillment</p>
-          <span className="whitespace-nowrap text-xs font-bold text-brown-mid">{fulfillment.toFixed(1)}%</span>
-        </div>
-        <ProgressBar value={fulfillment} />
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-2 border-t border-beige-dark/35 pt-4 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-brown-light">
-          <span>Activation Date <strong className="text-brown-dark">{fmtDate(c.activation_date)}</strong></span>
-          <span>Delivery Deadline <strong className="text-brown-dark">{fmtDate(c.due_date)}</strong></span>
-          <span className={days !== null && days < 0 ? "text-red-500" : ""}>{daysLabel(days)}</span>
-        </div>
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); onViewBatches(c); }}
-          className="flex items-center justify-center gap-2 rounded-full px-4 py-2 text-xs font-semibold text-brown-mid transition-colors hover:bg-beige hover:text-green-dark"
-        >
-          <LuChevronDown className="h-3.5 w-3.5" /> Batches
-        </button>
-      </div>
     </article>
   );
 }
 
-function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatches, onViewChat }) {
+function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewBatches }) {
+  return (
+    <section aria-label="Contracts">
+      <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <caption className="sr-only">Supplier contracts</caption>
+          <colgroup>
+            <col className="w-[13%]" />
+            <col className="w-[10%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[12%]" />
+            <col className="w-[13%]" />
+            <col className="w-[10%]" />
+          </colgroup>
+          <thead className="bg-beige">
+            <tr className="border-b border-beige-dark/60 text-left">
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
+              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Agreed Qty</th>
+              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
+              <th scope="col" title="Activation Date" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
+              <th scope="col" title="Delivery Deadline" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
+              <th scope="col" className="px-0 py-3.5"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {contracts.map(c => (
+              <ContractTableRow
+                key={c.contract_id}
+                contract={c}
+                onSelect={onSelect}
+                onViewContract={onViewContract}
+                onViewBatches={onViewBatches}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-3 xl:hidden">
+        {contracts.map(c => (
+          <ContractMobileCard
+            key={c.contract_id}
+            contract={c}
+            onSelect={onSelect}
+            onViewContract={onViewContract}
+            onViewBatches={onViewBatches}
+          />
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs font-medium text-brown-light">
+        Showing {contracts.length} of {totalCount} contract{totalCount === 1 ? "" : "s"}
+      </p>
+    </section>
+  );
+}
+
+function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatches }) {
   const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
   const days = daysLeft(c.due_date);
   const contractedKg = Number(c.contracted_tons ?? 0) * 1000;
@@ -503,7 +572,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             {Number(c.contracted_tons).toLocaleString()} Tons Agreed
           </p>
           <p className="mt-1 text-3xl font-extrabold tracking-tight text-green-dark sm:text-4xl">
-            {(deliveredKg / 1000).toFixed(2)} Tons Delivered
+            {(deliveredKg / 1000).toFixed(2)} Tons Accepted
           </p>
 
           <div className="mt-7">
@@ -511,7 +580,8 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
               <span className="text-xs font-medium text-brown-light">Fulfillment</span>
               <span className="text-sm font-extrabold text-green-dark">{fulfillment.toFixed(1)}%</span>
             </div>
-            <ProgressBar value={fulfillment} />
+            <ProgressBar value={fulfillment} status={c.status} />
+            <p className="mt-2 text-[11px] text-brown-light">Rejected and pending allocations are excluded from fulfillment.</p>
           </div>
 
           <div className="mt-7 grid grid-cols-1 gap-3 rounded-2xl bg-beige p-4 sm:grid-cols-3">
@@ -534,7 +604,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             <DetailRow label="Status" value={meta.label} valueClass="text-green-dark" />
             <DetailRow label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
             <DetailRow label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
-            <DetailRow label="Delivered Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} valueClass="text-green-dark" />
+            <DetailRow label="Accepted Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} valueClass="text-green-dark" />
             <DetailRow label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(2)} tons`} />
             <DetailRow label="Activation Date" value={fmtDate(c.activation_date)} />
             <DetailRow label="Delivery Deadline" value={fmtDate(c.due_date)} />
@@ -563,15 +633,6 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             >
               <LuTruck className="h-3.5 w-3.5" /> Batches
             </button>
-            {c.conversation_id && (
-              <button
-                type="button"
-                onClick={() => onViewChat(c.conversation_id)}
-                className="flex items-center gap-1.5 rounded-full border border-beige-dark bg-beige px-4 py-2 text-xs font-semibold text-brown-mid shadow-sm transition-all hover:-translate-y-0.5 hover:bg-beige-dark hover:text-brown-dark"
-              >
-                <LuMessageSquare className="h-3.5 w-3.5" /> View Chat
-              </button>
-            )}
           </div>
         </section>
       </div>
@@ -579,21 +640,21 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
   );
 }
 
-function Stat({ label, value, highlighted = false }) {
-  return (
-    <div className={`min-w-0 rounded-xl border-2 border-beige-dark px-4 py-3 ${highlighted ? "bg-green-pale" : "bg-white"}`}>
-      <p className="mb-0.5 text-xs text-brown-light">{label}</p>
-      <p className="break-words text-sm font-semibold text-brown-dark">{value}</p>
-    </div>
-  );
-}
+function ProgressBar({ value, status }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  const fillColor = status === "Breached"
+    ? "bg-red-500"
+    : safeValue < 34
+      ? "bg-red-500"
+      : safeValue < 67
+        ? "bg-amber-400"
+        : "bg-green-dark";
 
-function ProgressBar({ value }) {
   return (
     <div className="h-2.5 overflow-hidden rounded-full bg-beige-dark">
       <div
-        className={`h-full rounded-full transition-all duration-500 ${value >= 100 ? "bg-green-dark" : value > 50 ? "bg-green-mid" : "bg-amber-400"}`}
-        style={{ width: `${Math.min(100, value)}%` }}
+        className={`h-full rounded-full transition-all duration-500 ${fillColor}`}
+        style={{ width: `${safeValue}%` }}
       />
     </div>
   );
@@ -701,7 +762,7 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
       .select(`
         allocation_id, allocated_weight_kg, price_type, sequence_order,
         delivery:delivery_id(
-          delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number,
+          delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number, created_at,
           weighing_records(gross_weight_kg, tare_weight_kg, copra_condition),
           laboratory_inspections(moisture_content_pct)
         )
@@ -760,8 +821,20 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
       netWeight: hasWeights ? Number(grossWeight) - Number(tareWeight) : null,
       moisture: inspection?.moisture_content_pct,
       status: delivery?.delivery_status,
+      allocatedWeight: allocation.allocated_weight_kg,
+      priceType: allocation.price_type ?? "Negotiated",
+      createdAt: delivery?.created_at,
+      sequenceOrder: allocation.sequence_order,
     };
-  }).sort((a, b) => a.batch.localeCompare(b.batch, "en", { numeric: true, sensitivity: "base" }));
+  }).sort((a, b) => {
+    const newestFirst = new Date(b.createdAt ?? b.date ?? 0) - new Date(a.createdAt ?? a.date ?? 0);
+    if (newestFirst !== 0) return newestFirst;
+    return Number(b.sequenceOrder ?? 0) - Number(a.sequenceOrder ?? 0);
+  });
+  const acceptedAllocatedKg = rows
+    .filter(row => row.status === "Accepted")
+    .reduce((sum, row) => sum + Number(row.allocatedWeight ?? 0), 0);
+  const rejectedCount = rows.filter(row => row.status === "Rejected").length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm sm:p-4">
@@ -791,7 +864,7 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-7">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-7 md:overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-16" role="status" aria-label="Loading delivery batches">
               <LuLoader className="h-6 w-6 animate-spin text-brown-light" />
@@ -806,40 +879,48 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
             </div>
           ) : (
             <>
-              <div className="hidden rounded-xl border border-beige-dark/50 md:block">
-                <table className="min-w-[1120px] w-full border-collapse text-sm">
+              <div className="hidden max-h-[60vh] overflow-auto overscroll-contain rounded-xl border border-beige-dark/50 md:block">
+                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
                   <thead>
-                    <tr className="border-b border-beige-dark/50">
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+                    <tr>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-beige-dark/30">
-                    {rows.map(row => (
-                      <tr key={row.key} className="transition-colors hover:bg-beige/50">
-                        <td className="whitespace-nowrap px-4 py-3.5 font-bold text-brown-dark">{row.batch}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-brown-mid">{batchDate(row.date)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 font-medium text-brown-mid">{row.truck}</td>
+                    {rows.map(row => {
+                      return (
+                      <tr key={row.key} className={`group transition-colors duration-150 ease-out hover:bg-beige/60 ${row.status === "Rejected" ? "bg-red-50/30" : ""}`}>
+                        <td className="border-l-[5px] border-l-transparent px-4 py-3.5 text-left transition-colors duration-150 ease-out group-hover:border-l-brown-dark">
+                          <p className="whitespace-nowrap font-bold text-brown-dark">{row.batch}</p>
+                          <p className="mt-1 whitespace-nowrap text-[10px] font-semibold text-brown-light">
+                            {batchWeight(row.allocatedWeight)} allocated · {row.priceType}
+                          </p>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-left text-brown-mid">{batchDate(row.date)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-left font-medium text-brown-mid">{row.truck}</td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.grossWeight)}</td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.tareWeight)}</td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-right font-bold tabular-nums text-brown-dark">{batchWeight(row.netWeight)}</td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchMoisture(row.moisture)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5"><BatchStatusBadge status={row.status} /></td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-center"><BatchStatusBadge status={row.status} /></td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               <div className="space-y-3 md:hidden">
-                {rows.map(row => (
-                  <article key={row.key} className="rounded-2xl border border-beige-dark/50 bg-white p-4 shadow-sm">
+                {rows.map(row => {
+                  return (
+                  <article key={row.key} className={`rounded-2xl border p-4 shadow-sm ${row.status === "Rejected" ? "border-red-200 bg-red-50/30" : "border-beige-dark/50 bg-white"}`}>
                     <div className="flex min-h-11 items-start justify-between gap-3 border-b border-beige-dark/30 pb-3">
                       <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</p>
@@ -853,10 +934,20 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
                       <MobileBatchField label="Gross Weight" value={batchWeight(row.grossWeight)} numeric />
                       <MobileBatchField label="Tare Weight" value={batchWeight(row.tareWeight)} numeric />
                       <MobileBatchField label="Net Weight" value={batchWeight(row.netWeight)} numeric />
+                      <MobileBatchField
+                        label="Allocated Net"
+                        value={(
+                          <span className="block">
+                            <span className="block">{batchWeight(row.allocatedWeight)} · {row.priceType}</span>
+                          </span>
+                        )}
+                        numeric
+                      />
                       <MobileBatchField label="Moisture" value={batchMoisture(row.moisture)} numeric />
                     </dl>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -865,12 +956,17 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
         {!loading && rows.length > 0 && (
           <div className="flex shrink-0 items-center justify-between gap-4 border-t border-beige-dark/30 px-4 py-4 sm:px-7">
             <span className="text-sm text-brown-light">{rows.length} batch{rows.length !== 1 ? "es" : ""}</span>
-            <span className="text-right font-bold text-brown-dark">
-              {(batches.reduce((sum, item) => sum + Number(item.allocated_weight_kg ?? 0), 0) / 1000).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} tons Allocated
-            </span>
+            <div className="text-right">
+              <p className="font-bold text-brown-dark">
+                {(acceptedAllocatedKg / 1000).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} tons Accepted
+              </p>
+              <p className="mt-0.5 text-[11px] text-brown-light">
+                Accepted allocated net weight only{rejectedCount > 0 ? ` · ${rejectedCount} rejected excluded` : ""}
+              </p>
+            </div>
           </div>
         )}
       </div>

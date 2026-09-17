@@ -1,18 +1,19 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import {
   LuFileText, LuCheck, LuX,
-  LuCircleAlert, LuLoader, LuMessageSquare, LuPenLine,
-  LuSearch, LuArrowUpDown, LuTruck, LuPackage, LuClock,
+  LuCircleAlert, LuLoader, LuArrowLeft,
+  LuSearch, LuArrowUpDown, LuTruck, LuPackage,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ContractReviewModal from "../../components/ContractReviewModal";
 import ContractApprovalModal from "../../components/ContractApprovalModal";
+import { MotionDiv } from "../../components/landing/motion-elements";
 
 const STATUS_META = {
-  Pending:   { label: "Awaiting Supplier",   color: "bg-amber-50 text-amber-700",      dot: "bg-amber-400" },
-  "Pending Owner Review": { label: "Pending Your Review", color: "bg-orange-50 text-orange-700", dot: "bg-orange-500" },
+  Pending:   { label: "Pending", color: "bg-beige text-brown-mid", dot: "bg-brown-light" },
+  "Pending Owner Review": { label: "Pending Review", color: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
   Active:    { label: "Active",    color: "bg-green-pale text-green-dark",    dot: "bg-green-mid" },
   Completed: { label: "Completed", color: "bg-emerald-50 text-emerald-700",   dot: "bg-emerald-500" },
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",           dot: "bg-red-500" },
@@ -34,11 +35,11 @@ function daysLeft(due) {
 
 export default function BOContractsPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [contracts, setContracts] = useState([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("newest");
+  const [selectedContractId, setSelectedContractId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviewModal, setReviewModal]       = useState(null); // contract for generation
   const [approvalModal, setApprovalModal]   = useState(null); // contract awaiting BO approval
@@ -154,13 +155,25 @@ export default function BOContractsPage() {
       );
     })
     .sort((a, b) => {
-      if (sort === "az")      return `${a.supplier?.last_name}${a.supplier?.first_name}`.localeCompare(`${b.supplier?.last_name}${b.supplier?.first_name}`);
-      if (sort === "za")      return `${b.supplier?.last_name}${b.supplier?.first_name}`.localeCompare(`${a.supplier?.last_name}${a.supplier?.first_name}`);
+      if (sort === "az" || sort === "za") {
+        const nameA = `${a.supplier?.first_name ?? ""} ${a.supplier?.last_name ?? ""}`.trim();
+        const nameB = `${b.supplier?.first_name ?? ""} ${b.supplier?.last_name ?? ""}`.trim();
+        const comparison = nameA.localeCompare(nameB, "en-PH", { sensitivity: "base" });
+        return sort === "za" ? -comparison : comparison;
+      }
       if (sort === "oldest")  return new Date(a.created_at) - new Date(b.created_at);
       if (sort === "price_asc")  return Number(a.negotiated_price_per_kg ?? 0) - Number(b.negotiated_price_per_kg ?? 0);
       if (sort === "price_desc") return Number(b.negotiated_price_per_kg ?? 0) - Number(a.negotiated_price_per_kg ?? 0);
       return new Date(b.created_at) - new Date(a.created_at); // newest default
     });
+
+  const selectedContract = filtered.find(c => c.contract_id === selectedContractId) ?? null;
+
+  function openContract(c) {
+    if (c.status === "Pending" && !c.contract_hash) setReviewModal(c);
+    else if (c.status === "Pending Owner Review") setApprovalModal(c);
+    else openPdfModal(c);
+  }
 
   async function openPdfModal(c) {
     if (!c.contract_document_url) return;
@@ -198,7 +211,7 @@ export default function BOContractsPage() {
           contract is waiting on the Business Owner's review/approval. */}
       {!loading && contracts.filter(c => c.status === "Pending Owner Review").length > 0 && (
         <button
-          onClick={() => setFilter("Pending Owner Review")}
+          onClick={() => { setFilter("Pending Owner Review"); setSelectedContractId(null); }}
           className="w-full flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 mb-4 text-left transition-colors hover:bg-orange-100"
         >
           <LuCircleAlert className="w-5 h-5 text-orange-600 shrink-0" />
@@ -218,13 +231,13 @@ export default function BOContractsPage() {
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setSelectedContractId(null); }}
             placeholder="Search supplier name or contract #…"
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
               placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+            <button onClick={() => { setSearch(""); setSelectedContractId(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
               <LuX className="w-3.5 h-3.5" />
             </button>
           )}
@@ -233,7 +246,7 @@ export default function BOContractsPage() {
           <LuArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
           <select
             value={sort}
-            onChange={e => setSort(e.target.value)}
+            onChange={e => { setSort(e.target.value); setSelectedContractId(null); }}
             className="w-full pl-8 pr-8 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm sm:w-auto
               focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
           >
@@ -248,15 +261,15 @@ export default function BOContractsPage() {
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-6 border-b border-beige-dark/40 mb-6 overflow-x-auto">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
         {FILTERS.map(f => {
           const tabLabel = STATUS_META[f]?.label ?? f;
           const count = f !== "All" ? contracts.filter(c => c.status === f).length : 0;
           return (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+            <button key={f} onClick={() => { setFilter(f); setSelectedContractId(null); }}
+              className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
                 ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-              {tabLabel}
+              {f === "All" ? `All (${contracts.length})` : tabLabel}
               {f === "Pending Owner Review" && count > 0 && (
                 <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full animate-pulse">
                   {count}
@@ -285,134 +298,32 @@ export default function BOContractsPage() {
           <p className="text-brown-light text-sm mt-1">{search ? "Try a different name or contract number." : "Contracts are created when a price negotiation is accepted."}</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {filtered.map(c => {
-            const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
-            const days = daysLeft(c.due_date);
-            const conversationId = c.conversation_id ?? null;
-
-            // Weight calculations (delivered_kg pre-computed above, contract in tons)
-            const contractedTons = Number(c.contracted_tons ?? 0);
-            const deliveredKg = c.delivered_kg ?? 0;
-            const deliveredTons = deliveredKg / 1000;
-            const remainingTons = Math.max(0, contractedTons - deliveredTons);
-            const fulfillmentPct = contractedTons > 0
-              ? Math.min(100, Math.round((deliveredTons / contractedTons) * 100))
-              : 0;
-
-            return (
-              <div key={c.contract_id} className="bg-white border border-beige-dark/40 rounded-xl p-4 sm:p-5">
-                {/* Header */}
-                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="font-bold text-brown-dark break-words">{c.contract_number}</p>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${meta.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                        {meta.label}
-                      </span>
-                    </div>
-                    <p className="text-brown-dark font-medium text-sm">{c.supplier?.first_name} {c.supplier?.last_name}</p>
-                    <p className="text-brown-light text-xs break-words">{c.supplier?.email}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-                    {conversationId && (
-                      <button onClick={() => navigate(`/dashboard/owner/conversations/${conversationId}`)}
-                        className="flex items-center gap-1.5 text-xs text-brown-light hover:text-green-dark font-semibold transition-colors px-2.5 py-1.5 rounded-lg hover:bg-green-pale">
-                        <LuMessageSquare className="w-3.5 h-3.5" /> Chat
-                      </button>
-                    )}
-                    <button onClick={() => setBatchesModal(c)}
-                      className="flex items-center gap-1.5 text-xs text-brown-light hover:text-amber-600 font-semibold transition-colors px-2.5 py-1.5 rounded-lg hover:bg-amber-50">
-                      <LuTruck className="w-3.5 h-3.5" /> Batches
-                    </button>
-                    {c.contract_document_url && (
-                      <button onClick={() => openPdfModal(c)}
-                        className="flex items-center gap-1.5 text-xs text-brown-light hover:text-blue-600 font-semibold transition-colors px-2.5 py-1.5 rounded-lg hover:bg-blue-50">
-                        <LuFileText className="w-3.5 h-3.5" /> Contract
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Contract details grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="text-brown-light text-xs mb-0.5">Agreed Price</p>
-                    <p className="font-semibold text-brown-dark">{peso(c.negotiated_price_per_kg)}<span className="text-xs text-brown-light font-normal">/kg</span></p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-brown-light text-xs mb-0.5">Agreed Quantity</p>
-                    <p className="font-semibold text-brown-dark">{Number(c.contracted_tons).toLocaleString()} tons</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-brown-light text-xs mb-0.5">Activation Date</p>
-                    <p className="font-semibold text-brown-dark">{fmtDate(c.activation_date)}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-brown-light text-xs mb-0.5">Delivery Deadline</p>
-                    <p className="font-semibold text-brown-dark">{fmtDate(c.due_date)}</p>
-                    {days !== null && c.status === "Active" && (
-                      <p className={`text-xs font-medium mt-0.5 ${days < 0 ? "text-red-500" : days <= 7 ? "text-amber-500" : "text-brown-light"}`}>
-                        {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Due today" : `${days}d left`}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Delivery quantities + fulfillment */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Delivered Qty</p>
-                    <p className="font-semibold text-brown-dark">{deliveredTons.toFixed(2)} tons</p>
-                  </div>
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Remaining Qty</p>
-                    <p className={`font-semibold ${remainingTons > 0 ? "text-brown-dark" : "text-emerald-600"}`}>
-                      {remainingTons.toFixed(2)} tons
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-brown-light text-xs mb-0.5">Fulfillment</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-beige rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${fulfillmentPct >= 100 ? "bg-emerald-500" : "bg-green-mid"}`}
-                          style={{ width: `${fulfillmentPct}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-bold text-brown-dark shrink-0">{fulfillmentPct}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex gap-2 pt-1 border-t border-beige-dark/20 mt-1 flex-wrap">
-                  {c.status === "Pending" && !c.contract_hash && (
-                    <button onClick={() => setReviewModal(c)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-colors">
-                      <LuPenLine className="w-3.5 h-3.5" /> Review & Generate Contract
-                    </button>
-                  )}
-                  {c.status === "Pending" && c.contract_hash && (
-                    <span className="text-xs text-brown-light italic flex items-center gap-1.5">
-                      <LuClock className="w-3.5 h-3.5" /> Awaiting Supplier's signature
-                    </span>
-                  )}
-                  {c.status === "Pending Owner Review" && (
-                    <button onClick={() => setApprovalModal(c)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-dark text-white font-bold text-xs hover:bg-green-dark/90 transition-colors">
-                      <LuCheck className="w-3.5 h-3.5" /> {c.bo_reviewed_at ? "Approve & Sign Contract" : "Review Contract"}
-                    </button>
-                  )}
-                  {(c.status === "Completed" || c.status === "Breached") && (
-                    <span className="text-xs text-brown-light italic">Contract finalized, rating computed</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <AnimatePresence mode="wait" initial={false}>
+          <MotionDiv
+            key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${filter}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {selectedContract ? (
+              <OwnerContractMasterDetail
+                contract={selectedContract}
+                onBack={() => setSelectedContractId(null)}
+                onViewContract={openContract}
+                onViewBatches={setBatchesModal}
+              />
+            ) : (
+              <OwnerContractList
+                contracts={filtered}
+                totalCount={contracts.length}
+                onSelect={setSelectedContractId}
+                onViewContract={openContract}
+                onViewBatches={setBatchesModal}
+              />
+            )}
+          </MotionDiv>
+        </AnimatePresence>
       )}
 
       {/* ContractApprovalModal — BO must open, review, and explicitly approve
@@ -502,6 +413,370 @@ export default function BOContractsPage() {
 }
 
 // ── Delivery Batches Modal ────────────────────────────────────────────────────
+// Presentation helpers mirror the supplier contracts table; queries remain above.
+function deadlineTimingLabel(days) {
+  if (days === null) return null;
+  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`;
+  if (days === 0) return "Due today";
+  return `${days} day${days === 1 ? "" : "s"} left`;
+}
+
+function ContractStatusBadge({ status }) {
+  const meta = STATUS_META[status] ?? STATUS_META.Pending;
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold ${meta.color}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  );
+}
+
+function ContractProgress({ value, status }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  const color = status === "Breached" || safeValue < 34
+    ? "bg-red-500" : safeValue < 67 ? "bg-amber-400" : "bg-green-dark";
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <div role="progressbar" aria-label="Contract fulfillment" aria-valuenow={safeValue}
+        aria-valuemin={0} aria-valuemax={100}
+        className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-beige-dark">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${safeValue}%` }} />
+      </div>
+      <span className="w-11 shrink-0 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">
+        {safeValue.toFixed(1)}%
+      </span>
+    </div>
+  );
+}
+
+function OwnerContractActions({ contract: c, onViewContract, onViewBatches, reveal = false }) {
+  const label = c.status === "Pending" && !c.contract_hash
+    ? "Review & Generate Contract"
+    : c.status === "Pending Owner Review"
+      ? (c.bo_reviewed_at ? "Approve & Sign Contract" : "Review Contract")
+      : "View Contract";
+  const canOpen = (c.status === "Pending" && !c.contract_hash)
+    || c.status === "Pending Owner Review" || Boolean(c.contract_document_url);
+  const buttonClass = "inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
+  return (
+    <div className={`flex shrink-0 items-center justify-center gap-1 ${reveal ? "opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100" : ""}`}>
+      <button type="button" aria-label={label} title={canOpen ? label : "Awaiting Supplier's signature"}
+        disabled={!canOpen} onClick={e => { e.stopPropagation(); onViewContract(c); }}
+        className={`${buttonClass} text-brown-dark hover:text-brown-mid focus-visible:ring-brown-dark/25 disabled:opacity-40`}>
+        <LuFileText aria-hidden="true" className="h-4 w-4" />
+      </button>
+      <button type="button" aria-label="View Delivery Batches" title="View Batches"
+        onClick={e => { e.stopPropagation(); onViewBatches(c); }}
+        className={`${buttonClass} text-green-dark hover:text-green-mid focus-visible:ring-green-dark/25`}>
+        <LuTruck aria-hidden="true" className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+const OWNER_CONTRACT_COLUMNS = [
+  { label: "Contract #", width: 12 },
+  { label: "Status", width: 11 },
+  { label: "Supplier Name", width: 14 },
+  { label: "Agreed Price", width: 10, numeric: true, title: "Agreed Price (₱/kg)" },
+  { label: "Agreed Qty", width: 10, numeric: true, title: "Agreed Quantity" },
+  { label: "Activated", width: 10, title: "Activation Date" },
+  { label: "Deadline", width: 11, title: "Delivery Deadline" },
+  { label: "Progress", width: 12, numeric: true },
+  { label: "", width: 10 },
+];
+
+function OwnerContractList({ contracts, totalCount, onSelect, onViewContract, onViewBatches }) {
+  const values = c => {
+    const agreedKg = Number(c.contracted_tons ?? 0) * 1000;
+    const deliveredKg = Number(c.delivered_kg ?? 0);
+    const days = daysLeft(c.due_date);
+    return {
+      progress: agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0,
+      days, timing: deadlineTimingLabel(days),
+      supplier: `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.trim() || "—",
+      quantity: `${Number(c.contracted_tons ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tons`,
+    };
+  };
+  const deadline = (c, v) => (
+    <div>
+      <p>{fmtDate(c.due_date)}</p>
+      {v.timing && <p className={`mt-1 text-[11px] font-semibold ${v.days < 0 ? "text-red-500" : v.days === 0 ? "text-amber-600" : "text-green-dark"}`}>{v.timing}</p>}
+    </div>
+  );
+  const supplier = (c, v) => (
+    <div className="min-w-0">
+      <p className="break-words font-semibold">{v.supplier}</p>
+      <p className="mt-1 break-words text-[10px] text-brown-light">{c.supplier?.email}</p>
+    </div>
+  );
+  return (
+    <section aria-label="Owner contracts" className="min-w-0">
+      <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
+        <table className="w-full table-fixed border-collapse text-xs">
+          <caption className="sr-only">Supplier contracts managed by the owner</caption>
+          <colgroup>{OWNER_CONTRACT_COLUMNS.map((col, i) => <col key={i} style={{ width: `${col.width}%` }} />)}</colgroup>
+          <thead className="bg-beige">
+            <tr className="border-b border-beige-dark/60">
+              {OWNER_CONTRACT_COLUMNS.map((col, i) => (
+                <th key={i} scope="col" title={col.title}
+                  className={`whitespace-nowrap px-2 py-3.5 text-[10px] font-bold text-brown-light ${col.label === "Status" || col.label === "Progress" ? "text-center" : col.numeric ? "text-right" : "text-left"}`}>
+                  {col.label || <span className="sr-only">Actions</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {contracts.map(c => {
+              const v = values(c);
+              return (
+                <tr key={c.contract_id} tabIndex={0}
+                  aria-label={`Open details for ${c.contract_number}`}
+                  onClick={() => onSelect(c.contract_id)}
+                  onKeyDown={e => {
+                    if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      onSelect(c.contract_id);
+                    }
+                  }}
+                  className="group cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors duration-150 ease-out last:border-0 hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25">
+                  <td className="border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark">
+                    <p className="font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
+                    <p className="mt-1 text-[10px] text-brown-light">Created {fmtDate(c.created_at)}</p>
+                  </td>
+                  <td className="px-2 py-4 text-center"><ContractStatusBadge status={c.status} /></td>
+                  <td className="px-2 py-4 text-left text-brown-dark">{supplier(c, v)}</td>
+                  <td className="px-2 py-4 text-right font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
+                  <td className="px-2 py-4 text-right tabular-nums text-brown-mid">{v.quantity}</td>
+                  <td className="px-2 py-4 text-left text-brown-mid">{fmtDate(c.activation_date)}</td>
+                  <td className="px-2 py-4 text-left text-brown-mid">{deadline(c, v)}</td>
+                  <td className="px-2 py-4"><ContractProgress value={v.progress} status={c.status} /></td>
+                  <td onClick={e => e.stopPropagation()} className="px-0 py-4"><OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} reveal /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-3 xl:hidden">
+        {contracts.map(c => {
+          const v = values(c);
+          return (
+            <article key={c.contract_id} tabIndex={0}
+              aria-label={`Open details for ${c.contract_number}`}
+              onClick={() => onSelect(c.contract_id)}
+              onKeyDown={e => {
+                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  onSelect(c.contract_id);
+                }
+              }}
+              className="min-w-0 cursor-pointer rounded-2xl border-2 border-beige-dark/80 bg-white p-3 shadow-card outline-none transition-colors hover:border-green-dark/30 focus-visible:ring-2 focus-visible:ring-green-dark/25 sm:p-4">
+              <div className="flex min-w-0 flex-nowrap items-center justify-between gap-1">
+                <h2 title={c.contract_number} className="min-w-0 flex-1 truncate font-extrabold text-brown-dark">{c.contract_number}</h2>
+                <ContractStatusBadge status={c.status} />
+                <OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
+              </div>
+              <p className="mt-1 text-xs text-brown-light">Created {fmtDate(c.created_at)}</p>
+              <div className="mt-4 border-t border-beige-dark/40 pt-3">
+                <p className="mb-2 text-xs font-semibold text-brown-light">Progress</p>
+                <ContractProgress value={v.progress} status={c.status} />
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <p className="mt-4 text-xs font-medium text-brown-light">Showing {contracts.length} of {totalCount} contract{totalCount === 1 ? "" : "s"}</p>
+    </section>
+  );
+}
+
+function OwnerContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatches }) {
+  const agreedKg = Number(c.contracted_tons ?? 0) * 1000;
+  const deliveredKg = Number(c.delivered_kg ?? 0);
+  const remainingKg = Math.max(0, agreedKg - deliveredKg);
+  const progress = agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0;
+  const days = daysLeft(c.due_date);
+  const timing = deadlineTimingLabel(days);
+  const supplierName = `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.trim() || "—";
+  const fields = [
+    { label: "Supplier Name", value: supplierName },
+    { label: "Supplier Email", value: c.supplier?.email || "—" },
+    { label: "Created", value: fmtDate(c.created_at) },
+    { label: "Status", value: <ContractStatusBadge status={c.status} /> },
+    { label: "Agreed Price", value: peso(c.negotiated_price_per_kg) + "/kg", numeric: true },
+    { label: "Agreed Quantity", value: `${Number(c.contracted_tons ?? 0).toLocaleString("en-PH")} tons`, numeric: true },
+    { label: "Accepted Qty", value: `${(deliveredKg / 1000).toFixed(2)} tons`, numeric: true },
+    { label: "Remaining Qty", value: `${(remainingKg / 1000).toFixed(2)} tons`, numeric: true },
+    { label: "Activation Date", value: fmtDate(c.activation_date) },
+    { label: "Delivery Deadline", value: fmtDate(c.due_date) },
+    { label: "Days Left", value: timing || "—", color: days < 0 ? "text-red-500" : days === 0 ? "text-amber-600" : "text-green-dark" },
+    { label: "Fulfillment", value: `${progress.toFixed(1)}%`, numeric: true },
+  ];
+  return (
+    <div className="min-w-0">
+      <button type="button" onClick={onBack}
+        className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-brown-mid transition-colors hover:bg-white hover:text-green-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-dark/25">
+        <LuArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to contracts
+      </button>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+        <section className="min-w-0 rounded-2xl border border-beige-dark bg-white p-5 shadow-card sm:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="break-words text-xs font-medium text-brown-light">{c.contract_number}</p>
+              <h2 className="mt-1 text-lg font-bold text-brown-dark">Contract Progress</h2>
+            </div>
+            <ContractStatusBadge status={c.status} />
+          </div>
+          <p className="mt-7 text-sm font-semibold text-brown-mid">
+            {Number(c.contracted_tons ?? 0).toLocaleString("en-PH")} Tons Agreed
+          </p>
+          <p className="mt-1 text-3xl font-extrabold tracking-tight text-green-dark sm:text-4xl">
+            {(deliveredKg / 1000).toFixed(2)} Tons Accepted
+          </p>
+          <div className="mt-7">
+            <p className="mb-2 text-xs font-medium text-brown-light">Fulfillment</p>
+            <ContractProgress value={progress} status={c.status} />
+            <p className="mt-2 text-[11px] text-brown-light">Rejected and pending allocations are excluded from fulfillment.</p>
+          </div>
+          <dl className="mt-7 grid grid-cols-1 gap-3 rounded-2xl bg-beige p-4 min-[480px]:grid-cols-3">
+            <div className="min-w-0">
+              <dt className="text-[10px] font-medium uppercase tracking-wide text-brown-light">Negotiated Price</dt>
+              <dd className="mt-1 break-words text-right text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}/kg</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[10px] font-medium uppercase tracking-wide text-brown-light">Due Date</dt>
+              <dd className="mt-1 text-xs font-bold text-brown-dark">{fmtDate(c.due_date)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[10px] font-medium uppercase tracking-wide text-brown-light">Days Remaining</dt>
+              <dd className={`mt-1 text-xs font-bold ${days < 0 ? "text-red-500" : "text-green-dark"}`}>{timing || "—"}</dd>
+            </div>
+          </dl>
+        </section>
+        <section className="min-w-0 rounded-2xl border border-beige-dark bg-white p-5 shadow-card sm:p-7">
+          <p className="break-words text-xs font-medium text-brown-light">{c.contract_number}</p>
+          <h2 className="mt-1 text-lg font-bold text-brown-dark">Contract Details</h2>
+          <dl className="mt-5 divide-y divide-beige-dark/55">
+            {fields.map(field => (
+              <div key={field.label} className="flex flex-col gap-1 py-3 min-[480px]:flex-row min-[480px]:items-start min-[480px]:justify-between min-[480px]:gap-5">
+                <dt className="shrink-0 text-xs text-brown-light">{field.label}</dt>
+                <dd className={`min-w-0 break-words text-sm font-bold ${field.numeric ? "text-right tabular-nums" : "text-left"} ${field.color || "text-brown-dark"}`}>{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-6 flex justify-end border-t border-beige-dark/55 pt-5">
+            <OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+const BATCH_STATUS_META = {
+  Pending: { label: "Pending", color: "border-beige-dark bg-beige text-brown-mid" },
+  Weighed: { label: "Weighed", color: "border-blue-200 bg-blue-50 text-blue-700" },
+  Inspected: { label: "Lab Assessment", color: "border-amber-200 bg-amber-50 text-amber-700" },
+  "Lab Assessment": { label: "Lab Assessment", color: "border-amber-200 bg-amber-50 text-amber-700" },
+  Accepted: { label: "Accepted", color: "border-green-200 bg-green-50 text-green-700" },
+  Rejected: { label: "Rejected", color: "border-red-200 bg-red-50 text-red-700" },
+};
+
+function BatchStatusBadge({ status }) {
+  const meta = BATCH_STATUS_META[status] ?? { label: status || "Pending", color: "border-beige-dark bg-beige text-brown-mid" };
+  return <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-1 text-[9px] font-bold lg:px-2.5 lg:text-[11px] ${meta.color}`}>{meta.label}</span>;
+}
+
+function batchWeight(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return `${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
+}
+
+const OWNER_BATCH_COLUMNS = [
+  { label: "Batch", width: 13 },
+  { label: "Date", width: 14 },
+  { label: "Truck", width: 9 },
+  { label: "Gross Weight", width: 14, numeric: true },
+  { label: "Tare Weight", width: 13, numeric: true },
+  { label: "Net Weight", width: 14, numeric: true },
+  { label: "Moisture", width: 10, numeric: true },
+  { label: "Status", width: 13 },
+];
+
+function OwnerBatchTable({ batches }) {
+  const rows = batches.map((allocation, index) => {
+    const d = allocation.delivery;
+    const wr = Array.isArray(d?.weighing_records) ? d.weighing_records[0] : d?.weighing_records;
+    const inspection = Array.isArray(d?.laboratory_inspections) ? d.laboratory_inspections[0] : d?.laboratory_inspections;
+    const moisture = inspection?.moisture_content_pct;
+    // Use fetched net weight unchanged. Tare is a display-only difference when not fetched.
+    const tare = wr?.tare_weight_kg ?? (
+      wr?.gross_weight_kg != null && wr?.net_weight_kg != null
+        ? Number(wr.gross_weight_kg) - Number(wr.net_weight_kg) : null
+    );
+    const batchNumber = d?.batch_number;
+    return {
+      key: `${d?.delivery_id ?? "batch"}-${allocation.sequence_order ?? index}`,
+      cells: [
+        batchNumber == null ? `Batch ${index + 1}` : /^batch\b/i.test(String(batchNumber)) ? batchNumber : `Batch ${batchNumber}`,
+        d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : "—",
+        d?.truck_plate_number || "—",
+        batchWeight(wr?.gross_weight_kg),
+        batchWeight(tare),
+        batchWeight(wr?.net_weight_kg),
+        moisture == null ? "—" : `${Number(moisture).toLocaleString("en-PH", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`,
+        <BatchStatusBadge key="status" status={d?.delivery_status} />,
+      ],
+    };
+  });
+  return (
+    <>
+      <div className="hidden max-h-[50vh] overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-beige-dark/50 md:block">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-xs">
+          <caption className="sr-only">Delivery batches for this contract</caption>
+          <colgroup>{OWNER_BATCH_COLUMNS.map(col => <col key={col.label} style={{ width: `${col.width}%` }} />)}</colgroup>
+          <thead>
+            <tr>
+              {OWNER_BATCH_COLUMNS.map(col => (
+                <th key={col.label} scope="col" className={`sticky top-0 z-20 whitespace-nowrap border-b border-beige-dark bg-beige px-2 py-3.5 text-[9px] font-bold text-brown-light lg:text-[11px] ${col.label === "Status" ? "text-center" : col.numeric ? "text-right" : "text-left"}`}>{col.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.key} className="group bg-white transition-colors duration-150 ease-out hover:bg-beige/60 focus-within:bg-beige/60">
+                {row.cells.map((cell, i) => (
+                  <td key={i} className={`border-b border-beige-dark/30 px-2 py-4 align-middle text-brown-mid ${OWNER_BATCH_COLUMNS[i].label === "Status" ? "text-center" : OWNER_BATCH_COLUMNS[i].numeric ? "text-right tabular-nums" : "text-left"} ${i === 0 ? "border-l-[5px] border-l-transparent font-bold text-brown-dark transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark" : ""} ${i === 5 ? "font-extrabold text-brown-dark" : ""}`}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-3 md:hidden">
+        {rows.map(row => (
+          <article key={row.key} className="rounded-xl border border-beige-dark/50 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold text-brown-dark">{row.cells[0]}</h3>
+              {row.cells[7]}
+            </div>
+            <dl className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-2">
+              {row.cells.slice(1, 7).map((cell, i) => {
+                const col = OWNER_BATCH_COLUMNS[i + 1];
+                return <div key={col.label} className="min-w-0">
+                  <dt className={`text-[10px] text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>{col.label}</dt>
+                  <dd className={`mt-1 break-words text-sm text-brown-mid ${col.numeric ? "text-right tabular-nums" : "text-left"} ${i === 4 ? "font-extrabold text-brown-dark" : ""}`}>{cell}</dd>
+                </div>;
+              })}
+            </dl>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function DeliveryBatchesModal({ contract, onClose }) {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -527,14 +802,9 @@ function DeliveryBatchesModal({ contract, onClose }) {
     load();
   }, [contract.contract_id]);
 
-  const RESULT_STYLE = {
-    Accepted: "bg-green-pale text-green-dark",
-    Rejected:  "bg-red-50 text-red-600",
-  };
-
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-2xl flex flex-col max-h-[88vh]">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="owner-batches-title" className="bg-white rounded-2xl border border-beige-dark/70 shadow-sm w-full max-w-7xl flex flex-col overflow-hidden max-h-[calc(100dvh-1rem)] sm:max-h-[88vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-7 pt-5 sm:pt-7 pb-4 sm:pb-5 border-b border-beige-dark/20 shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -542,16 +812,16 @@ function DeliveryBatchesModal({ contract, onClose }) {
               <LuTruck className="w-6 h-6 text-amber-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-brown-dark">Delivery Batches</h2>
+              <h2 id="owner-batches-title" className="text-lg font-bold text-brown-dark">Delivery Batches</h2>
               <p className="text-sm text-brown-light break-words">{contract.contract_number} · {contract.supplier?.first_name} {contract.supplier?.last_name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors shrink-0">
+          <button type="button" aria-label="Close delivery batches" onClick={onClose} className="flex h-11 w-11 items-center justify-center text-brown-light hover:text-brown-dark transition-colors shrink-0">
             <LuX className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-7 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-7 py-5 md:overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <LuLoader className="w-6 h-6 text-brown-light animate-spin" />
@@ -565,35 +835,7 @@ function DeliveryBatchesModal({ contract, onClose }) {
               <p className="text-brown-light text-sm mt-1">Batches delivered under this contract will appear here.</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {batches.map((a, i) => {
-                const d = a.delivery;
-                const wr = d?.weighing_records?.[0];
-                const result = d?.quality_results?.[0]?.result;
-                return (
-                  <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 rounded-xl bg-beige/50 border border-beige-dark/20">
-                    <div className="flex items-start gap-2.5 flex-wrap min-w-0 flex-1">
-                      <span className="font-semibold text-brown-dark whitespace-nowrap">{d?.batch_number ?? `Batch ${i + 1}`}</span>
-                      {result && (
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${RESULT_STYLE[result] ?? "bg-beige text-brown-mid"}`}>
-                          {result}
-                        </span>
-                      )}
-                      <span className="text-sm text-brown-light break-words">
-                        {d?.delivery_date ? new Date(d.delivery_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                        {wr && ` · G:${Number(wr.gross_weight_kg ?? 0).toLocaleString("en-PH")}kg N:${Number(wr.net_weight_kg ?? 0).toLocaleString("en-PH")}kg`}
-                      </span>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="font-bold text-brown-dark">{Number(a.allocated_weight_kg ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
-                      <span className={`ml-2 text-sm font-semibold ${a.price_type === "Spot" ? "text-amber-700" : "text-green-dark"}`}>
-                        {a.price_type}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <OwnerBatchTable batches={batches} />
           )}
         </div>
 

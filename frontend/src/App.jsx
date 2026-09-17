@@ -11,6 +11,7 @@ import Contact from "./Contact";
 import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
 import TermsConditionsPage from "./pages/legal/TermsConditionsPage";
 import HelpSupportPage from "./pages/help/HelpSupportPage";
+import SupportPageLayout from "./components/SupportPageLayout";
 
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
@@ -114,9 +115,11 @@ function App() {
         <Route path="/what-is-copra" element={<><Navbar /><main className="min-h-screen"><WhatIsCopra /></main><Footer /></>} />
         <Route path="/why-sell-to-us" element={<><Navbar /><main className="min-h-screen"><WhySellToUs /></main><Footer /></>} />
         <Route path="/contact" element={<><Navbar /><main className="min-h-screen"><Contact /></main><Footer /></>} />
-        <Route path="/privacy-policy" element={<><Navbar /><main className="min-h-screen"><PrivacyPolicyPage /></main><Footer /></>} />
-        <Route path="/terms" element={<><Navbar /><main className="min-h-screen"><TermsConditionsPage /></main><Footer /></>} />
-        <Route path="/help" element={<><Navbar /><main className="min-h-screen"><HelpSupportPage /></main><Footer /></>} />
+        <Route element={<SupportPageLayout />}>
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsConditionsPage />} />
+          <Route path="/help" element={<HelpSupportPage />} />
+        </Route>
 
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />

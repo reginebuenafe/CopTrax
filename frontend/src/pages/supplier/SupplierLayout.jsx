@@ -185,7 +185,7 @@ export default function SupplierLayout() {
           ml-0 lg:ml-[var(--sidebar-w)]"
       >
         <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-w)] z-20
-          bg-white/80 backdrop-blur-md border-b border-beige-dark/30
+          bg-[white]/80 backdrop-blur-md border-b border-beige-dark/30
           px-3 py-3.5 sm:px-5 flex items-center gap-3
           transition-[left] duration-300 ease-in-out">
           <button
@@ -257,8 +257,6 @@ export default function SupplierLayout() {
                 <div className="flex flex-nowrap items-center justify-center gap-x-2 px-4 py-2.5 border-t border-beige-dark/20 bg-[#FBF7EF]">
                   <Link
                     to="/help"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >
@@ -267,8 +265,6 @@ export default function SupplierLayout() {
                   <span className="text-[11px] text-brown-light/50">&middot;</span>
                   <Link
                     to="/privacy-policy"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >
@@ -277,8 +273,6 @@ export default function SupplierLayout() {
                   <span className="text-[11px] text-brown-light/50">&middot;</span>
                   <Link
                     to="/terms"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     onClick={() => setProfileMenuOpen(false)}
                     className="text-[11px] font-medium text-brown-light hover:text-brown-dark hover:underline transition-colors whitespace-nowrap"
                   >
