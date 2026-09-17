@@ -514,7 +514,7 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
               <th scope="col" className="whitespace-nowrap rounded-tl-2xl border-b border-beige-dark/60 px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
               <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
               <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
-              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Agreed Qty</th>
+              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Quantity</th>
               <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
               <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
               <th scope="col" title="Activation Date" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Activated</th>

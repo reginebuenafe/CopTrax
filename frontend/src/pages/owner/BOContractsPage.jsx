@@ -618,8 +618,8 @@ function OwnerContractActions({ contract: c, onViewContract, onViewBatches, reve
 const OWNER_CONTRACT_COLUMNS = [
   { label: "Contract #", width: 14 },
   { label: "Status", width: 12 },
-  { label: "Agreed Price", width: 12, numeric: true, title: "Agreed Price (₱/kg)" },
-  { label: "Agreed Qty", width: 12, numeric: true, title: "Agreed Quantity" },
+  { label: "Price", width: 12, numeric: true, title: "Price (₱/kg)" },
+  { label: "Quantity", width: 12, numeric: true, title: "Quantity" },
   { label: "Activated", width: 12, title: "Activation Date" },
   { label: "Deadline", width: 13, title: "Delivery Deadline" },
   { label: "Progress", width: 15, numeric: true },
