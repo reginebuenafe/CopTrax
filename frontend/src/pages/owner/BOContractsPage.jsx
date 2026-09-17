@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   LuFileText, LuCheck, LuX,
-  LuCircleAlert, LuLoader, LuArrowLeft,
+  LuCircleAlert, LuLoader, LuArrowLeft, LuArrowRight,
   LuSearch, LuArrowUpDown, LuTruck, LuPackage,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -32,13 +32,28 @@ function daysLeft(due) {
   if (!due) return null;
   return Math.ceil((new Date(due) - new Date()) / (1000 * 60 * 60 * 24));
 }
+function supplierInitials(first, last) {
+  const f = (first ?? "").trim()[0] ?? "";
+  const l = (last ?? "").trim()[0] ?? "";
+  return (f + l).toUpperCase() || "?";
+}
+// Truncates (never rounds up) to 1 decimal place so a near-100% but not
+// actually fully-delivered contract (e.g. 99.96%) can never display as a
+// misleading "100.0%" — the DB's exact >= comparison is what decides
+// Completed status, and the display must always agree with it.
+function fmtProgressPct(value) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  return (Math.floor(safeValue * 10) / 10).toFixed(1);
+}
 
 export default function BOContractsPage() {
   const { user } = useAuth();
   const [contracts, setContracts] = useState([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
+  const [supplierSearch, setSupplierSearch] = useState("");
   const [sort, setSort] = useState("newest");
+  const [selectedSupplierId, setSelectedSupplierId] = useState(null);
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviewModal, setReviewModal]       = useState(null); // contract for generation
@@ -104,7 +119,12 @@ export default function BOContractsPage() {
       }
     }
 
-    // Auto-breach any overdue Active contracts before rendering
+    // Auto-complete contracts fully delivered (safety net for any delivery
+    // that reached 100% without a live UPDATE→'Accepted' trigger firing),
+    // then auto-breach any still-Active, overdue contracts before rendering.
+    // Completion is checked first so a fully-delivered contract is never
+    // wrongly left/marked Active or Breached past its deadline.
+    await supabase.rpc("auto_complete_fulfilled_contracts");
     await supabase.rpc("auto_breach_overdue_contracts");
 
     // Re-fetch statuses after potential breach updates
@@ -141,8 +161,60 @@ export default function BOContractsPage() {
     return () => supabase.removeChannel(channel);
   }, [user.id, fetchContracts]);
 
+  // Group contracts by supplier for the supplier-list landing view — purely
+  // presentational aggregation over the already-loaded `contracts` state;
+  // no new queries, no changes to contract data/statuses.
+  const supplierGroups = (() => {
+    const map = new Map();
+    for (const c of contracts) {
+      const id = c.supplier?.user_id;
+      if (!id) continue;
+      if (!map.has(id)) {
+        map.set(id, {
+          supplierId: id,
+          firstName: c.supplier?.first_name ?? "",
+          lastName: c.supplier?.last_name ?? "",
+          email: c.supplier?.email ?? "",
+          total: 0,
+          counts: { Pending: 0, "Pending Owner Review": 0, Active: 0, Completed: 0, Breached: 0 },
+        });
+      }
+      const g = map.get(id);
+      g.total += 1;
+      if (g.counts[c.status] !== undefined) g.counts[c.status] += 1;
+    }
+    return Array.from(map.values())
+      .map(g => ({
+        ...g,
+        name: `${g.firstName} ${g.lastName}`.trim() || "—",
+        initialsText: supplierInitials(g.firstName, g.lastName),
+      }))
+      .sort((a, b) => {
+        const lastCmp = (a.lastName ?? "").localeCompare(b.lastName ?? "", "en-PH", { sensitivity: "base" });
+        if (lastCmp !== 0) return lastCmp;
+        return (a.firstName ?? "").localeCompare(b.firstName ?? "", "en-PH", { sensitivity: "base" });
+      });
+  })();
+
+  const selectedSupplier = supplierGroups.find(s => s.supplierId === selectedSupplierId) ?? null;
+
+  // Filter the supplier landing list by name/email — independent of the
+  // per-supplier contracts table's own search box below.
+  const filteredSupplierGroups = supplierGroups.filter(s => {
+    if (!supplierSearch.trim()) return true;
+    const q = supplierSearch.trim().toLowerCase();
+    return s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
+  });
+
+  // Scope the existing table's data to the selected supplier only — the
+  // search/status-filter/sort logic below (and the reused table component)
+  // is completely unchanged, it just now runs over a supplier's subset.
+  const scopedContracts = selectedSupplierId
+    ? contracts.filter(c => c.supplier?.user_id === selectedSupplierId)
+    : contracts;
+
   // Search + status filter + sort
-  const filtered = contracts
+  const filtered = scopedContracts
     .filter(c => filter === "All" || c.status === filter)
     .filter(c => {
       if (!search.trim()) return true;
@@ -167,7 +239,24 @@ export default function BOContractsPage() {
       return new Date(b.created_at) - new Date(a.created_at); // newest default
     });
 
+  // Contracts awaiting BO review, scoped the same way the table above is —
+  // all suppliers on the landing page, just the selected supplier once inside.
+  const pendingReviewContracts = scopedContracts.filter(c => c.status === "Pending Owner Review");
+
   const selectedContract = filtered.find(c => c.contract_id === selectedContractId) ?? null;
+
+  function openSupplier(supplierId) {
+    setSelectedSupplierId(supplierId);
+    setSelectedContractId(null);
+    setFilter("All");
+    setSearch("");
+    setSort("newest");
+  }
+
+  function backToSuppliers() {
+    setSelectedSupplierId(null);
+    setSelectedContractId(null);
+  }
 
   function openContract(c) {
     if (c.status === "Pending" && !c.contract_hash) setReviewModal(c);
@@ -199,131 +288,183 @@ export default function BOContractsPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div className="min-w-0">
-          <h1 className="text-2xl font-black text-brown-dark">Contracts</h1>
-          <p className="text-brown-light text-sm mt-0.5">Manage all supplier contracts</p>
+          {selectedSupplier && (
+            <button
+              onClick={backToSuppliers}
+              className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-brown-mid hover:text-brown-dark transition-colors"
+            >
+              <LuArrowLeft className="w-4 h-4" /> Back to Suppliers
+            </button>
+          )}
+          {selectedSupplier ? (
+            <h1 className="text-3xl font-black text-brown-dark sm:text-4xl">{selectedSupplier.name}</h1>
+          ) : (
+            <>
+              <h1 className="text-2xl font-black text-brown-dark">Contracts</h1>
+              <p className="text-brown-light text-sm mt-0.5">Manage all supplier contracts</p>
+            </>
+          )}
         </div>
         {!loading && (
-          <span className="text-xs text-brown-light shrink-0">{contracts.length} total</span>
+          <span className="text-xs text-brown-light shrink-0">
+            {selectedSupplier ? scopedContracts.length : contracts.length} total
+          </span>
         )}
       </div>
 
       {/* Prominent banner — impossible to miss when a Supplier-signed
-          contract is waiting on the Business Owner's review/approval. */}
-      {!loading && contracts.filter(c => c.status === "Pending Owner Review").length > 0 && (
+          contract is waiting on the Business Owner's review/approval.
+          Scoped to the selected supplier once inside their contracts view;
+          otherwise checks across all suppliers and jumps into the first one
+          with a contract awaiting review. */}
+      {!loading && pendingReviewContracts.length > 0 && (
         <button
-          onClick={() => { setFilter("Pending Owner Review"); setSelectedContractId(null); }}
+          onClick={() => {
+            if (!selectedSupplierId) {
+              const supplierId = pendingReviewContracts[0]?.supplier?.user_id;
+              if (supplierId) setSelectedSupplierId(supplierId);
+            }
+            setFilter("Pending Owner Review");
+            setSelectedContractId(null);
+          }}
           className="w-full flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 mb-4 text-left transition-colors hover:bg-orange-100"
         >
           <LuCircleAlert className="w-5 h-5 text-orange-600 shrink-0" />
           <span className="text-sm text-orange-800 flex-1">
-            <strong>{contracts.filter(c => c.status === "Pending Owner Review").length}</strong> contract
-            {contracts.filter(c => c.status === "Pending Owner Review").length !== 1 ? "s" : ""} signed by
+            <strong>{pendingReviewContracts.length}</strong> contract
+            {pendingReviewContracts.length !== 1 ? "s" : ""} signed by
             the Supplier and awaiting your review &amp; approval.
           </span>
           <span className="text-xs font-bold text-orange-700 shrink-0">Review now →</span>
         </button>
       )}
 
-      {/* Search + Sort row */}
-      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
-        <div className="relative min-w-0 flex-1 sm:min-w-[180px]">
-          <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setSelectedContractId(null); }}
-            placeholder="Search supplier name or contract #…"
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
-              placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
-          />
-          {search && (
-            <button onClick={() => { setSearch(""); setSelectedContractId(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-              <LuX className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        <div className="relative w-full sm:w-auto sm:shrink-0">
-          <LuArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
-          <select
-            value={sort}
-            onChange={e => { setSort(e.target.value); setSelectedContractId(null); }}
-            className="w-full pl-8 pr-8 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm sm:w-auto
-              focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
-          >
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="az">Supplier A → Z</option>
-            <option value="za">Supplier Z → A</option>
-            <option value="price_asc">Price: Low → High</option>
-            <option value="price_desc">Price: High → Low</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Status filter tabs */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
-        {FILTERS.map(f => {
-          const tabLabel = STATUS_META[f]?.label ?? f;
-          const count = f !== "All" ? contracts.filter(c => c.status === f).length : 0;
-          return (
-            <button key={f} onClick={() => { setFilter(f); setSelectedContractId(null); }}
-              className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
-                ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-              {f === "All" ? `All (${contracts.length})` : tabLabel}
-              {f === "Pending Owner Review" && count > 0 && (
-                <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                  {count}
-                </span>
-              )}
-              {f === "Pending" && count > 0 && (
-                <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
-          <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
-            <LuFileText className="w-7 h-7 text-brown-light" />
+      {!selectedSupplierId ? (
+        loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
           </div>
-          <p className="text-brown-dark font-semibold">No {filter !== "All" ? `"${filter}"` : ""} contracts{search ? ` matching "${search}"` : ""}</p>
-          <p className="text-brown-light text-sm mt-1">{search ? "Try a different name or contract number." : "Contracts are created when a price negotiation is accepted."}</p>
-        </div>
+        ) : supplierGroups.length === 0 ? (
+          <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
+            <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+              <LuFileText className="w-7 h-7 text-brown-light" />
+            </div>
+            <p className="text-brown-dark font-semibold">No suppliers with contracts yet</p>
+            <p className="text-brown-light text-sm mt-1">Contracts are created when a price negotiation is accepted.</p>
+          </div>
+        ) : (
+          <OwnerSupplierList
+            suppliers={filteredSupplierGroups}
+            onSelect={openSupplier}
+            search={supplierSearch}
+            onSearchChange={setSupplierSearch}
+          />
+        )
       ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <MotionDiv
-            key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${filter}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {selectedContract ? (
-              <OwnerContractMasterDetail
-                contract={selectedContract}
-                onBack={() => setSelectedContractId(null)}
-                onViewContract={openContract}
-                onViewBatches={setBatchesModal}
-              />
-            ) : (
-              <OwnerContractList
-                contracts={filtered}
-                totalCount={contracts.length}
-                onSelect={setSelectedContractId}
-                onViewContract={openContract}
-                onViewBatches={setBatchesModal}
-              />
-            )}
-          </MotionDiv>
-        </AnimatePresence>
+        <>
+          {/* Status filter tabs + compact search/sort, in one row */}
+          <div className="mb-6 flex flex-col gap-3 border-b border-beige-dark/40 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 overflow-x-auto">
+              {FILTERS.map(f => {
+                const tabLabel = STATUS_META[f]?.label ?? f;
+                const count = f !== "All" ? scopedContracts.filter(c => c.status === f).length : 0;
+                return (
+                  <button key={f} onClick={() => { setFilter(f); setSelectedContractId(null); }}
+                    className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+                      ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+                    {f === "All" ? `All (${scopedContracts.length})` : tabLabel}
+                    {f === "Pending Owner Review" && count > 0 && (
+                      <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                        {count}
+                      </span>
+                    )}
+                    {f === "Pending" && count > 0 && (
+                      <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2 pb-2.5">
+              <div className="relative w-48 sm:w-60">
+                <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setSelectedContractId(null); }}
+                  placeholder="Search contract #…"
+                  className="w-full pl-9 pr-8 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
+                    placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
+                />
+                {search && (
+                  <button onClick={() => { setSearch(""); setSelectedContractId(null); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+                    <LuX className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="relative shrink-0">
+                <LuArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
+                <select
+                  value={sort}
+                  onChange={e => { setSort(e.target.value); setSelectedContractId(null); }}
+                  className="pl-7 pr-7 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
+                    focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="az">Supplier A → Z</option>
+                  <option value="za">Supplier Z → A</option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-20 text-center px-4">
+              <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
+                <LuFileText className="w-7 h-7 text-brown-light" />
+              </div>
+              <p className="text-brown-dark font-semibold">No {filter !== "All" ? `"${filter}"` : ""} contracts{search ? ` matching "${search}"` : ""}</p>
+              <p className="text-brown-light text-sm mt-1">{search ? "Try a different name or contract number." : "Contracts are created when a price negotiation is accepted."}</p>
+            </div>
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <MotionDiv
+                key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${filter}`}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {selectedContract ? (
+                  <OwnerContractMasterDetail
+                    contract={selectedContract}
+                    onBack={() => setSelectedContractId(null)}
+                    onViewContract={openContract}
+                    onViewBatches={setBatchesModal}
+                  />
+                ) : (
+                  <OwnerContractList
+                    contracts={filtered}
+                    totalCount={scopedContracts.length}
+                    onSelect={setSelectedContractId}
+                    onViewContract={openContract}
+                    onViewBatches={setBatchesModal}
+                  />
+                )}
+              </MotionDiv>
+            </AnimatePresence>
+          )}
+        </>
       )}
 
       {/* ContractApprovalModal — BO must open, review, and explicitly approve
@@ -443,7 +584,7 @@ function ContractProgress({ value, status }) {
         <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${safeValue}%` }} />
       </div>
       <span className="w-11 shrink-0 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">
-        {safeValue.toFixed(1)}%
+        {fmtProgressPct(safeValue)}%
       </span>
     </div>
   );
@@ -475,16 +616,113 @@ function OwnerContractActions({ contract: c, onViewContract, onViewBatches, reve
 }
 
 const OWNER_CONTRACT_COLUMNS = [
-  { label: "Contract #", width: 12 },
-  { label: "Status", width: 11 },
-  { label: "Supplier Name", width: 14 },
-  { label: "Agreed Price", width: 10, numeric: true, title: "Agreed Price (₱/kg)" },
-  { label: "Agreed Qty", width: 10, numeric: true, title: "Agreed Quantity" },
-  { label: "Activated", width: 10, title: "Activation Date" },
-  { label: "Deadline", width: 11, title: "Delivery Deadline" },
-  { label: "Progress", width: 12, numeric: true },
+  { label: "Contract #", width: 14 },
+  { label: "Status", width: 12 },
+  { label: "Agreed Price", width: 12, numeric: true, title: "Agreed Price (₱/kg)" },
+  { label: "Agreed Qty", width: 12, numeric: true, title: "Agreed Quantity" },
+  { label: "Activated", width: 12, title: "Activation Date" },
+  { label: "Deadline", width: 13, title: "Delivery Deadline" },
+  { label: "Progress", width: 15, numeric: true },
   { label: "", width: 10 },
 ];
+
+const SUPPLIER_STAT_ORDER = ["Active", "Completed", "Breached"];
+const SUPPLIER_STAT_ICON_BG = {
+  Active: "bg-green-pale",
+  Pending: "bg-beige",
+  "Pending Owner Review": "bg-amber-50",
+  Completed: "bg-blue-50",
+  Breached: "bg-red-50",
+};
+const SUPPLIER_STAT_DOT = {
+  Active: "bg-green-mid",
+  Pending: "bg-brown-light",
+  "Pending Owner Review": "bg-amber-500",
+  Completed: "bg-blue-500",
+  Breached: "bg-red-500",
+};
+
+function SupplierStat({ iconBg, dotColor, icon, value, label }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconBg}`}>
+        {icon ?? <span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />}
+      </span>
+      <div className="leading-tight">
+        <p className="text-lg font-black text-brown-dark">{value}</p>
+        <p className="whitespace-nowrap text-xs text-brown-light">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function OwnerSupplierList({ suppliers, onSelect, search, onSearchChange }) {
+  return (
+    <section aria-label="Suppliers" className="min-w-0">
+      {/* Search bar — filters the supplier list below by name or email only;
+          does not touch the per-supplier contracts table's own search. */}
+      <div className="relative mb-5 max-w-md">
+        <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => onSearchChange(e.target.value)}
+          placeholder="Search supplier name or email…"
+          className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+            placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
+        />
+        {search && (
+          <button onClick={() => onSearchChange("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+            <LuX className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {suppliers.length === 0 ? (
+        <div className="bg-white border border-beige-dark/40 rounded-xl flex flex-col items-center justify-center py-16 text-center px-4">
+          <p className="text-brown-dark font-semibold">No suppliers matching "{search}"</p>
+          <p className="text-brown-light text-sm mt-1">Try a different name or email.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {suppliers.map(s => (
+            <article key={s.supplierId}
+              className="rounded-2xl border-2 border-beige-dark/80 bg-white p-4 shadow-card sm:p-5">
+              <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+                <div className="flex min-w-0 items-center gap-4 sm:flex-1 sm:min-w-[180px]">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-pale text-lg font-black text-green-dark">
+                    {s.initialsText}
+                  </div>
+                  <h2 className="truncate text-lg font-black text-brown-dark">{s.name}</h2>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                  <SupplierStat iconBg="bg-orange-50" icon={<LuFileText className="w-4 h-4 text-orange-500" />} value={s.total} label="Contracts" />
+                  {SUPPLIER_STAT_ORDER.map(k => (
+                    <div key={k} className="flex items-center gap-x-5">
+                      <span className="hidden h-9 w-px bg-beige-dark/60 sm:block" />
+                      <SupplierStat
+                        iconBg={SUPPLIER_STAT_ICON_BG[k]}
+                        dotColor={SUPPLIER_STAT_DOT[k]}
+                        value={s.counts[k]}
+                        label={STATUS_META[k].label}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => onSelect(s.supplierId)}
+                  className="ml-auto flex shrink-0 items-center gap-2 rounded-full bg-green-dark px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-green-dark/90"
+                >
+                  View <LuArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function OwnerContractList({ contracts, totalCount, onSelect, onViewContract, onViewBatches }) {
   const values = c => {
@@ -492,43 +730,43 @@ function OwnerContractList({ contracts, totalCount, onSelect, onViewContract, on
     const deliveredKg = Number(c.delivered_kg ?? 0);
     const days = daysLeft(c.due_date);
     return {
-      progress: agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0,
-      days, timing: deadlineTimingLabel(days),
-      supplier: `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.trim() || "—",
+      // Completed contracts always display 100% regardless of the exact
+      // computed fraction (display-only; does not change delivered_kg,
+      // agreedKg, or the Active/Breached completion logic itself).
+      progress: c.status === "Completed" ? 100 : (agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0),
+      // Countdown ("N days left"/"overdue") only makes sense while a contract
+      // is still Active — Completed/Breached contracts hide it (display-only).
+      days, timing: c.status === "Active" ? deadlineTimingLabel(days) : null,
       quantity: `${Number(c.contracted_tons ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} tons`,
     };
   };
   const deadline = (c, v) => (
     <div>
       <p>{fmtDate(c.due_date)}</p>
-      {v.timing && <p className={`mt-1 text-[11px] font-semibold ${v.days < 0 ? "text-red-500" : v.days === 0 ? "text-amber-600" : "text-green-dark"}`}>{v.timing}</p>}
-    </div>
-  );
-  const supplier = (c, v) => (
-    <div className="min-w-0">
-      <p className="break-words font-semibold">{v.supplier}</p>
-      <p className="mt-1 break-words text-[10px] text-brown-light">{c.supplier?.email}</p>
+      {v.timing && <p className={`mt-1 text-xs font-semibold ${v.days < 0 ? "text-red-500" : v.days === 0 ? "text-amber-600" : "text-green-dark"}`}>{v.timing}</p>}
     </div>
   );
   return (
     <section aria-label="Owner contracts" className="min-w-0">
       <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
-        <table className="w-full table-fixed border-collapse text-xs">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Supplier contracts managed by the owner</caption>
           <colgroup>{OWNER_CONTRACT_COLUMNS.map((col, i) => <col key={i} style={{ width: `${col.width}%` }} />)}</colgroup>
           <thead className="bg-beige">
-            <tr className="border-b border-beige-dark/60">
+            <tr>
               {OWNER_CONTRACT_COLUMNS.map((col, i) => (
                 <th key={i} scope="col" title={col.title}
-                  className={`whitespace-nowrap px-2 py-3.5 text-[10px] font-bold text-brown-light ${col.label === "Status" || col.label === "Progress" ? "text-center" : col.numeric ? "text-right" : "text-left"}`}>
+                  className={`whitespace-nowrap border-b border-beige-dark/60 px-3 py-3.5 text-xs font-bold text-brown-light ${col.label === "Status" || col.label === "Progress" ? "text-center" : col.numeric ? "text-right" : "text-left"} ${i === 0 ? "rounded-tl-2xl" : ""} ${i === OWNER_CONTRACT_COLUMNS.length - 1 ? "rounded-tr-2xl" : ""}`}>
                   {col.label || <span className="sr-only">Actions</span>}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {contracts.map(c => {
+            {contracts.map((c, idx) => {
               const v = values(c);
+              const isLast = idx === contracts.length - 1;
+              const rowBorder = isLast ? "" : "border-b border-beige-dark/40";
               return (
                 <tr key={c.contract_id} tabIndex={0}
                   aria-label={`Open details for ${c.contract_number}`}
@@ -539,19 +777,18 @@ function OwnerContractList({ contracts, totalCount, onSelect, onViewContract, on
                       onSelect(c.contract_id);
                     }
                   }}
-                  className="group cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors duration-150 ease-out last:border-0 hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25">
-                  <td className="border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark">
+                  className="group cursor-pointer bg-white outline-none transition-colors duration-150 ease-out hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25">
+                  <td className={`border-l-[5px] border-l-transparent px-3 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark ${rowBorder}`}>
                     <p className="font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
-                    <p className="mt-1 text-[10px] text-brown-light">Created {fmtDate(c.created_at)}</p>
+                    <p className="mt-1 text-xs text-brown-light">Created {fmtDate(c.created_at)}</p>
                   </td>
-                  <td className="px-2 py-4 text-center"><ContractStatusBadge status={c.status} /></td>
-                  <td className="px-2 py-4 text-left text-brown-dark">{supplier(c, v)}</td>
-                  <td className="px-2 py-4 text-right font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
-                  <td className="px-2 py-4 text-right tabular-nums text-brown-mid">{v.quantity}</td>
-                  <td className="px-2 py-4 text-left text-brown-mid">{fmtDate(c.activation_date)}</td>
-                  <td className="px-2 py-4 text-left text-brown-mid">{deadline(c, v)}</td>
-                  <td className="px-2 py-4"><ContractProgress value={v.progress} status={c.status} /></td>
-                  <td onClick={e => e.stopPropagation()} className="px-0 py-4"><OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} reveal /></td>
+                  <td className={`px-3 py-4 text-center ${rowBorder}`}><ContractStatusBadge status={c.status} /></td>
+                  <td className={`px-3 py-4 text-right font-bold tabular-nums text-brown-dark ${rowBorder}`}>{peso(c.negotiated_price_per_kg)}</td>
+                  <td className={`px-3 py-4 text-right tabular-nums text-brown-mid ${rowBorder}`}>{v.quantity}</td>
+                  <td className={`px-3 py-4 text-left text-brown-mid ${rowBorder}`}>{fmtDate(c.activation_date)}</td>
+                  <td className={`px-3 py-4 text-left text-brown-mid ${rowBorder}`}>{deadline(c, v)}</td>
+                  <td className={`px-3 py-4 ${rowBorder}`}><ContractProgress value={v.progress} status={c.status} /></td>
+                  <td onClick={e => e.stopPropagation()} className={`px-0 py-4 ${rowBorder}`}><OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} reveal /></td>
                 </tr>
               );
             })}
@@ -595,23 +832,27 @@ function OwnerContractMasterDetail({ contract: c, onBack, onViewContract, onView
   const agreedKg = Number(c.contracted_tons ?? 0) * 1000;
   const deliveredKg = Number(c.delivered_kg ?? 0);
   const remainingKg = Math.max(0, agreedKg - deliveredKg);
-  const progress = agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0;
+  // Completed contracts always display 100% regardless of the exact
+  // computed fraction (display-only; does not change delivered_kg,
+  // agreedKg, or the Active/Breached completion logic itself).
+  const progress = c.status === "Completed" ? 100 : (agreedKg > 0 ? Math.min(100, deliveredKg / agreedKg * 100) : 0);
   const days = daysLeft(c.due_date);
-  const timing = deadlineTimingLabel(days);
+  // Countdown ("N days left"/"overdue") only makes sense while a contract
+  // is still Active — Completed/Breached contracts hide it (display-only).
+  const timing = c.status === "Active" ? deadlineTimingLabel(days) : null;
   const supplierName = `${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.trim() || "—";
   const fields = [
     { label: "Supplier Name", value: supplierName },
-    { label: "Supplier Email", value: c.supplier?.email || "—" },
     { label: "Created", value: fmtDate(c.created_at) },
     { label: "Status", value: <ContractStatusBadge status={c.status} /> },
-    { label: "Agreed Price", value: peso(c.negotiated_price_per_kg) + "/kg", numeric: true },
-    { label: "Agreed Quantity", value: `${Number(c.contracted_tons ?? 0).toLocaleString("en-PH")} tons`, numeric: true },
+    { label: "Price", value: peso(c.negotiated_price_per_kg) + "/kg", numeric: true },
+    { label: "Quantity", value: `${Number(c.contracted_tons ?? 0).toLocaleString("en-PH")} tons`, numeric: true },
     { label: "Accepted Qty", value: `${(deliveredKg / 1000).toFixed(2)} tons`, numeric: true },
     { label: "Remaining Qty", value: `${(remainingKg / 1000).toFixed(2)} tons`, numeric: true },
     { label: "Activation Date", value: fmtDate(c.activation_date) },
     { label: "Delivery Deadline", value: fmtDate(c.due_date) },
     { label: "Days Left", value: timing || "—", color: days < 0 ? "text-red-500" : days === 0 ? "text-amber-600" : "text-green-dark" },
-    { label: "Fulfillment", value: `${progress.toFixed(1)}%`, numeric: true },
+    { label: "Fulfillment", value: `${fmtProgressPct(progress)}%`, numeric: true },
   ];
   return (
     <div className="min-w-0">
