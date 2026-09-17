@@ -14,6 +14,10 @@ import { usePersistentProposalModal } from "../../hooks/usePersistentProposalMod
 import { formatMessageText } from "../../utils/formatMessageText";
 import MoistureContentTable from "../../components/MoistureContentTable";
 
+// Hard cap on a single chat message's length — matches the DB check
+// constraint added for defense-in-depth (see migration 20260917000064).
+const MAX_MESSAGE_LENGTH = 2000;
+
 const BO_QUICK_ACTIONS = [
   ["Ask Proposal", "I would like to buy some copras. Have you harvested some?"],
   ["Ask Availability", "How many tons of copra are currently available?"],
@@ -259,6 +263,11 @@ export default function BOChatLayout() {
         lastMsg?.sender_id !== user.id;
       return { ...c, lastMsg, unread };
     });
+    // Display order only (purely presentational — does not touch any
+    // negotiation/message data or logic): most recent activity (latest
+    // message or proposal) first, so whoever just messaged floats to top.
+    enriched.sort((a, b) =>
+      new Date(b.lastMsg?.sent_at ?? b.created_at) - new Date(a.lastMsg?.sent_at ?? a.created_at));
     setConversations(enriched);
     setConvLoading(false);
   }, [user.id]);
@@ -429,13 +438,14 @@ export default function BOChatLayout() {
   // ── Chat actions ──────────────────────────────────────────────────────────
   async function sendMessage(e) {
     e.preventDefault();
-    if (!text.trim() || sending) return;
+    const trimmed = text.trim();
+    if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
       message_type: "Text",
-      message_text: text.trim(),
+      message_text: trimmed,
     }).select().single();
     if (newMsg) {
       setMessages(prev => prev.some(m => m.message_id === newMsg.message_id) ? prev : [...prev, newMsg]);
@@ -840,6 +850,7 @@ export default function BOChatLayout() {
                 <input
                   type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder={`Message ${currentConv?.supplier?.first_name ?? ""}…`}
+                  maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent px-1 py-1 text-sm text-[#4E342E] placeholder-[#A18D82] focus:outline-none"
                 />
                 <button type="submit" disabled={!text.trim() || sending}

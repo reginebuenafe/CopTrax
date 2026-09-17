@@ -15,6 +15,10 @@ import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
 
+// Hard cap on a single chat message's length — matches the DB check
+// constraint added for defense-in-depth (see migration 20260917000064).
+const MAX_MESSAGE_LENGTH = 2000;
+
 function getDateLabel(dateInput) {
   if (!dateInput) return "";
   const d = new Date(dateInput);
@@ -471,7 +475,8 @@ export default function NegotiationChatWidget() {
 
   async function handleSendMessage(e) {
     if (e) e.preventDefault();
-    if (!inputText.trim() || sending) return;
+    const trimmed = inputText.trim();
+    if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
 
     setSending(true);
 
@@ -483,7 +488,7 @@ export default function NegotiationChatWidget() {
       return;
     }
 
-    const textToSend = inputText.trim();
+    const textToSend = trimmed;
     setInputText("");
 
     const { error } = await supabase.from("messages").insert({
@@ -1060,6 +1065,7 @@ export default function NegotiationChatWidget() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Type your message here..."
+              maxLength={MAX_MESSAGE_LENGTH}
               className="flex-1 bg-transparent text-xs text-brown-dark placeholder-[#8D6E63] focus:outline-none"
             />
             <button

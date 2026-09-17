@@ -82,13 +82,13 @@ export default function WeigherHistoryPage() {
 
                   return (
                     <tr key={d.delivery_id} className="hover:bg-beige/30 transition-colors duration-150">
-                      <td className="px-5 py-4">
+                      <td className="px-5 py-3.5">
                        <p className="font-semibold text-brown-dark">{supplierName || <span className="text-brown-light italic text-xs">Unknown supplier</span>}</p>
                         {d.delivery_source === "Contract-based" && d.contract?.contract_number && (
                           <p className="text-xs text-brown-light mt-0.5">{d.contract.contract_number}</p>
                         )}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
                           d.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
                         }`}>
@@ -98,18 +98,18 @@ export default function WeigherHistoryPage() {
                           }
                         </span>
                       </td>
-                      <td className="px-5 py-4 hidden md:table-cell">
+                      <td className="px-5 py-3.5 hidden md:table-cell">
                         <p className="text-brown-mid text-xs">
                           {new Date(d.delivery_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
                         </p>
                       </td>
-                      <td className="px-5 py-4 hidden lg:table-cell">
+                      <td className="px-5 py-3.5 hidden lg:table-cell">
                        {netWeight != null
                          ? <p className="font-semibold text-brown-dark">{Number(netWeight).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</p>
                          : <p className="text-brown-light text-xs italic">No weigh record</p>
                        }
                      </td>
-                     <td className="px-5 py-4">
+                     <td className="px-5 py-3.5">
                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[d.delivery_status] ?? "bg-beige text-brown-mid"}`}>
                          {d.delivery_status}
                        </span>

@@ -169,7 +169,7 @@ async function fetchRatings(from, to) {
 
 function ContractsTable({ rows }) {
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
           {["Contract #","Supplier","Status","Price/ton","Contracted (t)","Activation","Due Date"].map(h => (
@@ -203,7 +203,7 @@ function ContractsTable({ rows }) {
 
 function DeliveriesTable({ rows }) {
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
           {["Batch #","Date","Supplier","Type","Net Wt","Moisture (cc)","Quality","Allocations"].map(h => (
@@ -273,7 +273,7 @@ function DeliveriesTable({ rows }) {
 
 function InventoryTable({ rows }) {
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
           {["Delivery","Recorded","Source","Weight","Status","Eligible to Merge","Decision"].map(h => (
@@ -306,7 +306,7 @@ function InventoryTable({ rows }) {
 
 function PaymentsTable({ rows }) {
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
           {["Reference","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status","Method"].map(h => (
@@ -351,7 +351,7 @@ function PaymentsTable({ rows }) {
 
 function RatingsTable({ rows }) {
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
           {["Supplier","Contract","Date","Fulfillment","Volume","Quality","Score","Rating","Overall"].map(h => (

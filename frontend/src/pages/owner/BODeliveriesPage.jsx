@@ -42,7 +42,16 @@ export default function BODeliveriesPage() {
   const [sort, setSort] = useState("newest");
   const [deliveryType, setDeliveryType] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [spotPrice, setSpotPrice] = useState(null);
   const linkedDeliveryId = searchParams.get("deliveryId");
+
+  useEffect(() => {
+    async function fetchSpotPrice() {
+      const { data } = await supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle();
+      setSpotPrice(data?.price_per_kg ?? null);
+    }
+    fetchSpotPrice();
+  }, []);
 
   useEffect(() => {
     async function fetchAll() {
@@ -257,37 +266,29 @@ export default function BODeliveriesPage() {
                     <DeliveryDetailTable delivery={d} weighing={wr} inspection={li} discountPct={discountPct} finalKg={finalKg} />
                     {/* Allocation breakdown — shown only for contractual deliveries with allocation data */}
                     {d.delivery_source === "Contract-based" && allocs.length > 0 && (
-                      <div className="mt-3 bg-beige rounded-xl px-4 py-3">
-                        <p className="text-xs font-semibold text-brown-light uppercase tracking-wide mb-2">
+                      <div className="mt-3 rounded-xl bg-beige px-4 py-1">
+                        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
                           Allocation Breakdown
                         </p>
-                        <div className="space-y-1.5">
+                        <div className="divide-y divide-beige-dark/40">
                           {allocs.map((a, i) => {
-                            const priceType = a.price_type ?? (a.contract_id ? "Negotiated" : "Spot");
+                            const isSpot = !a.contract_id;
+                            const price = isSpot ? spotPrice : a.contract?.negotiated_price_per_kg;
                             return (
-                            <div key={a.allocation_id ?? i} className="flex min-w-0 flex-nowrap items-center justify-between gap-1 text-[9px] max-[359px]:text-[8px] min-[480px]:text-[10px] md:gap-2 md:text-xs">
-                              <div className="flex shrink-0 flex-nowrap items-center gap-1 md:min-w-0 md:shrink md:flex-wrap md:gap-2">
-                                <span className={`whitespace-nowrap px-1 py-0.5 rounded-full font-semibold md:px-1.5 ${
-                                  priceType === "Spot"
-                                    ? "bg-amber-50 text-amber-700"
-                                    : "bg-green-pale text-green-dark"
-                                }`}>
-                                  {priceType}
-                                </span>
-                                <span className="whitespace-nowrap font-semibold text-brown-dark">
-                                  {a.contract_id
-                                    ? (a.contract?.contract_number ?? "Contract")
-                                    : "Spot Price"
-                                  }
-                                </span>
+                              <div key={a.allocation_id ?? i} className="flex items-center justify-between gap-3 py-2.5">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${isSpot ? "bg-amber-500" : "bg-green-dark"}`} aria-hidden="true" />
+                                  <span className="truncate text-xs font-semibold text-brown-dark md:text-sm">
+                                    {isSpot ? "Spot Price" : (a.contract?.contract_number ?? "Contract")}
+                                  </span>
+                                </div>
+                                <div className="flex shrink-0 items-baseline gap-1.5">
+                                  <span className="whitespace-nowrap text-xs font-bold text-brown-dark md:text-sm">{fmt3(a.allocated_weight_kg)} kg</span>
+                                  {price !== null && price !== undefined && (
+                                    <span className="whitespace-nowrap text-[11px] text-brown-light">{peso(price)}/kg</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-1 text-right text-brown-mid md:flex-none md:shrink-0 md:flex-wrap md:gap-3">
-                                <span className="shrink-0 whitespace-nowrap font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
-                                {a.contract_id && a.contract?.negotiated_price_per_kg !== null && a.contract?.negotiated_price_per_kg !== undefined && (
-                                  <span title={`${peso(a.contract.negotiated_price_per_kg)}/kg`} className="min-w-0 truncate text-brown-light md:overflow-visible md:whitespace-normal md:text-clip">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
-                                )}
-                              </div>
-                            </div>
                             );
                           })}
                         </div>
@@ -305,15 +306,15 @@ export default function BODeliveriesPage() {
 }
 
 const DETAIL_COLUMNS = [
-  { label: "Truck Number", short: "Truck", width: 10 },
-  { label: "Gross Weight", short: "Gross", width: 10, numeric: true },
-  { label: "Tare Weight", short: "Tare", width: 10, numeric: true },
-  { label: "Net Weight", short: "Net", width: 10, numeric: true, prominent: true },
-  { label: "Weighing Staff", short: "Weigher", width: 13 },
-  { label: "Moisture", short: "Moisture", width: 9, numeric: true },
-  { label: "PCA Deduction", short: "PCA Ded.", width: 11, numeric: true },
-  { label: "Final Weight", short: "Final", width: 11, numeric: true, prominent: true },
-  { label: "Lab Staff", short: "Lab Staff", width: 16 },
+  { label: "Truck Number", short: "Truck" },
+  { label: "Gross Weight", short: "Gross", numeric: true },
+  { label: "Tare Weight", short: "Tare", numeric: true },
+  { label: "Net Weight", short: "Net", numeric: true, prominent: true },
+  { label: "Weighing Staff", short: "Weigher" },
+  { label: "Moisture", short: "Moisture", numeric: true },
+  { label: "PCA Deduction", short: "PCA Ded.", numeric: true },
+  { label: "Final Weight", short: "Final", numeric: true, prominent: true },
+  { label: "Lab Staff", short: "Lab Staff" },
 ];
 
 function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discountPct, finalKg }) {
@@ -350,15 +351,14 @@ function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discou
   ].join(" ");
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-beige-dark/50 md:block">
-        <table className="w-full table-fixed border-collapse text-xs text-brown-mid">
+      <div className="hidden overflow-x-auto rounded-xl border border-beige-dark/50 md:block">
+        <table className="w-full table-auto border-collapse text-sm text-brown-mid">
           <caption className="sr-only">Delivery weighing and laboratory details</caption>
-          <colgroup>{DETAIL_COLUMNS.map(col => <col key={col.label} style={{ width: `${col.width}%` }} />)}</colgroup>
           <thead className="bg-beige">
             <tr>
               {DETAIL_COLUMNS.map(col => (
                 <th key={col.label} scope="col" title={col.label}
-                  className={`whitespace-nowrap px-2 py-3 text-[10px] font-bold uppercase tracking-tight text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>
+                  className={`whitespace-nowrap px-3 py-3 text-[11px] font-bold uppercase tracking-tight text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>
                   <span className="xl:hidden">{col.short}</span>
                   <span className="hidden xl:inline">{col.label}</span>
                 </th>
@@ -368,7 +368,7 @@ function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discou
           <tbody>
             <tr className="border-t border-beige-dark/30 transition-colors hover:bg-beige/30">
               {values.map((field, i) => (
-                <td key={DETAIL_COLUMNS[i].label} className={`break-words px-2 py-4 align-middle ${textClass(field, DETAIL_COLUMNS[i])}`}>
+                <td key={DETAIL_COLUMNS[i].label} className={`whitespace-nowrap px-3 py-4 align-middle ${textClass(field, DETAIL_COLUMNS[i])}`}>
                   {field.value}
                 </td>
               ))}

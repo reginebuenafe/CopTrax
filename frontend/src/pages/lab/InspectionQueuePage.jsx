@@ -146,13 +146,17 @@ export default function InspectionQueuePage() {
 
     // 4. For accepted contractual deliveries → add to Resecada inventory
     // (Walk-in batches are already inserted into Walk-in Holding by WalkinDeliveryForm at record time)
+    // Inventory must reflect the FINAL weight (after PCA moisture deduction),
+    // not the raw pre-deduction Net Weight — matches the same discount %
+    // already computed above as preview.discountValue.
     if (preview.result === "Accepted" && selected.delivery_source === "Contract-based") {
       const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
+      const finalKg = netKg * (1 - (preview.discountValue ?? 0) / 100);
       await supabase.from("inventory_batches").insert({
         delivery_id: selected.delivery_id,
         source_type: "Contractual",
         batch_status: "Resecada",
-        weight_kg: netKg,
+        weight_kg: finalKg,
         recorded_date: selected.delivery_date,
       });
     }

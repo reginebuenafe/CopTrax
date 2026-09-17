@@ -168,11 +168,11 @@ function ResecadaTab({ batches, total }) {
       </div>
       <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
                 {["Supplier", "Source", "Delivery Date", "Recorded", "Weight (t)"].map(h => (
-                  <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
+                  <th key={h} className="px-5 py-3.5 text-left font-semibold">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -254,11 +254,11 @@ function WalkinHoldingTab({ batches, total }) {
       </div>
       <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
                 {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Ready to Sell", "Days Left"].map(h => (
-                  <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
+                  <th key={h} className="px-5 py-3.5 text-left font-semibold">{h}</th>
                 ))}
               </tr>
             </thead>

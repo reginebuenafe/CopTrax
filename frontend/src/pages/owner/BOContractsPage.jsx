@@ -615,6 +615,33 @@ function OwnerContractActions({ contract: c, onViewContract, onViewBatches, reve
   );
 }
 
+// Same actions as OwnerContractActions, but rendered as labeled pill
+// buttons (matching the Supplier's Contract Details footer) instead of
+// bare icons — used only in the detail-panel footer.
+function OwnerContractDetailActions({ contract: c, onViewContract, onViewBatches }) {
+  const label = c.status === "Pending" && !c.contract_hash
+    ? "Review & Generate Contract"
+    : c.status === "Pending Owner Review"
+      ? (c.bo_reviewed_at ? "Approve & Sign Contract" : "Review Contract")
+      : "View Contract";
+  const canOpen = (c.status === "Pending" && !c.contract_hash)
+    || c.status === "Pending Owner Review" || Boolean(c.contract_document_url);
+  const pillClass = "flex items-center gap-1.5 rounded-full border border-beige-dark bg-beige px-4 py-2 text-xs font-semibold text-brown-mid shadow-sm transition-all hover:-translate-y-0.5 hover:bg-beige-dark hover:text-brown-dark disabled:pointer-events-none disabled:opacity-40 disabled:hover:translate-y-0";
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" title={canOpen ? label : "Awaiting Supplier's signature"}
+        disabled={!canOpen} onClick={e => { e.stopPropagation(); onViewContract(c); }}
+        className={pillClass}>
+        <LuFileText className="h-3.5 w-3.5" /> {label}
+      </button>
+      <button type="button" onClick={e => { e.stopPropagation(); onViewBatches(c); }}
+        className={pillClass}>
+        <LuTruck className="h-3.5 w-3.5" /> Batches
+      </button>
+    </div>
+  );
+}
+
 const OWNER_CONTRACT_COLUMNS = [
   { label: "Contract #", width: 14 },
   { label: "Status", width: 12 },
@@ -749,7 +776,7 @@ function OwnerContractList({ contracts, totalCount, onSelect, onViewContract, on
   return (
     <section aria-label="Owner contracts" className="min-w-0">
       <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
-        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-base">
           <caption className="sr-only">Supplier contracts managed by the owner</caption>
           <colgroup>{OWNER_CONTRACT_COLUMNS.map((col, i) => <col key={i} style={{ width: `${col.width}%` }} />)}</colgroup>
           <thead className="bg-beige">
@@ -883,7 +910,7 @@ function OwnerContractMasterDetail({ contract: c, onBack, onViewContract, onView
           <dl className="mt-7 grid grid-cols-1 gap-3 rounded-2xl bg-beige p-4 min-[480px]:grid-cols-3">
             <div className="min-w-0">
               <dt className="text-[10px] font-medium uppercase tracking-wide text-brown-light">Negotiated Price</dt>
-              <dd className="mt-1 break-words text-right text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}/kg</dd>
+              <dd className="mt-1 break-words text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}/kg</dd>
             </div>
             <div className="min-w-0">
               <dt className="text-[10px] font-medium uppercase tracking-wide text-brown-light">Due Date</dt>
@@ -907,7 +934,7 @@ function OwnerContractMasterDetail({ contract: c, onBack, onViewContract, onView
             ))}
           </dl>
           <div className="mt-6 flex justify-end border-t border-beige-dark/55 pt-5">
-            <OwnerContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
+            <OwnerContractDetailActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
           </div>
         </section>
       </div>
@@ -935,14 +962,14 @@ function batchWeight(value) {
 }
 
 const OWNER_BATCH_COLUMNS = [
-  { label: "Batch", width: 13 },
-  { label: "Date", width: 14 },
-  { label: "Truck", width: 9 },
-  { label: "Gross Weight", width: 14, numeric: true },
-  { label: "Tare Weight", width: 13, numeric: true },
-  { label: "Net Weight", width: 14, numeric: true },
-  { label: "Moisture", width: 10, numeric: true },
-  { label: "Status", width: 13 },
+  { label: "Batch" },
+  { label: "Date" },
+  { label: "Truck" },
+  { label: "Gross Weight", numeric: true },
+  { label: "Tare Weight", numeric: true },
+  { label: "Net Weight", numeric: true },
+  { label: "Moisture", numeric: true },
+  { label: "Status" },
 ];
 
 function OwnerBatchTable({ batches }) {
@@ -973,14 +1000,13 @@ function OwnerBatchTable({ batches }) {
   });
   return (
     <>
-      <div className="hidden max-h-[50vh] overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-beige-dark/50 md:block">
-        <table className="w-full table-fixed border-separate border-spacing-0 text-xs">
+      <div className="hidden max-h-[50vh] overflow-y-auto overflow-x-auto overscroll-contain rounded-xl border border-beige-dark/50 md:block">
+        <table className="w-full table-auto border-separate border-spacing-0 text-sm">
           <caption className="sr-only">Delivery batches for this contract</caption>
-          <colgroup>{OWNER_BATCH_COLUMNS.map(col => <col key={col.label} style={{ width: `${col.width}%` }} />)}</colgroup>
           <thead>
             <tr>
               {OWNER_BATCH_COLUMNS.map(col => (
-                <th key={col.label} scope="col" className={`sticky top-0 z-20 whitespace-nowrap border-b border-beige-dark bg-beige px-2 py-3.5 text-[9px] font-bold text-brown-light lg:text-[11px] ${col.label === "Status" ? "text-center" : col.numeric ? "text-right" : "text-left"}`}>{col.label}</th>
+                <th key={col.label} scope="col" className={`sticky top-0 z-20 whitespace-nowrap border-b border-beige-dark bg-beige px-3 py-3.5 text-[11px] font-bold text-brown-light ${col.label === "Status" ? "text-center" : col.numeric ? "text-right" : "text-left"}`}>{col.label}</th>
               ))}
             </tr>
           </thead>
@@ -988,7 +1014,7 @@ function OwnerBatchTable({ batches }) {
             {rows.map(row => (
               <tr key={row.key} className="group bg-white transition-colors duration-150 ease-out hover:bg-beige/60 focus-within:bg-beige/60">
                 {row.cells.map((cell, i) => (
-                  <td key={i} className={`border-b border-beige-dark/30 px-2 py-4 align-middle text-brown-mid ${OWNER_BATCH_COLUMNS[i].label === "Status" ? "text-center" : OWNER_BATCH_COLUMNS[i].numeric ? "text-right tabular-nums" : "text-left"} ${i === 0 ? "border-l-[5px] border-l-transparent font-bold text-brown-dark transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark" : ""} ${i === 5 ? "font-extrabold text-brown-dark" : ""}`}>{cell}</td>
+                  <td key={i} className={`whitespace-nowrap border-b border-beige-dark/30 px-3 py-4 align-middle text-xs text-brown-mid ${OWNER_BATCH_COLUMNS[i].label === "Status" ? "text-center" : OWNER_BATCH_COLUMNS[i].numeric ? "text-right tabular-nums" : "text-left"} ${i === 0 ? "border-l-[5px] border-l-transparent font-bold text-brown-dark transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark" : ""} ${i === 5 ? "font-extrabold text-brown-dark" : ""}`}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -1030,9 +1056,10 @@ function DeliveryBatchesModal({ contract, onClose }) {
         .select(`
           allocated_weight_kg, price_type, sequence_order,
           delivery:delivery_id(
-            delivery_id, batch_number, delivery_date, delivery_status,
-            weighing_records(net_weight_kg, gross_weight_kg),
-            quality_results(result)
+            delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number,
+            weighing_records(net_weight_kg, gross_weight_kg, tare_weight_kg),
+            quality_results(result),
+            laboratory_inspections(moisture_content_pct)
           )
         `)
         .eq("contract_id", contract.contract_id)

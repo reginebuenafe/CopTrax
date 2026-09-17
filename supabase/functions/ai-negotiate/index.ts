@@ -21,6 +21,7 @@ import { ContractTerms, computeContractHash } from "../_shared/contract_hash.ts"
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
 import { computeNegotiationPrice } from "../_shared/negotiation_pricing.ts";
 import { priceToWords } from "../_shared/price_to_words.ts";
+import { verifyCaller } from "../_shared/verify_caller.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -232,6 +233,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Only the conversation's own Business Owner (via the frontend, with a
+    // real JWT) or our own DB trigger (via its private internal secret) may
+    // trigger this proposal's
+    // auto-negotiation — otherwise anyone holding a proposal_id UUID could
+    // force accept/counteroffer/contract-generation for a negotiation that
+    // isn't theirs.
+    const callerCheck = await verifyCaller(req, [conv.business_owner_id], true);
+    if (!callerCheck.ok) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 403, headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
     // Only auto-respond to Supplier proposals (not BO's own counteroffers)
     if (proposal.submitted_by === conv.business_owner_id) {
       return new Response(JSON.stringify({ skipped: "Proposal was submitted by the Business Owner" }), {
@@ -331,4 +345,3 @@ Deno.serve(async (req) => {
     });
   }
 });
-

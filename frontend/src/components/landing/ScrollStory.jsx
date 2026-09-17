@@ -48,7 +48,7 @@ const STAGES = [
 // Shared sizing so the right-column visual occupies roughly the same
 // footprint on every stage — the column shouldn't grow/shrink as the
 // user scrolls between stages.
-const VISUAL_CARD = "relative w-full h-[220px] sm:h-[300px] lg:h-[380px] rounded-2xl overflow-hidden border border-beige-dark/60";
+const VISUAL_CARD = "relative w-full h-[260px] sm:h-[300px] lg:h-[380px] rounded-2xl overflow-hidden border border-beige-dark/60";
 
 // Styled after CopTrax's real proposal/counteroffer card (see
 // NegotiationChatWidget.jsx) — a small "submitted" chip followed by the
@@ -57,17 +57,17 @@ const VISUAL_CARD = "relative w-full h-[220px] sm:h-[300px] lg:h-[380px] rounded
 // mirrors the real feature rather than an invented abstraction.
 function NegotiatePanel({ active }) {
   return (
-    <div className={`${VISUAL_CARD} bg-gradient-to-br from-beige to-cream flex flex-col items-center justify-center gap-3 px-4 sm:px-6 py-5`}>
+    <div className={`${VISUAL_CARD} bg-gradient-to-br from-beige to-cream flex flex-col items-center justify-center gap-2 sm:gap-3 px-4 sm:px-6 py-3 sm:py-5`}>
       <MotionDiv
         initial={{ opacity: 0, y: 8 }}
         animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
         transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-[360px] flex items-center gap-3 rounded-xl border border-beige-dark/70 bg-white px-4 py-3 shadow-sm"
+        className="w-full max-w-[360px] flex items-center gap-3 rounded-xl border border-beige-dark/70 bg-white px-4 py-2.5 sm:py-3 shadow-sm"
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-pale text-green-dark">
           <LuCoins className="h-4 w-4" />
         </span>
-        <span className="text-xs sm:text-sm font-mono text-brown-mid">Proposed &nbsp;₱38.00/kg &middot; 5 t</span>
+        <span className="whitespace-nowrap font-mono text-[11px] tracking-tight text-brown-mid sm:text-sm sm:tracking-normal">Proposed &nbsp;₱38.00/kg &middot; 5 t</span>
       </MotionDiv>
 
       <MotionDiv
@@ -76,7 +76,7 @@ function NegotiatePanel({ active }) {
         transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-green-dark/70 bg-[#FFFEFB] shadow-sm"
       >
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-4 py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-4 py-2.5 sm:py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
           <LuCoins className="h-4 w-4 text-[#024023]" />
           <span>Counteroffer</span>
           <span className="ml-auto flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[9px] font-semibold normal-case text-amber-700">
@@ -84,7 +84,7 @@ function NegotiatePanel({ active }) {
           </span>
         </div>
 
-        <div className="space-y-2 px-4 py-4 text-xs">
+        <div className="space-y-1.5 sm:space-y-2 px-4 py-3 sm:py-4 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-brown-light font-medium">Proposed Price</span>
             <span className="font-extrabold text-brown-dark text-sm">₱37.50/kg</span>
@@ -95,14 +95,14 @@ function NegotiatePanel({ active }) {
           </div>
         </div>
 
-        <div className="mx-4 flex gap-1.5 border-t border-[#B7DDBD] py-3">
-          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#E8F0E5] py-2 text-[10px] font-semibold text-[#2D5A27]">
+        <div className="mx-4 flex gap-1.5 border-t border-[#B7DDBD] py-2.5 sm:py-3">
+          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#E8F0E5] py-1.5 sm:py-2 text-[10px] font-semibold text-[#2D5A27]">
             <LuCheck className="h-3 w-3" /> Accept
           </span>
-          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-2 text-[10px] font-semibold text-[#5C4A32]">
+          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-1.5 sm:py-2 text-[10px] font-semibold text-[#5C4A32]">
             <LuPencil className="h-3 w-3" /> Counter
           </span>
-          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-red-50 py-2 text-[10px] font-semibold text-red-600">
+          <span className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-red-50 py-1.5 sm:py-2 text-[10px] font-semibold text-red-600">
             <LuX className="h-3 w-3" /> Reject
           </span>
         </div>
@@ -219,12 +219,12 @@ function PaymentPanel({ active }) {
   }, [active]);
 
   return (
-    <div className={`${VISUAL_CARD} bg-gradient-to-br from-beige to-cream flex items-center justify-center px-5 sm:px-8`}>
+    <div className={`${VISUAL_CARD} bg-gradient-to-br from-beige to-cream flex items-center justify-center px-4 sm:px-8`}>
       <MotionDiv
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={active ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 12, scale: 0.98 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-[390px] rounded-2xl border border-beige-dark bg-white px-5 py-5 sm:px-7 sm:py-6 shadow-[0_14px_30px_-20px_rgba(62,39,35,0.38)]"
+        className="w-full max-w-[390px] rounded-2xl border border-beige-dark bg-white px-5 py-4 sm:px-7 sm:py-6 shadow-[0_14px_30px_-20px_rgba(62,39,35,0.38)]"
       >
         <div className="flex items-center justify-between border-b border-beige-dark/70 pb-3">
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-brown-light">Transaction Record</p>
@@ -236,7 +236,7 @@ function PaymentPanel({ active }) {
           </span>
         </div>
 
-        <div className="py-5 space-y-3">
+        <div className="py-4 sm:py-5 space-y-2.5 sm:space-y-3">
           <MotionDiv
             initial={{ opacity: 0, x: -10 }}
             animate={active ? { opacity: 1, x: 0 } : { opacity: 0, x: -10 }}

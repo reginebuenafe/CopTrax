@@ -3,8 +3,8 @@
 // Finds all Pending payment batches whose payment_week is on or before today
 // and submits each one to Xendit — reusing the exact same flow as process-payment.
 //
-// Deploy with schedule:
-//   supabase functions deploy auto-release-payments --no-verify-jwt --schedule "0 9 * * 5"
+// Deploy with --no-verify-jwt after applying the migration that provisions
+// the protected pg_cron invocation.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -48,10 +48,23 @@ function resolveChannelCode(bankName: string): string | null {
   return null;
 }
 
-Deno.serve(async () => {
-  try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.serve(async (req) => {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: cronConfig, error: cronConfigErr } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "payment_cron_secret")
+    .maybeSingle();
 
+  if (cronConfigErr || !cronConfig?.value) {
+    console.error("[auto-release] Payment cron authentication is not configured.");
+    return new Response(JSON.stringify({ error: "Server configuration error" }), { status: 500 });
+  }
+  if ((req.headers.get("x-cron-secret") ?? "") !== cronConfig.value) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  try {
     // Find all Pending batches whose disbursement week is today or earlier
     const today = new Date().toISOString().split("T")[0];
     const { data: payments, error: fetchErr } = await supabase
@@ -81,14 +94,26 @@ Deno.serve(async () => {
       const pid = payment.payment_id;
 
       // Mark Processing to prevent duplicate submissions
-      const { error: markErr } = await supabase
+      const { data: claimedPayments, error: markErr } = await supabase
         .from("payments")
         .update({ payment_status: "Processing" })
         .eq("payment_id", pid)
-        .eq("payment_status", "Pending"); // guard: only update if still Pending
+        .eq("payment_status", "Pending")
+        .select("payment_id");
 
       if (markErr) {
         results.push({ payment_id: pid, status: "skipped", error: markErr.message });
+        continue;
+      }
+      if (!claimedPayments || claimedPayments.length === 0) {
+        results.push({ payment_id: pid, status: "skipped" });
+        continue;
+      }
+
+      const supplier = Array.isArray(payment.supplier) ? payment.supplier[0] : payment.supplier;
+      if (!supplier?.user_id) {
+        await supabase.from("payments").update({ payment_status: "Pending" }).eq("payment_id", pid);
+        results.push({ payment_id: pid, status: "failed", error: "Payment supplier record is missing" });
         continue;
       }
 
@@ -96,7 +121,7 @@ Deno.serve(async () => {
       const { data: bankAccount } = await supabase
         .from("bank_accounts")
         .select("bank_name, account_name, account_number")
-        .eq("user_id", payment.supplier.user_id)
+        .eq("user_id", supplier.user_id)
         .single();
 
       if (!bankAccount) {
@@ -118,28 +143,39 @@ Deno.serve(async () => {
         continue;
       }
 
-      const referenceId = `coptrax-auto-${pid}-${Date.now()}`;
-      const xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
-        method: "POST",
-        headers: {
-          "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
-          "Content-Type": "application/json",
-          "idempotency-key": referenceId,
-        },
-        body: JSON.stringify({
-          reference_id:      referenceId,
-          currency:          "PHP",
-          channel_code:      channelCode,
-          channel_properties: {
-            account_holder_name: bankAccount.account_name,
-            account_number:      bankAccount.account_number,
+      const referenceId = `coptrax-${pid}-${Date.now()}`;
+      let xenditRes: Response;
+      let xenditData: Record<string, unknown>;
+      try {
+        xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
+          method: "POST",
+          headers: {
+            "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
+            "Content-Type": "application/json",
+            "idempotency-key": referenceId,
           },
-          amount:      Number(payment.total_amount),
-          description: `CopTrax auto-payout – week of ${payment.payment_week}`,
-        }),
-      });
-
-      const xenditData = await xenditRes.json() as Record<string, unknown>;
+          body: JSON.stringify({
+            reference_id:      referenceId,
+            currency:          "PHP",
+            channel_code:      channelCode,
+            channel_properties: {
+              account_holder_name: bankAccount.account_name,
+              account_number:      bankAccount.account_number,
+            },
+            amount:      Number(payment.total_amount),
+            description: `CopTrax auto-payout – week of ${payment.payment_week}`,
+          }),
+        });
+        xenditData = await xenditRes.json() as Record<string, unknown>;
+      } catch (error) {
+        console.error(`[auto-release] Payout outcome is unknown for payment_id=${pid}: ${String(error)}`);
+        results.push({
+          payment_id: pid,
+          status: "processing",
+          error: "Payout response could not be confirmed; left Processing to prevent duplicate transfer",
+        });
+        continue;
+      }
 
       if (!xenditRes.ok) {
         await supabase.from("payments").update({ payment_status: "Failed" }).eq("payment_id", pid);
@@ -148,7 +184,20 @@ Deno.serve(async () => {
       }
 
       const xenditPayoutId = (xenditData.payout_id as string) ?? referenceId;
-      await supabase.from("payments").update({ xendit_payout_id: xenditPayoutId }).eq("payment_id", pid);
+      const { error: payoutRefErr } = await supabase
+        .from("payments")
+        .update({ xendit_payout_id: xenditPayoutId })
+        .eq("payment_id", pid)
+        .eq("payment_status", "Processing");
+      if (payoutRefErr) {
+        console.error(`[auto-release] Failed to store payout ID for payment_id=${pid}: ${payoutRefErr.message}`);
+        results.push({
+          payment_id: pid,
+          status: "processing",
+          error: "Payout created; webhook fallback matching will be used",
+        });
+        continue;
+      }
       results.push({ payment_id: pid, status: "processing" });
       console.log(`[auto-release] Submitted payout for payment_id=${pid} payout_id=${xenditPayoutId}`);
     }

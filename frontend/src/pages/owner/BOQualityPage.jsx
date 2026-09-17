@@ -130,38 +130,38 @@ export default function BOQualityPage() {
         <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
           {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                 <tr>
                   {["Supplier", "Type", "Date", "Net Weight", "Moisture (cc)", "Discount %", "Final Weight", "Result", "Inspector"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left font-semibold whitespace-nowrap">{h}</th>
+                    <th key={h} className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-beige-dark/20">
                 {filtered.map(i => {
                   const result = i.quality_results?.[0]?.result;
-                  const remarkMatch = i.quality_results?.[0]?.remarks?.match(/Discount:\s*([\d.]+)%/);
+                  const remarkMatch = i.quality_results?.[0]?.remarks?.match(/(?:Discount|Deduction):\s*([\d.]+)%/i);
                   const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
                   const netKg = i.delivery?.weighing_records?.[0]?.net_weight_kg ?? 0;
                   const finalKg = Number(netKg) * (1 - discountPct / 100);
 
                   return (
                     <tr key={i.inspection_id} className="hover:bg-beige/30 transition-colors">
-                      <td className="px-4 py-3 font-medium text-brown-dark">{getSupplierName(i.delivery)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-3.5 font-medium text-brown-dark">{getSupplierName(i.delivery)}</td>
+                      <td className="px-5 py-3.5">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                           i.delivery?.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
                         }`}>
                           {i.delivery?.delivery_source === "Walkin" ? "Walk-in" : "Contractual"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-brown-mid whitespace-nowrap">{fmtDate(i.delivery?.delivery_date)}</td>
-                      <td className="px-4 py-3 text-brown-mid">{fmt3(netKg)} kg</td>
-                      <td className="px-4 py-3 font-semibold text-brown-dark">{i.moisture_content_pct}cc</td>
-                      <td className="px-4 py-3 text-brown-mid">{result === "Rejected" ? "—" : `${discountPct}%`}</td>
-                      <td className="px-4 py-3 font-semibold text-brown-dark">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-3.5 text-brown-mid whitespace-nowrap">{fmtDate(i.delivery?.delivery_date)}</td>
+                      <td className="px-5 py-3.5 text-brown-mid">{fmt3(netKg)} kg</td>
+                      <td className="px-5 py-3.5 font-semibold text-brown-dark">{i.moisture_content_pct}cc</td>
+                      <td className="px-5 py-3.5 text-brown-mid">{result === "Rejected" ? "—" : `${discountPct}%`}</td>
+                      <td className="px-5 py-3.5 font-semibold text-brown-dark">{result === "Rejected" ? "—" : `${finalKg.toFixed(2)} kg`}</td>
+                      <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full ${
                           result === "Accepted" ? "bg-green-pale text-green-dark" : "bg-red-50 text-red-600"
                         }`}>
@@ -169,7 +169,7 @@ export default function BOQualityPage() {
                           {result ?? "—"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-brown-light text-xs">
+                      <td className="px-5 py-3.5 text-brown-light text-xs">
                         {i.lab_staff?.first_name} {i.lab_staff?.last_name}
                       </td>
                     </tr>
@@ -183,7 +183,7 @@ export default function BOQualityPage() {
           <div className="md:hidden space-y-3 p-4">
             {filtered.map(i => {
               const result = i.quality_results?.[0]?.result;
-              const remarkMatch = i.quality_results?.[0]?.remarks?.match(/Discount:\s*([\d.]+)%/);
+              const remarkMatch = i.quality_results?.[0]?.remarks?.match(/(?:Discount|Deduction):\s*([\d.]+)%/i);
               const discountPct = remarkMatch ? parseFloat(remarkMatch[1]) : 0;
               const netKg = i.delivery?.weighing_records?.[0]?.net_weight_kg ?? 0;
               const finalKg = Number(netKg) * (1 - discountPct / 100);

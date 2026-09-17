@@ -430,7 +430,7 @@ export default function UserApprovalsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead>
                 <tr className="border-b border-beige-dark/30 bg-beige/40">
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-brown-light uppercase tracking-wide">Name</th>
@@ -446,7 +446,7 @@ export default function UserApprovalsPage() {
                 {filtered.map(u => (
                   <tr key={u.user_id} className="hover:bg-beige/30 transition-colors duration-150">
                     {/* Name */}
-                    <td className="px-5 py-4">
+                    <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-green-dark flex items-center justify-center text-white text-xs font-bold shrink-0">
                           {[u.first_name?.[0], u.last_name?.[0]].filter(Boolean).join("").toUpperCase() || "?"}
@@ -459,14 +459,14 @@ export default function UserApprovalsPage() {
                     </td>
 
                     {/* Role */}
-                    <td className="px-5 py-4">
+                    <td className="px-5 py-3.5">
                       <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${ROLE_COLORS[u.roles?.role_name] ?? "bg-beige text-brown-mid"}`}>
                         {u.roles?.role_name ?? "—"}
                       </span>
                     </td>
 
                     {/* Contact */}
-                    <td className="px-5 py-4 hidden md:table-cell">
+                    <td className="px-5 py-3.5 hidden md:table-cell">
                       <div className="space-y-0.5">
                         {u.phone && (
                           <p className="flex items-center gap-1.5 text-brown-mid text-xs">
@@ -484,7 +484,7 @@ export default function UserApprovalsPage() {
                     </td>
 
                     {/* Registered */}
-                    <td className="px-5 py-4 hidden lg:table-cell">
+                    <td className="px-5 py-3.5 hidden lg:table-cell">
                       <p className="text-brown-mid text-xs">
                         {new Date(u.created_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
                       </p>
@@ -494,7 +494,7 @@ export default function UserApprovalsPage() {
                     </td>
 
                     {/* Actions */}
-                    <td className="px-5 py-4 text-right">
+                    <td className="px-5 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {tab === "Pending" && (
                           <button onClick={() => setReviewModal(u)}

@@ -83,7 +83,16 @@ export default function SupplierDeliveriesPage() {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [spotPrice, setSpotPrice] = useState(null);
   const realtimeRefreshTimer = useRef(null);
+
+  useEffect(() => {
+    async function fetchSpotPrice() {
+      const { data } = await supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle();
+      setSpotPrice(data?.price_per_kg ?? null);
+    }
+    fetchSpotPrice();
+  }, []);
 
   const fetchDeliveries = useCallback(async () => {
     const { data: deliveryData } = await supabase
@@ -345,49 +354,38 @@ export default function SupplierDeliveriesPage() {
 
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-4 py-5 sm:px-5">
-                    <div className="hidden overflow-hidden rounded-xl border border-beige-dark/50 md:block">
-                      <table className="w-full table-fixed border-collapse text-xs text-brown-mid">
-                        <colgroup>
-                          <col className="w-[10%]" />
-                          <col className="w-[10%]" />
-                          <col className="w-[10%]" />
-                          <col className="w-[10%]" />
-                          <col className="w-[13%]" />
-                          <col className="w-[9%]" />
-                          <col className="w-[11%]" />
-                          <col className="w-[11%]" />
-                          <col className="w-[16%]" />
-                        </colgroup>
+                    <div className="hidden overflow-x-auto rounded-xl border border-beige-dark/50 md:block">
+                      <table className="w-full table-auto border-collapse text-sm text-brown-mid">
                         <thead className="bg-beige">
                           <tr>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-left text-[10px] font-bold uppercase tracking-tight text-brown-light">Truck Number</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-right text-[10px] font-bold uppercase tracking-tight text-brown-light">Gross Weight</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-right text-[10px] font-bold uppercase tracking-tight text-brown-light">Tare Weight</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-right text-[10px] font-bold uppercase tracking-tight text-brown-light">Net Weight</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-left text-[10px] font-bold uppercase tracking-tight text-brown-light">Weighing Staff</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-left text-[10px] font-bold uppercase tracking-tight text-brown-light">Moisture</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-right text-[10px] font-bold uppercase tracking-tight text-brown-light">PCA Deduction</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-right text-[10px] font-bold uppercase tracking-tight text-brown-light">Final Weight</th>
-                            <th scope="col" className="whitespace-nowrap px-2 py-3 text-left text-[10px] font-bold uppercase tracking-tight text-brown-light">Lab Staff</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-tight text-brown-light">Truck Number</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-right text-[11px] font-bold uppercase tracking-tight text-brown-light">Gross Weight</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-right text-[11px] font-bold uppercase tracking-tight text-brown-light">Tare Weight</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-right text-[11px] font-bold uppercase tracking-tight text-brown-light">Net Weight</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-tight text-brown-light">Weighing Staff</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-tight text-brown-light">Moisture</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-right text-[11px] font-bold uppercase tracking-tight text-brown-light">PCA Deduction</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-right text-[11px] font-bold uppercase tracking-tight text-brown-light">Final Weight</th>
+                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-tight text-brown-light">Lab Staff</th>
                           </tr>
                         </thead>
                         <tbody>
                           <tr className="border-t border-beige-dark/30 transition-colors hover:bg-beige/30">
-                            <td className="break-words px-2 py-4 text-left font-medium">{d.truck_plate_number || "—"}</td>
-                            <td className="px-2 py-4 text-right tabular-nums">{grossWeight !== null && grossWeight !== undefined ? `${fmt3(grossWeight)} kg` : "—"}</td>
-                            <td className="px-2 py-4 text-right tabular-nums">{tareWeight !== null && tareWeight !== undefined ? `${fmt3(tareWeight)} kg` : "—"}</td>
-                            <td className="px-2 py-4 text-right font-bold tabular-nums text-brown-dark">{netWeight !== null ? `${fmt3(netWeight)} kg` : "—"}</td>
-                            <td className="break-words px-2 py-4 text-left">{weigherName}</td>
-                            <td className={`break-words px-2 py-4 text-left ${hasMoisture ? "" : "font-medium text-orange-600"}`}>
+                            <td className="whitespace-nowrap px-3 py-4 text-left font-medium">{d.truck_plate_number || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-right tabular-nums">{grossWeight !== null && grossWeight !== undefined ? `${fmt3(grossWeight)} kg` : "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-right tabular-nums">{tareWeight !== null && tareWeight !== undefined ? `${fmt3(tareWeight)} kg` : "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-right font-bold tabular-nums text-brown-dark">{netWeight !== null ? `${fmt3(netWeight)} kg` : "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-left">{weigherName}</td>
+                            <td className={`whitespace-nowrap px-3 py-4 text-left ${hasMoisture ? "" : "font-medium text-orange-600"}`}>
                               {hasMoisture ? `${moisture}cc` : "Not yet assessed"}
                             </td>
-                            <td className={`px-2 py-4 text-right tabular-nums ${li ? "" : "font-medium text-orange-600"}`}>
+                            <td className={`whitespace-nowrap px-3 py-4 text-right tabular-nums ${li ? "" : "font-medium text-orange-600"}`}>
                               {li ? `${discountPct}%` : "Not yet assessed"}
                             </td>
-                            <td className={`px-2 py-4 text-right font-bold tabular-nums ${finalWeight !== null ? "text-brown-dark" : "text-orange-600"}`}>
+                            <td className={`whitespace-nowrap px-3 py-4 text-right font-bold tabular-nums ${finalWeight !== null ? "text-brown-dark" : "text-orange-600"}`}>
                               {finalWeight !== null ? `${fmt3(finalWeight)} kg` : "Not yet assessed"}
                             </td>
-                            <td className={`break-words px-2 py-4 text-left ${labName ? "" : "font-medium text-orange-600"}`}>
+                            <td className={`whitespace-nowrap px-3 py-4 text-left ${labName ? "" : "font-medium text-orange-600"}`}>
                               {labName ? (
                                 <span className="block">
                                   <span className="block font-medium text-brown-dark">{labName}</span>
@@ -426,36 +424,29 @@ export default function SupplierDeliveriesPage() {
                     </dl>
 
                     {allocs.length > 0 && (
-                      <div className="mt-3 rounded-xl bg-beige px-4 py-3">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
+                      <div className="mt-3 rounded-xl bg-beige px-4 py-1">
+                        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
                           Allocation Breakdown
                         </p>
-                        <div className="space-y-1.5">
+                        <div className="divide-y divide-beige-dark/40">
                           {allocs.map((allocation, index) => {
-                            const priceType = allocation.price_type ?? (allocation.contract_id ? "Negotiated" : "Spot");
+                            const isSpot = !allocation.contract_id;
+                            const price = isSpot ? spotPrice : allocation.contract?.negotiated_price_per_kg;
                             return (
                               <div
                                 key={allocation.allocation_id ?? index}
-                                className="flex min-w-0 flex-nowrap items-center justify-between gap-1 text-[9px] max-[359px]:text-[8px] min-[480px]:text-[10px] md:gap-2 md:text-xs"
+                                className="flex items-center justify-between gap-3 py-2.5"
                               >
-                                <div className="flex shrink-0 flex-nowrap items-center gap-1 md:min-w-0 md:shrink md:flex-wrap md:gap-2">
-                                  <span className={`whitespace-nowrap rounded-full px-1 py-0.5 font-semibold md:px-1.5 ${
-                                    priceType === "Spot"
-                                      ? "bg-amber-50 text-amber-700"
-                                      : "bg-green-pale text-green-dark"
-                                  }`}>
-                                    {priceType}
-                                  </span>
-                                  <span className="whitespace-nowrap font-semibold text-brown-dark">
-                                    {allocation.contract_id
-                                      ? (allocation.contract?.contract_number ?? "Contract")
-                                      : "Spot Price"}
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${isSpot ? "bg-amber-500" : "bg-green-dark"}`} aria-hidden="true" />
+                                  <span className="truncate text-xs font-semibold text-brown-dark md:text-sm">
+                                    {isSpot ? "Spot Price" : (allocation.contract?.contract_number ?? "Contract")}
                                   </span>
                                 </div>
-                                <div className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-1 text-right text-brown-mid md:flex-none md:shrink-0 md:gap-3">
-                                  <span className="shrink-0 whitespace-nowrap font-semibold">{fmt3(allocation.allocated_weight_kg)} kg</span>
-                                  {allocation.contract_id && allocation.contract?.negotiated_price_per_kg !== null && allocation.contract?.negotiated_price_per_kg !== undefined && (
-                                    <span title={`${peso(allocation.contract.negotiated_price_per_kg)}/kg`} className="min-w-0 truncate text-brown-light md:overflow-visible md:whitespace-normal md:text-clip">{peso(allocation.contract.negotiated_price_per_kg)}/kg</span>
+                                <div className="flex shrink-0 items-baseline gap-1.5">
+                                  <span className="whitespace-nowrap text-xs font-bold text-brown-dark md:text-sm">{fmt3(allocation.allocated_weight_kg)} kg</span>
+                                  {price !== null && price !== undefined && (
+                                    <span className="whitespace-nowrap text-[11px] text-brown-light">{peso(price)}/kg</span>
                                   )}
                                 </div>
                               </div>

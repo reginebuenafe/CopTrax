@@ -14,6 +14,10 @@ import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 
+// Hard cap on a single chat message's length — matches the DB check
+// constraint added for defense-in-depth (see migration 20260917000064).
+const MAX_MESSAGE_LENGTH = 2000;
+
 const SUPPLIER_QUICK_SUGGESTIONS = [
   "I'll review the contract shortly.",
   "Can I receive payment earlier?",
@@ -482,10 +486,11 @@ export default function SupplierChatLayout() {
 
   async function sendMessage(e) {
     e.preventDefault();
-    if (!text.trim() || sending) return;
+    const trimmed = text.trim();
+    if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: text.trim(),
+      conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: trimmed,
     }).select().single();
     if (newMsg) {
       // Show immediately for the sender; realtime will echo it but dedup prevents duplicate
@@ -736,6 +741,7 @@ export default function SupplierChatLayout() {
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
                 <input type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder="Message NERC Copra Trading…"
+                  maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none" />
                 <button type="submit" disabled={!text.trim() || sending}
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-[#17682D] text-white transition-all hover:bg-[#105523] disabled:opacity-50">

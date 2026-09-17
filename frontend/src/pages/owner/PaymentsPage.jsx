@@ -44,12 +44,18 @@ function computeLine(delivery, spot) {
   const deductionKg  = netKg * (discountPct / 100);
   const finalKgTotal = netKg - deductionKg;
 
-  // One line per allocation — each gets its proportional share of the
-  // moisture deduction applied to its own allocated weight
+  // One line per allocation. NOTE: delivery_allocations.allocated_weight_kg
+  // already stores the FINAL (post-PCA-moisture-deduction) weight credited
+  // to that contract/spot portion — it is corrected down from the raw Net
+  // Weight split by a DB trigger the moment Lab submits the quality result
+  // (see migration 20260917000065_allocations_use_final_weight.sql). So we
+  // read it directly as the final weight here (no second deduction applied
+  // — doing so would double-deduct) and reverse-derive the informational
+  // pre-deduction net/deducted amounts for receipts/reports only.
   const allocLines = allocs.map(alloc => {
-    const allocNetKg   = parseFloat(alloc.allocated_weight_kg);
-    const deductedKg   = allocNetKg * (discountPct / 100);
-    const allocFinalKg = allocNetKg - deductedKg;
+    const allocFinalKg = parseFloat(alloc.allocated_weight_kg);
+    const allocNetKg   = discountPct < 100 ? allocFinalKg / (1 - discountPct / 100) : allocFinalKg;
+    const deductedKg   = allocNetKg - allocFinalKg;
     const pricePerKg   = alloc.contract_id
       ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
       : parseFloat(spot);
@@ -671,15 +677,18 @@ function PaymentPreviewPanel({ group, onCreateBatch }) {
             {deliveryLines.length === 0 ? (
               <p className="px-3 py-2 text-brown-light italic">No allocation data</p>
             ) : deliveryLines.map((l, li) => (
-              <div key={li} className="px-3 py-2 flex justify-between gap-2">
-                <div>
-                  <span className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</span>
-                  <span className="text-brown-light ml-1.5">{fmtDate(delivery?.delivery_date)}</span>
-                  <span className="text-brown-light ml-1.5">{peso(l.pricePerKg)}/kg</span>
+              <div key={li} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="font-semibold text-brown-dark">{l.contractNumber ?? "Spot Price"}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-brown-light">
+                    <span>{fmtDate(delivery?.delivery_date)}</span>
+                    <span>{peso(l.pricePerKg)}/kg</span>
+                    <span className="font-semibold text-brown-mid">{fmt3(l.allocFinalKg)} kg allocated</span>
+                  </p>
                 </div>
-                <div className="text-right shrink-0">
-                  <span className="font-semibold text-brown-dark">{peso(l.lineAmount)}</span>
-                  <span className={`ml-1.5 px-1.5 py-0.5 rounded-full font-semibold ${
+                <div className="shrink-0 text-right">
+                  <p className="font-semibold text-brown-dark">{peso(l.lineAmount)}</p>
+                  <span className={`mt-1 inline-flex px-1.5 py-0.5 rounded-full font-semibold ${
                     l.priceType === "Spot" ? "bg-amber-50 text-amber-700" : "bg-green-pale text-green-dark"
                   }`}>{l.priceType}</span>
                 </div>

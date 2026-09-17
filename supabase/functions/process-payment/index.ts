@@ -104,19 +104,31 @@ Deno.serve(async (req) => {
       return json({ error: "Payment has already been released." }, 400);
     }
 
-    // Mark as Processing immediately so a second click cannot re-submit
-    const { error: updateErr } = await supabase
+    // Atomically claim Pending or retryable Failed payments. If another
+    // request claims the row first, this update returns no rows.
+    const { data: claimedPayments, error: updateErr } = await supabase
       .from("payments")
       .update({ payment_status: "Processing" })
-      .eq("payment_id", payment_id);
+      .eq("payment_id", payment_id)
+      .in("payment_status", ["Pending", "Failed"])
+      .select("payment_id");
 
     if (updateErr) return json({ error: "Failed to update payment status." }, 500);
+    if (!claimedPayments || claimedPayments.length === 0) {
+      return json({ error: "Payment is already being processed or has been released." }, 409);
+    }
+
+    const supplier = Array.isArray(payment.supplier) ? payment.supplier[0] : payment.supplier;
+    if (!supplier?.user_id) {
+      await supabase.from("payments").update({ payment_status: "Pending" }).eq("payment_id", payment_id);
+      return json({ error: "Payment supplier record is missing." }, 422);
+    }
 
     // Fetch supplier bank account
     const { data: bankAccount } = await supabase
       .from("bank_accounts")
       .select("bank_name, account_name, account_number")
-      .eq("user_id", payment.supplier.user_id)
+      .eq("user_id", supplier.user_id)
       .single();
 
     if (!bankAccount) {
@@ -151,17 +163,26 @@ Deno.serve(async (req) => {
       description: `CopTrax payout – week of ${payment.payment_week}`,
     };
 
-    const xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
-        "Content-Type": "application/json",
-        "idempotency-key": referenceId,
-      },
-      body: JSON.stringify(xenditPayload),
-    });
-
-    const xenditData = await xenditRes.json() as Record<string, unknown>;
+    let xenditRes: Response;
+    let xenditData: Record<string, unknown>;
+    try {
+      xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
+          "Content-Type": "application/json",
+          "idempotency-key": referenceId,
+        },
+        body: JSON.stringify(xenditPayload),
+      });
+      xenditData = await xenditRes.json() as Record<string, unknown>;
+    } catch (error) {
+      console.error(`[process-payment] Payout outcome is unknown for payment_id=${payment_id}: ${String(error)}`);
+      return json({
+        processing: true,
+        warning: "The payout response could not be confirmed. This payment remains Processing to prevent a duplicate transfer while awaiting reconciliation.",
+      }, 202);
+    }
 
     if (!xenditRes.ok) {
       // Xendit rejected the request — mark Failed so BO can investigate

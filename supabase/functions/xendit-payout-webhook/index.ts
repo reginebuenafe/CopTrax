@@ -119,33 +119,23 @@ Deno.serve(async (req) => {
 
   if (isSuccess) {
     const ref = referenceId ?? xenditPayoutId ?? String(payment.payment_id);
-
-    // Guard against duplicate e-receipts
-    const { data: existingReceipt } = await supabase
-      .from("e_receipts")
-      .select("receipt_number")
-      .eq("payment_id", payment.payment_id)
-      .maybeSingle();
-
-    if (!existingReceipt) {
-      const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const { count } = await supabase
-        .from("e_receipts")
-        .select("*", { count: "exact", head: true });
-      const seq = String((count ?? 0) + 1).padStart(4, "0");
-      const receiptNumber = `RCP-${today}-${seq}`;
-
-      await supabase.from("e_receipts").insert({
-        payment_id: payment.payment_id,
-        receipt_number: receiptNumber,
+    const { data: finalizationRows, error: finalizationErr } = await supabase
+      .rpc("finalize_successful_payment", {
+        p_payment_id: payment.payment_id,
+        p_reference_number: ref,
       });
+    const finalization = Array.isArray(finalizationRows) ? finalizationRows[0] : finalizationRows;
+
+    if (finalizationErr) {
+      console.error(
+        `[xendit-payout-webhook] Failed to finalize payment ${payment.payment_id}: ${finalizationErr.message}`,
+      );
+      return new Response("Payment finalization failed", { status: 500 });
     }
 
-    await supabase.from("payments").update({
-      payment_status: "Released",
-      reference_number: ref,
-      payment_date: new Date().toISOString().slice(0, 10),
-    }).eq("payment_id", payment.payment_id);
+    if (!finalization?.finalized) {
+      return new Response("OK", { status: 200 });
+    }
 
     const supplierReleased = Array.isArray(payment.supplier) ? payment.supplier[0] : payment.supplier;
     await supabase.from("notifications").insert({
@@ -156,13 +146,23 @@ Deno.serve(async (req) => {
       related_entity_id: payment.payment_id,
     });
 
-    console.log(`[xendit-payout-webhook] Payment ${payment.payment_id} → Released`);
+    console.log(`[xendit-payout-webhook] Payment ${payment.payment_id} → Released (${finalization.receipt_number})`);
   } else if (isFailure) {
     const failureCode = (payoutData.failure_code as string) ?? "PAYOUT_FAILED";
 
-    await supabase.from("payments").update({
-      payment_status: "Failed",
-    }).eq("payment_id", payment.payment_id);
+    const { data: failedRows, error: failureUpdateErr } = await supabase
+      .from("payments")
+      .update({ payment_status: "Failed" })
+      .eq("payment_id", payment.payment_id)
+      .eq("payment_status", "Processing")
+      .select("payment_id");
+
+    if (failureUpdateErr) {
+      return new Response("Payment update failed", { status: 500 });
+    }
+    if (!failedRows || failedRows.length === 0) {
+      return new Response("OK", { status: 200 });
+    }
 
     const supplierFailed = Array.isArray(payment.supplier) ? payment.supplier[0] : payment.supplier;
     await supabase.from("notifications").insert({

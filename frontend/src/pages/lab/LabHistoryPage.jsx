@@ -69,7 +69,7 @@ export default function LabHistoryPage() {
                 <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
                   <tr>
                     {["Supplier", "Date", "Moisture (cc)"].map(h => (
-                      <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
+                      <th key={h} className="px-5 py-3.5 text-left font-semibold">{h}</th>
                     ))}
                   </tr>
                 </thead>

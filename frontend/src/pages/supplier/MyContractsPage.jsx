@@ -495,7 +495,7 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
   return (
     <section aria-label="Contracts">
       <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
-        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-base">
           <caption className="sr-only">Supplier contracts</caption>
           <colgroup>
             <col className="w-[13%]" />
@@ -511,15 +511,15 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
           </colgroup>
           <thead className="bg-beige">
             <tr className="text-left">
-              <th scope="col" className="whitespace-nowrap rounded-tl-2xl border-b border-beige-dark/60 px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
-              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
-              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
-              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Quantity</th>
-              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
-              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
-              <th scope="col" title="Activation Date" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
-              <th scope="col" title="Delivery Deadline" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
-              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
+              <th scope="col" className="whitespace-nowrap rounded-tl-2xl border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
+              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Quantity</th>
+              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
+              <th scope="col" title="Activation Date" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
+              <th scope="col" title="Delivery Deadline" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
               <th scope="col" className="rounded-tr-2xl border-b border-beige-dark/60 px-0 py-3.5"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -903,17 +903,17 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
           ) : (
             <>
               <div className="hidden max-h-[60vh] overflow-auto overscroll-contain rounded-xl border border-beige-dark/50 md:block">
-                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
+                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-base">
                   <thead>
                     <tr>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Batch</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Date</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Truck</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Moisture</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-brown-light">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-beige-dark/30">
