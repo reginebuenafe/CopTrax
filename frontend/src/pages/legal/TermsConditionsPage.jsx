@@ -13,7 +13,7 @@ const introContent = (
     <p>
       By creating an account, accessing, or using CopTrax, you acknowledge that you have read,
       understood, and agree to comply with these Terms and the CopTrax{" "}
-      <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
+      <Link to="/privacy-policy" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
         Privacy Policy
       </Link>.
     </p>
@@ -279,7 +279,7 @@ export default function TermsConditionsPage() {
         <p>
           Information processed through CopTrax will be handled according to the{" "}
           <span className="font-semibold text-brown-dark">CopTrax</span>{" "}
-          <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
+          <Link to="/privacy-policy" className="text-green-mid font-semibold hover:text-green-dark transition-colors">
             Privacy Policy
           </Link>{" "}
           and applicable Philippine data-protection requirements.

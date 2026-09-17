@@ -1,22 +1,18 @@
-import { LuArrowLeft } from "react-icons/lu";
-import { Link } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
+import SupportReturnLink from "../../components/SupportReturnLink";
 
 /**
  * Shared shell for standalone legal documents (Privacy Policy, Terms & Conditions).
  * Deliberately plain — no hero image / gradient — per "don't overdesign it".
- * Rendered inside the same <Navbar/>...<Footer/> wrapper as the other public pages,
- * so it only needs to clear the fixed navbar height itself.
+ * Rendered inside SupportPageLayout, which supplies auth-aware navigation.
+ * Only reserve fixed-navbar space when the public navbar is actually shown.
  */
 export default function LegalPageLayout({ icon: Icon, title, lastUpdated, intro, children }) {
+  const { showPublicNavbar } = useOutletContext();
   return (
-    <div className="bg-beige min-h-screen pt-28 sm:pt-32 pb-20 px-4 sm:px-6">
+    <div className={`bg-beige min-h-screen ${showPublicNavbar ? "pt-28 sm:pt-32" : "pt-8 sm:pt-12"} pb-20 px-4 sm:px-6`}>
       <div className="max-w-3xl mx-auto">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brown-mid hover:text-green-dark transition-colors mb-8"
-        >
-          <LuArrowLeft className="w-4 h-4" /> Back to Homepage
-        </Link>
+        <SupportReturnLink />
 
         <header className="mb-8 pb-8 border-b border-beige-dark/40">
           <div className="flex items-center gap-3 mb-2">

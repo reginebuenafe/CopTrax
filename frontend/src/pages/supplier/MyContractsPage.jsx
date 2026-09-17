@@ -277,10 +277,10 @@ export default function MyContractsPage() {
         <AnimatePresence mode="wait" initial={false}>
           <MotionDiv
             key={selectedContract ? `detail-${selectedContract.contract_id}` : `list-${statusFilter}`}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="mt-5"
           >
             {selectedContract ? (
@@ -289,7 +289,6 @@ export default function MyContractsPage() {
                 onBack={() => setSelectedContractId(null)}
                 onViewContract={setViewContract}
                 onViewBatches={setBatchesModal}
-                onViewChat={conversationId => navigate(`/dashboard/supplier/conversations/${conversationId}`)}
               />
             ) : (
               <ContractList
@@ -345,14 +344,16 @@ function ContractStatusBadge({ status, compact = false }) {
   );
 }
 
-function ContractActions({ contract: c, onViewContract, onViewBatches, compact = false }) {
-  const buttonClass = `inline-flex min-h-11 min-w-0 items-center justify-center rounded-xl border font-bold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 ${compact ? "gap-0.5 px-1.5 text-[10px]" : "gap-1.5 px-3 text-xs"}`;
-  const iconClass = compact ? "h-3 w-3 shrink-0" : "h-3.5 w-3.5 shrink-0";
+function ContractActions({ contract: c, onViewContract, onViewBatches, revealOnRowInteraction = false }) {
+  const buttonClass = "inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
+  const iconClass = "h-4 w-4";
 
   return (
-    <div className={`grid grid-cols-2 ${compact ? "gap-1" : "gap-2"}`}>
+    <div className={`flex shrink-0 items-center justify-center gap-1 ${revealOnRowInteraction ? "opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100" : ""}`}>
       <button
         type="button"
+        aria-label="View Contract"
+        title="View Contract"
         onClick={e => {
           e.stopPropagation();
           onViewContract({
@@ -361,18 +362,18 @@ function ContractActions({ contract: c, onViewContract, onViewBatches, compact =
             documentPath: c.contract_document_url,
           });
         }}
-        className={`${buttonClass} border-brown-dark/30 bg-brown-dark/5 text-brown-dark hover:border-brown-dark/45 hover:bg-brown-dark/10 focus-visible:ring-brown-dark/20`}
+        className={`${buttonClass} text-brown-dark hover:text-brown-mid focus-visible:ring-brown-dark/25`}
       >
-        <LuFileText className={iconClass} />
-        Contract
+        <LuFileText aria-hidden="true" className={iconClass} />
       </button>
       <button
         type="button"
+        aria-label="View Delivery Batches"
+        title="View Batches"
         onClick={e => { e.stopPropagation(); onViewBatches(c); }}
-        className={`${buttonClass} border-green-dark/30 bg-green-dark/5 text-green-dark hover:border-green-dark/45 hover:bg-green-dark/10 focus-visible:ring-green-dark/20`}
+        className={`${buttonClass} text-green-dark hover:text-green-mid focus-visible:ring-green-dark/25`}
       >
-        <LuTruck className={iconClass} />
-        Batch
+        <LuTruck aria-hidden="true" className={iconClass} />
       </button>
     </div>
   );
@@ -393,17 +394,17 @@ function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches
           onSelect(c.contract_id);
         }
       }}
-      className="cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors last:border-0 hover:bg-beige/45 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25"
+      className="group cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors duration-150 ease-out last:border-0 hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25"
     >
-      <td className="px-2 py-4 text-left align-middle">
+      <td className="border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark">
         <p className="font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
         <p className="mt-1 whitespace-nowrap text-[10px] text-brown-light">Created {fmtDate(c.created_at)}</p>
       </td>
-      <td className="px-2 py-4 text-left align-middle"><ContractStatusBadge status={c.status} compact /></td>
-      <td className="whitespace-nowrap px-2 py-4 text-left text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
-      <td className="px-2 py-4 text-left text-xs tabular-nums text-brown-mid">{tons(c.contracted_tons)}</td>
-      <td className="px-2 py-4 text-left text-xs tabular-nums text-brown-mid">{tons(deliveredKg / 1000)}</td>
-      <td className="px-2 py-4 text-left text-xs tabular-nums text-brown-mid">{tons(remainingKg / 1000)}</td>
+      <td className="px-2 py-4 text-center align-middle"><ContractStatusBadge status={c.status} compact /></td>
+      <td className="whitespace-nowrap px-2 py-4 text-right text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(c.contracted_tons)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(deliveredKg / 1000)}</td>
+      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(remainingKg / 1000)}</td>
       <td className="px-2 py-4 text-left text-xs text-brown-mid">{fmtDate(c.activation_date)}</td>
       <td className="px-2 py-4 text-left text-xs text-brown-mid">
         <p>{fmtDate(c.due_date)}</p>
@@ -415,29 +416,24 @@ function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches
       </td>
       <td className="px-2 py-4 text-left align-middle">
         <div className="flex items-center gap-1.5">
-          <div className="min-w-0 flex-1"><ProgressBar value={fulfillment} /></div>
-          <span className="w-8 text-right text-[11px] font-extrabold tabular-nums text-brown-dark">{Math.round(fulfillment)}%</span>
+          <div className="min-w-0 flex-1"><ProgressBar value={fulfillment} status={c.status} /></div>
+          <span className="w-10 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">{fulfillment.toFixed(1)}%</span>
         </div>
       </td>
-      <td className="px-2 py-4 text-left align-middle">
-        <ContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} compact />
+      <td className="px-0 py-4 text-left align-middle">
+        <ContractActions
+          contract={c}
+          onViewContract={onViewContract}
+          onViewBatches={onViewBatches}
+          revealOnRowInteraction
+        />
       </td>
     </tr>
   );
 }
 
-function MobileContractField({ label, children }) {
-  return (
-    <div className="min-w-0 rounded-xl bg-beige/55 px-3 py-2.5">
-      <dt className="text-[10px] font-semibold uppercase tracking-wide text-brown-light">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-bold text-brown-dark">{children}</dd>
-    </div>
-  );
-}
-
 function ContractMobileCard({ contract: c, onSelect, onViewContract, onViewBatches }) {
-  const { deliveredKg, remainingKg, fulfillment, days } = contractDisplayValues(c);
-  const timing = deadlineTimingLabel(days);
+  const { fulfillment } = contractDisplayValues(c);
 
   return (
     <article
@@ -452,41 +448,26 @@ function ContractMobileCard({ contract: c, onSelect, onViewContract, onViewBatch
       }}
       className="cursor-pointer rounded-2xl border-2 border-beige-dark/80 bg-white p-4 shadow-card outline-none transition-colors hover:border-green-dark/30 focus-visible:ring-2 focus-visible:ring-green-dark/25"
     >
-      <div className="flex min-w-0 items-start justify-between gap-3 border-b border-beige-dark/40 pb-3">
-        <div className="min-w-0">
-          <h2 className="break-words font-extrabold tracking-wide text-brown-dark">{c.contract_number}</h2>
-          <p className="mt-1 text-xs text-brown-light">Created {fmtDate(c.created_at)}</p>
+      <div className="border-b border-beige-dark/40 pb-3">
+        <div className="flex min-w-0 flex-nowrap items-center justify-between gap-2">
+          <h2 className="min-w-0 flex-1 truncate whitespace-nowrap font-extrabold tracking-wide text-brown-dark" title={c.contract_number}>
+            {c.contract_number}
+          </h2>
+          <ContractStatusBadge status={c.status} />
+          <ContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
         </div>
-        <ContractStatusBadge status={c.status} />
+        <p className="mt-2 text-xs text-brown-light">Created {fmtDate(c.created_at)}</p>
       </div>
 
       <div className="py-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <span className="text-xs font-semibold text-brown-light">Progress</span>
-          <span className="text-sm font-extrabold tabular-nums text-green-dark">{Math.round(fulfillment)}%</span>
+          <span className="whitespace-nowrap text-sm font-extrabold tabular-nums text-green-dark">{fulfillment.toFixed(1)}%</span>
         </div>
-        <ProgressBar value={fulfillment} />
+        <ProgressBar value={fulfillment} status={c.status} />
+        <p className="mt-2 text-[11px] text-brown-light">Accepted allocated net weight only</p>
       </div>
 
-      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <MobileContractField label="Price (₱/kg)">{peso(c.negotiated_price_per_kg)}</MobileContractField>
-        <MobileContractField label="Agreed Quantity">{tons(c.contracted_tons)}</MobileContractField>
-        <MobileContractField label="Delivered">{tons(deliveredKg / 1000)}</MobileContractField>
-        <MobileContractField label="Remaining">{tons(remainingKg / 1000)}</MobileContractField>
-        <MobileContractField label="Activation Date">{fmtDate(c.activation_date)}</MobileContractField>
-        <MobileContractField label="Delivery Deadline">
-          {fmtDate(c.due_date)}
-          {timing && (
-            <span className={`mt-0.5 block text-xs ${days < 0 ? "text-red-500" : days === 0 ? "text-amber-600" : "text-green-dark"}`}>
-              {timing}
-            </span>
-          )}
-        </MobileContractField>
-      </dl>
-
-      <div className="mt-4 border-t border-beige-dark/40 pt-4">
-        <ContractActions contract={c} onViewContract={onViewContract} onViewBatches={onViewBatches} />
-      </div>
     </article>
   );
 }
@@ -498,29 +479,29 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
         <table className="w-full table-fixed border-collapse text-sm">
           <caption className="sr-only">Supplier contracts</caption>
           <colgroup>
+            <col className="w-[13%]" />
+            <col className="w-[10%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
             <col className="w-[12%]" />
+            <col className="w-[13%]" />
             <col className="w-[10%]" />
-            <col className="w-[8%]" />
-            <col className="w-[9%]" />
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[9%]" />
-            <col className="w-[10%]" />
-            <col className="w-[11%]" />
-            <col className="w-[15%]" />
           </colgroup>
           <thead className="bg-beige">
             <tr className="border-b border-beige-dark/60 text-left">
               <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
-              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Agreed Qty</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Delivered</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
+              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Agreed Qty</th>
+              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
               <th scope="col" title="Activation Date" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
               <th scope="col" title="Delivery Deadline" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Actions</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
+              <th scope="col" className="px-0 py-3.5"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -556,7 +537,7 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
   );
 }
 
-function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatches, onViewChat }) {
+function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatches }) {
   const meta = STATUS_META[c.status] ?? STATUS_META.Pending;
   const days = daysLeft(c.due_date);
   const contractedKg = Number(c.contracted_tons ?? 0) * 1000;
@@ -591,7 +572,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             {Number(c.contracted_tons).toLocaleString()} Tons Agreed
           </p>
           <p className="mt-1 text-3xl font-extrabold tracking-tight text-green-dark sm:text-4xl">
-            {(deliveredKg / 1000).toFixed(2)} Tons Delivered
+            {(deliveredKg / 1000).toFixed(2)} Tons Accepted
           </p>
 
           <div className="mt-7">
@@ -599,7 +580,8 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
               <span className="text-xs font-medium text-brown-light">Fulfillment</span>
               <span className="text-sm font-extrabold text-green-dark">{fulfillment.toFixed(1)}%</span>
             </div>
-            <ProgressBar value={fulfillment} />
+            <ProgressBar value={fulfillment} status={c.status} />
+            <p className="mt-2 text-[11px] text-brown-light">Rejected and pending allocations are excluded from fulfillment.</p>
           </div>
 
           <div className="mt-7 grid grid-cols-1 gap-3 rounded-2xl bg-beige p-4 sm:grid-cols-3">
@@ -622,7 +604,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             <DetailRow label="Status" value={meta.label} valueClass="text-green-dark" />
             <DetailRow label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
             <DetailRow label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
-            <DetailRow label="Delivered Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} valueClass="text-green-dark" />
+            <DetailRow label="Accepted Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} valueClass="text-green-dark" />
             <DetailRow label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(2)} tons`} />
             <DetailRow label="Activation Date" value={fmtDate(c.activation_date)} />
             <DetailRow label="Delivery Deadline" value={fmtDate(c.due_date)} />
@@ -651,15 +633,6 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
             >
               <LuTruck className="h-3.5 w-3.5" /> Batches
             </button>
-            {c.conversation_id && (
-              <button
-                type="button"
-                onClick={() => onViewChat(c.conversation_id)}
-                className="flex items-center gap-1.5 rounded-full border border-beige-dark bg-beige px-4 py-2 text-xs font-semibold text-brown-mid shadow-sm transition-all hover:-translate-y-0.5 hover:bg-beige-dark hover:text-brown-dark"
-              >
-                <LuMessageSquare className="h-3.5 w-3.5" /> View Chat
-              </button>
-            )}
           </div>
         </section>
       </div>
@@ -667,12 +640,21 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
   );
 }
 
-function ProgressBar({ value }) {
+function ProgressBar({ value, status }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  const fillColor = status === "Breached"
+    ? "bg-red-500"
+    : safeValue < 34
+      ? "bg-red-500"
+      : safeValue < 67
+        ? "bg-amber-400"
+        : "bg-green-dark";
+
   return (
     <div className="h-2.5 overflow-hidden rounded-full bg-beige-dark">
       <div
-        className={`h-full rounded-full transition-all duration-500 ${value >= 100 ? "bg-green-dark" : value > 50 ? "bg-green-mid" : "bg-amber-400"}`}
-        style={{ width: `${Math.min(100, value)}%` }}
+        className={`h-full rounded-full transition-all duration-500 ${fillColor}`}
+        style={{ width: `${safeValue}%` }}
       />
     </div>
   );
@@ -780,7 +762,7 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
       .select(`
         allocation_id, allocated_weight_kg, price_type, sequence_order,
         delivery:delivery_id(
-          delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number,
+          delivery_id, batch_number, delivery_date, delivery_status, truck_plate_number, created_at,
           weighing_records(gross_weight_kg, tare_weight_kg, copra_condition),
           laboratory_inspections(moisture_content_pct)
         )
@@ -839,8 +821,20 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
       netWeight: hasWeights ? Number(grossWeight) - Number(tareWeight) : null,
       moisture: inspection?.moisture_content_pct,
       status: delivery?.delivery_status,
+      allocatedWeight: allocation.allocated_weight_kg,
+      priceType: allocation.price_type ?? "Negotiated",
+      createdAt: delivery?.created_at,
+      sequenceOrder: allocation.sequence_order,
     };
-  }).sort((a, b) => a.batch.localeCompare(b.batch, "en", { numeric: true, sensitivity: "base" }));
+  }).sort((a, b) => {
+    const newestFirst = new Date(b.createdAt ?? b.date ?? 0) - new Date(a.createdAt ?? a.date ?? 0);
+    if (newestFirst !== 0) return newestFirst;
+    return Number(b.sequenceOrder ?? 0) - Number(a.sequenceOrder ?? 0);
+  });
+  const acceptedAllocatedKg = rows
+    .filter(row => row.status === "Accepted")
+    .reduce((sum, row) => sum + Number(row.allocatedWeight ?? 0), 0);
+  const rejectedCount = rows.filter(row => row.status === "Rejected").length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm sm:p-4">
@@ -870,7 +864,7 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-7">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-7 md:overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-16" role="status" aria-label="Loading delivery batches">
               <LuLoader className="h-6 w-6 animate-spin text-brown-light" />
@@ -885,40 +879,48 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
             </div>
           ) : (
             <>
-              <div className="hidden rounded-xl border border-beige-dark/50 md:block">
-                <table className="min-w-[1120px] w-full border-collapse text-sm">
+              <div className="hidden max-h-[60vh] overflow-auto overscroll-contain rounded-xl border border-beige-dark/50 md:block">
+                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
                   <thead>
-                    <tr className="border-b border-beige-dark/50">
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
-                      <th scope="col" className="sticky top-0 z-10 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+                    <tr>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-beige-dark/30">
-                    {rows.map(row => (
-                      <tr key={row.key} className="transition-colors hover:bg-beige/50">
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left font-bold text-brown-dark">{row.batch}</td>
+                    {rows.map(row => {
+                      return (
+                      <tr key={row.key} className={`group transition-colors duration-150 ease-out hover:bg-beige/60 ${row.status === "Rejected" ? "bg-red-50/30" : ""}`}>
+                        <td className="border-l-[5px] border-l-transparent px-4 py-3.5 text-left transition-colors duration-150 ease-out group-hover:border-l-brown-dark">
+                          <p className="whitespace-nowrap font-bold text-brown-dark">{row.batch}</p>
+                          <p className="mt-1 whitespace-nowrap text-[10px] font-semibold text-brown-light">
+                            {batchWeight(row.allocatedWeight)} allocated · {row.priceType}
+                          </p>
+                        </td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-left text-brown-mid">{batchDate(row.date)}</td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-left font-medium text-brown-mid">{row.truck}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left tabular-nums text-brown-mid">{batchWeight(row.grossWeight)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left tabular-nums text-brown-mid">{batchWeight(row.tareWeight)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left font-bold tabular-nums text-brown-dark">{batchWeight(row.netWeight)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left tabular-nums text-brown-mid">{batchMoisture(row.moisture)}</td>
-                        <td className="whitespace-nowrap px-4 py-3.5 text-left"><BatchStatusBadge status={row.status} /></td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.grossWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchWeight(row.tareWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right font-bold tabular-nums text-brown-dark">{batchWeight(row.netWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-brown-mid">{batchMoisture(row.moisture)}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-center"><BatchStatusBadge status={row.status} /></td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               <div className="space-y-3 md:hidden">
-                {rows.map(row => (
-                  <article key={row.key} className="rounded-2xl border border-beige-dark/50 bg-white p-4 shadow-sm">
+                {rows.map(row => {
+                  return (
+                  <article key={row.key} className={`rounded-2xl border p-4 shadow-sm ${row.status === "Rejected" ? "border-red-200 bg-red-50/30" : "border-beige-dark/50 bg-white"}`}>
                     <div className="flex min-h-11 items-start justify-between gap-3 border-b border-beige-dark/30 pb-3">
                       <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</p>
@@ -932,10 +934,20 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
                       <MobileBatchField label="Gross Weight" value={batchWeight(row.grossWeight)} numeric />
                       <MobileBatchField label="Tare Weight" value={batchWeight(row.tareWeight)} numeric />
                       <MobileBatchField label="Net Weight" value={batchWeight(row.netWeight)} numeric />
+                      <MobileBatchField
+                        label="Allocated Net"
+                        value={(
+                          <span className="block">
+                            <span className="block">{batchWeight(row.allocatedWeight)} · {row.priceType}</span>
+                          </span>
+                        )}
+                        numeric
+                      />
                       <MobileBatchField label="Moisture" value={batchMoisture(row.moisture)} numeric />
                     </dl>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -944,12 +956,17 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
         {!loading && rows.length > 0 && (
           <div className="flex shrink-0 items-center justify-between gap-4 border-t border-beige-dark/30 px-4 py-4 sm:px-7">
             <span className="text-sm text-brown-light">{rows.length} batch{rows.length !== 1 ? "es" : ""}</span>
-            <span className="text-right font-bold text-brown-dark">
-              {(batches.reduce((sum, item) => sum + Number(item.allocated_weight_kg ?? 0), 0) / 1000).toLocaleString("en-PH", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })} tons Allocated
-            </span>
+            <div className="text-right">
+              <p className="font-bold text-brown-dark">
+                {(acceptedAllocatedKg / 1000).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} tons Accepted
+              </p>
+              <p className="mt-0.5 text-[11px] text-brown-light">
+                Accepted allocated net weight only{rejectedCount > 0 ? ` · ${rejectedCount} rejected excluded` : ""}
+              </p>
+            </div>
           </div>
         )}
       </div>

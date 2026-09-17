@@ -34,12 +34,12 @@ export default function TermsConfirmModal({ agreed, onAgreedChange, onCancel, on
             />
             <span className="text-sm text-brown-mid leading-relaxed">
               I have read and agree to the{" "}
-              <Link to="/terms" target="_blank" rel="noopener noreferrer"
+              <Link to="/terms"
                 className="text-green-mid font-semibold hover:text-green-dark transition-colors">
                 Terms &amp; Conditions
               </Link>{" "}
               and acknowledge the{" "}
-              <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer"
+              <Link to="/privacy-policy"
                 className="text-green-mid font-semibold hover:text-green-dark transition-colors">
                 Privacy Policy
               </Link>.

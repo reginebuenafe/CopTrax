@@ -300,7 +300,7 @@ export default function AccountSettingsPage() {
             Show passwords
           </label>
           <button type="submit" disabled={pwSaving}
-            className="w-full py-2.5 bg-brown-dark text-white font-semibold text-sm rounded-xl hover:bg-brown-dark/90 transition-colors disabled:opacity-60">
+            className="w-full py-2.5 bg-green-dark text-white font-semibold text-sm rounded-xl hover:bg-brown-dark/90 transition-colors disabled:opacity-60">
             {pwSaving ? "Updating…" : "Update Password"}
           </button>
         </form>
