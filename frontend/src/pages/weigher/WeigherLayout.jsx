@@ -48,7 +48,7 @@ export default function WeigherLayout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 h-screen bg-[#FFFEFB] border-r border-[#E4D5BD] z-40
+      <aside className={`fixed top-0 left-0 h-screen h-[100dvh] bg-[#FFFEFB] border-r border-[#E4D5BD] z-40
         shadow-[2px_0_12px_rgba(93,64,55,0.06)] flex flex-col transition-all duration-300
         w-64 lg:w-[var(--sidebar-w)]
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
@@ -90,7 +90,7 @@ export default function WeigherLayout() {
         </nav>
 
         {/* User + sign out */}
-        {!collapsed ? (
+        {!collapsed || sidebarOpen ? (
           <div className="px-3 py-4 border-t border-[#E4D5BD] shrink-0">
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-beige">
               <div className="w-8 h-8 rounded-full bg-green-dark flex items-center justify-center text-white text-xs font-bold shrink-0">
