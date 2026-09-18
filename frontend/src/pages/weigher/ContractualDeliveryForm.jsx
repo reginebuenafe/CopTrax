@@ -160,7 +160,7 @@ export default function ContractualDeliveryForm() {
     setIssueSaved(false);
   }
 
-  const inputClass = `w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+  const inputClass = `w-full min-w-0 max-w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
     placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all`;
 
   if (success) {
@@ -212,7 +212,7 @@ export default function ContractualDeliveryForm() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl min-w-0 mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate("/dashboard/weigher")} className="text-brown-light hover:text-brown-dark transition-colors"><LuArrowLeft className="w-5 h-5" /></button>
         <div>
@@ -224,7 +224,7 @@ export default function ContractualDeliveryForm() {
       {error && <div className="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 mb-5 text-sm"><LuCircleAlert className="w-4 h-4 shrink-0" /> {error}</div>}
 
       <form onSubmit={handleReview} className="space-y-5">
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2"><LuUser className="w-4 h-4 text-brown-light" /> Search Supplier</h3>
           <div className="relative" ref={searchRef}>
             <LuSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
@@ -240,20 +240,20 @@ export default function ContractualDeliveryForm() {
           {selectedSupplier && <p className="mt-3 text-sm text-green-dark font-semibold">Selected: {selectedSupplier.first_name} {selectedSupplier.last_name}</p>}
         </div>
 
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2"><LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium text-brown-dark mb-1.5"><LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span></label><input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={inputClass} /></div>
-            <div><label className="block text-xs font-medium text-brown-dark mb-1.5">Truck Plate Number</label><input type="text" value={form.truckPlate} onChange={set("truckPlate")} placeholder="ABC 1234" className={inputClass} /></div>
+            <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5"><LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span></label><input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={`${inputClass} h-[42px] appearance-none`} /></div>
+            <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Truck Plate Number</label><input type="text" value={form.truckPlate} onChange={set("truckPlate")} placeholder="ABC 1234" className={inputClass} /></div>
           </div>
         </div>
 
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2"><LuScale className="w-4 h-4 text-brown-light" /> Weighing Record</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div><label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0.001" required value={form.grossWeight} onChange={set("grossWeight")} placeholder="0.000" className={inputClass} /></div>
-            <div><label className="block text-xs font-medium text-brown-dark mb-1.5">Tare Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0" required value={form.tareWeight} onChange={set("tareWeight")} placeholder="0.000" className={inputClass} /></div>
-            <div><label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label><div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>{net > 0 ? net.toFixed(2) : "—"}</div></div>
+            <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0.001" required value={form.grossWeight} onChange={set("grossWeight")} placeholder="0.000" className={inputClass} /></div>
+            <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Tare Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0" required value={form.tareWeight} onChange={set("tareWeight")} placeholder="0.000" className={inputClass} /></div>
+            <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label><div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>{net > 0 ? net.toFixed(2) : "—"}</div></div>
           </div>
         </div>
 

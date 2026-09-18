@@ -267,11 +267,11 @@ export default function WalkinDeliveryForm() {
     );
   }
 
-  const inputClass = `w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+  const inputClass = `w-full min-w-0 max-w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
     placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all`;
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl min-w-0 mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate("/dashboard/weigher")} className="text-brown-light hover:text-brown-dark transition-colors">
@@ -291,7 +291,7 @@ export default function WalkinDeliveryForm() {
 
       <form onSubmit={handleReview} className="space-y-5">
         {/* Supplier details */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuUser className="w-4 h-4 text-brown-light" /> Supplier Information
           </h3>
@@ -302,7 +302,7 @@ export default function WalkinDeliveryForm() {
         </div>
 
         {/* Delivery details */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details
           </h3>
@@ -310,22 +310,22 @@ export default function WalkinDeliveryForm() {
             <label className="block text-xs font-medium text-brown-dark mb-1.5">
               <LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span>
             </label>
-            <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={inputClass} />
+            <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={`${inputClass} h-[42px] appearance-none`} />
           </div>
         </div>
 
         {/* Weighing */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuScale className="w-4 h-4 text-brown-light" /> Weighing Record
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Row 1: weight + sacks */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label>
               <input type="number" step="0.001" min="0.001" required value={form.weight} onChange={set("weight")} placeholder="0.000" className={inputClass} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-medium text-brown-dark mb-1.5">
                 <LuPackage className="inline w-3 h-3 mr-1" /> No. of Sacks <span className="text-red-500">*</span>
               </label>
@@ -333,7 +333,7 @@ export default function WalkinDeliveryForm() {
             </div>
 
             {/* Row 2: condition + computed breakdown */}
-            <div>
+            <div className="min-w-0">
               <span className="block text-xs font-medium text-brown-dark mb-1.5">Condition <span className="text-red-500">*</span></span>
               <div className="flex items-center gap-4 h-10">
                 {['Dry', 'Wet'].map(condition => (
@@ -346,7 +346,7 @@ export default function WalkinDeliveryForm() {
             </div>
 
             {/* Computed breakdown (read-only) */}
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <div>
                 <label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label>
                 <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
