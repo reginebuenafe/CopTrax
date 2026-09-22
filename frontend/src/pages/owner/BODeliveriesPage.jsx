@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  LuTruck, LuFlaskConical, LuCheck, LuX, LuClock,
+  LuTruck, LuCheck, LuX, LuClock,
   LuChevronDown, LuChevronUp, LuSearch, LuArrowUpDown,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -26,12 +26,18 @@ function contractLabel(d) {
 
 const STATUS_META = {
   Pending:   { color: "bg-beige text-brown-mid",          label: "Pending",   icon: LuClock },
-  Weighed:   { color: "bg-blue-50 text-blue-600",          label: "Weighed",   icon: LuTruck },
-  Inspected: { color: "bg-purple-50 text-purple-600",      label: "Inspected", icon: LuFlaskConical },
   Accepted:  { color: "bg-green-dark text-white",         label: "Accepted",  icon: LuCheck },
   Rejected:  { color: "bg-red-50 text-red-600",            label: "Rejected",  icon: LuX },
 };
-const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
+const FILTERS = ["All", "Pending", "Accepted", "Rejected"];
+
+// Weighing and moisture assessment are both pre-decision steps — a delivery
+// only ever resolves to Accepted or Rejected once assessed, so any other
+// raw delivery_status (Pending, Weighed, or the rarely-used Inspected)
+// displays/filters as Pending.
+function boDeliveryStatusKey(status) {
+  return status === "Accepted" || status === "Rejected" ? status : "Pending";
+}
 
 export default function BODeliveriesPage() {
   const [searchParams] = useSearchParams();
@@ -92,7 +98,9 @@ export default function BODeliveriesPage() {
   const filtered = deliveries.filter(d => {
     if (d.delivery_source !== activeDeliveryType) return false;
     if (linkedDeliveryId) return d.delivery_id === linkedDeliveryId;
-    if (filter !== "All" && d.delivery_status !== filter) return false;
+    // Status filtering only applies to Contractual deliveries — Walk-in
+    // deliveries are shown in full regardless of the (hidden) filter state.
+    if (activeDeliveryType === "Contract-based" && filter !== "All" && boDeliveryStatusKey(d.delivery_status) !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
       return getSupplierName(d).toLowerCase().includes(q) ||
@@ -159,22 +167,30 @@ export default function BODeliveriesPage() {
           </div>
         </div>
       </div>
-      {/* Mobile: compact status select */}
-        <select value={filter} onChange={e => setFilter(e.target.value)}
-          aria-label="Filter delivery status"
-          className="mb-4 min-h-11 w-full sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
-          {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
-        </select>
-      {/* Desktop: underline tabs */}
-      <div className="hidden sm:flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
-        {FILTERS.map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
-              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-            {f}
-          </button>
-        ))}
-      </div>
+      {/* Status filters only apply to Contractual deliveries — Walk-in
+          deliveries never go through the Weighed/Inspected/Accepted/
+          Rejected lab pipeline, so the filter tabs are hidden entirely and
+          every Walk-in delivery is shown directly (see `filtered` above). */}
+      {activeDeliveryType === "Contract-based" && (
+        <>
+          {/* Mobile: compact status select */}
+          <select value={filter} onChange={e => setFilter(e.target.value)}
+            aria-label="Filter delivery status"
+            className="mb-4 min-h-11 w-full sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
+            {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          {/* Desktop: underline tabs */}
+          <div className="hidden sm:flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
+            {FILTERS.map(f => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+                  ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -191,7 +207,7 @@ export default function BODeliveriesPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map(d => {
-            const meta = STATUS_META[d.delivery_status] ?? STATUS_META.Pending;
+            const meta = STATUS_META[boDeliveryStatusKey(d.delivery_status)];
             const StatusIcon = meta.icon;
             const isOpen = expanded === d.delivery_id;
             const wr = d.weighing_records?.[0];
@@ -264,8 +280,8 @@ export default function BODeliveriesPage() {
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-4 py-5 sm:px-5 md:py-4">
                     <DeliveryDetailTable delivery={d} weighing={wr} inspection={li} discountPct={discountPct} finalKg={finalKg} />
-                    {/* Allocation breakdown — shown only for contractual deliveries with allocation data */}
-                    {d.delivery_source === "Contract-based" && allocs.length > 0 && (
+                    {/* Allocation breakdown — shown only for contractual deliveries with allocation data, hidden entirely for rejected deliveries */}
+                    {d.delivery_status !== "Rejected" && d.delivery_source === "Contract-based" && allocs.length > 0 && (
                       <div className="mt-3 rounded-xl bg-beige px-4 py-1">
                         <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
                           Allocation Breakdown

@@ -9,7 +9,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import ContractReviewModal from "../../components/ContractReviewModal";
 import ContractApprovalModal from "../../components/ContractApprovalModal";
-import { MotionDiv } from "../../components/landing/motion-elements";
+import { MotionDiv, MotionAside, MotionButton } from "../../components/landing/motion-elements";
 
 const STATUS_META = {
   Pending:   { label: "Pending", color: "bg-beige text-brown-mid", dot: "bg-brown-light" },
@@ -19,7 +19,12 @@ const STATUS_META = {
   Breached:  { label: "Breached",  color: "bg-red-50 text-red-600",           dot: "bg-red-500" },
 };
 
-const FILTERS = ["All", "Pending", "Pending Owner Review", "Active", "Completed", "Breached"];
+const FILTERS = ["All", "Pending", "Active", "Completed", "Breached"];
+const PENDING_SUBFILTERS = [
+  { key: "all", label: "All Pending" },
+  { key: "supplier-signature", label: "Supplier Signature" },
+  { key: "owner-review", label: "Owner Review" },
+];
 
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2 });
@@ -50,6 +55,7 @@ export default function BOContractsPage() {
   const { user } = useAuth();
   const [contracts, setContracts] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [pendingSubfilter, setPendingSubfilter] = useState("all");
   const [search, setSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [sort, setSort] = useState("newest");
@@ -61,6 +67,7 @@ export default function BOContractsPage() {
   const [successMsg, setSuccessMsg]         = useState(null); // success overlay after generation
   const [pdfModal, setPdfModal]             = useState(null); // { url, contractNumber, supplierName }
   const [batchesModal, setBatchesModal]     = useState(null); // contract object
+  const [pendingPanelOpen, setPendingPanelOpen] = useState(false); // right-side "all pending contracts" panel
   const [toast, setToast] = useState(null);
 
   const showToast = useCallback((msg, type = "success") => {
@@ -215,7 +222,13 @@ export default function BOContractsPage() {
 
   // Search + status filter + sort
   const filtered = scopedContracts
-    .filter(c => filter === "All" || c.status === filter)
+    .filter(c => {
+      if (filter === "All") return true;
+      if (filter !== "Pending") return c.status === filter;
+      if (pendingSubfilter === "supplier-signature") return c.status === "Pending";
+      if (pendingSubfilter === "owner-review") return c.status === "Pending Owner Review";
+      return c.status === "Pending" || c.status === "Pending Owner Review";
+    })
     .filter(c => {
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
@@ -239,9 +252,13 @@ export default function BOContractsPage() {
       return new Date(b.created_at) - new Date(a.created_at); // newest default
     });
 
-  // Contracts awaiting BO review, scoped the same way the table above is —
-  // all suppliers on the landing page, just the selected supplier once inside.
-  const pendingReviewContracts = scopedContracts.filter(c => c.status === "Pending Owner Review");
+  // Contracts awaiting the Supplier's own signature vs. awaiting the BO's
+  // review/approval — always computed system-wide (across every supplier)
+  // so the dashboard banners and the "all pending contracts" panel they
+  // open stay in sync regardless of which supplier (if any) is currently
+  // drilled into.
+  const pendingSignatureContracts = contracts.filter(c => c.status === "Pending");
+  const pendingReviewContracts = contracts.filter(c => c.status === "Pending Owner Review");
 
   const selectedContract = filtered.find(c => c.contract_id === selectedContractId) ?? null;
 
@@ -249,6 +266,7 @@ export default function BOContractsPage() {
     setSelectedSupplierId(supplierId);
     setSelectedContractId(null);
     setFilter("All");
+    setPendingSubfilter("all");
     setSearch("");
     setSort("newest");
   }
@@ -262,6 +280,14 @@ export default function BOContractsPage() {
     if (c.status === "Pending" && !c.contract_hash) setReviewModal(c);
     else if (c.status === "Pending Owner Review") setApprovalModal(c);
     else openPdfModal(c);
+  }
+
+  // "View" action from the pending-contracts panel — reuses the exact same
+  // openContract() routing (ContractReviewModal / ContractApprovalModal /
+  // PDF viewer) as every other contract-open entry point on this page.
+  function viewFromPanel(c) {
+    setPendingPanelOpen(false);
+    openContract(c);
   }
 
   async function openPdfModal(c) {
@@ -312,21 +338,27 @@ export default function BOContractsPage() {
         )}
       </div>
 
-      {/* Prominent banner — impossible to miss when a Supplier-signed
-          contract is waiting on the Business Owner's review/approval.
-          Scoped to the selected supplier once inside their contracts view;
-          otherwise checks across all suppliers and jumps into the first one
-          with a contract awaiting review. */}
+      {/* Prominent banners — impossible to miss when contracts are waiting on
+          either party's signature/approval. Always computed system-wide;
+          clicking either one opens the shared "all pending contracts" panel
+          rather than drilling into a single supplier. */}
+      {!loading && pendingSignatureContracts.length > 0 && (
+        <button
+          onClick={() => setPendingPanelOpen(true)}
+          className="w-full flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-3 text-left transition-colors hover:bg-amber-100"
+        >
+          <LuCircleAlert className="w-5 h-5 text-amber-600 shrink-0" />
+          <span className="text-sm text-amber-800 flex-1">
+            <strong>{pendingSignatureContracts.length}</strong> contract
+            {pendingSignatureContracts.length !== 1 ? "s" : ""} awaiting the
+            Supplier's signature across your suppliers.
+          </span>
+          <span className="text-xs font-bold text-amber-700 shrink-0">View →</span>
+        </button>
+      )}
       {!loading && pendingReviewContracts.length > 0 && (
         <button
-          onClick={() => {
-            if (!selectedSupplierId) {
-              const supplierId = pendingReviewContracts[0]?.supplier?.user_id;
-              if (supplierId) setSelectedSupplierId(supplierId);
-            }
-            setFilter("Pending Owner Review");
-            setSelectedContractId(null);
-          }}
+          onClick={() => setPendingPanelOpen(true)}
           className="w-full flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 mb-4 text-left transition-colors hover:bg-orange-100"
         >
           <LuCircleAlert className="w-5 h-5 text-orange-600 shrink-0" />
@@ -362,66 +394,89 @@ export default function BOContractsPage() {
         )
       ) : (
         <>
-          {/* Status filter tabs + compact search/sort, in one row */}
-          <div className="mb-6 flex flex-col gap-3 border-b border-beige-dark/40 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-            <div className="flex flex-wrap gap-x-6 gap-y-2 overflow-x-auto">
-              {FILTERS.map(f => {
-                const tabLabel = STATUS_META[f]?.label ?? f;
-                const count = f !== "All" ? scopedContracts.filter(c => c.status === f).length : 0;
-                return (
-                  <button key={f} onClick={() => { setFilter(f); setSelectedContractId(null); }}
-                    className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
-                      ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-                    {f === "All" ? `All (${scopedContracts.length})` : tabLabel}
-                    {f === "Pending Owner Review" && count > 0 && (
-                      <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                        {count}
-                      </span>
-                    )}
-                    {f === "Pending" && count > 0 && (
-                      <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+          {/* Status filter tabs + compact search/sort */}
+          <div className="mb-6">
+            <div className="flex flex-col gap-3 border-b border-beige-dark/40 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+              <div className="flex flex-nowrap items-end gap-4 overflow-x-auto sm:gap-5 sm:overflow-visible">
+                {FILTERS.map(f => {
+                  const count = f === "Pending"
+                    ? scopedContracts.filter(c => c.status === "Pending" || c.status === "Pending Owner Review").length
+                    : f !== "All" ? scopedContracts.filter(c => c.status === f).length : 0;
+                  return (
+                    <button key={f} onClick={() => { setFilter(f); setPendingSubfilter("all"); setSelectedContractId(null); }}
+                      className={`min-h-11 shrink-0 whitespace-nowrap pb-2.5 text-sm font-medium transition-colors border-b-2 -mb-px
+                        ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+                      {f === "All" ? `All (${scopedContracts.length})` : f}
+                      {count > 0 && f !== "All" && (
+                        <span className="ml-1.5 text-xs bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2 pb-2.5">
+                <div className="relative w-48 sm:w-60">
+                  <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => { setSearch(e.target.value); setSelectedContractId(null); }}
+                    placeholder="Search contract #…"
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
+                      placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
+                  />
+                  {search && (
+                    <button onClick={() => { setSearch(""); setSelectedContractId(null); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
+                      <LuX className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="relative shrink-0">
+                  <LuArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
+                  <select
+                    value={sort}
+                    onChange={e => { setSort(e.target.value); setSelectedContractId(null); }}
+                    className="pl-7 pr-7 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
+                      focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="az">Supplier A → Z</option>
+                    <option value="za">Supplier Z → A</option>
+                    <option value="price_asc">Price: Low → High</option>
+                    <option value="price_desc">Price: High → Low</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2 pb-2.5">
-              <div className="relative w-48 sm:w-60">
-                <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light pointer-events-none" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={e => { setSearch(e.target.value); setSelectedContractId(null); }}
-                  placeholder="Search contract #…"
-                  className="w-full pl-9 pr-8 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
-                    placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all"
-                />
-                {search && (
-                  <button onClick={() => { setSearch(""); setSelectedContractId(null); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
-                    <LuX className="w-3.5 h-3.5" />
-                  </button>
-                )}
+            {filter === "Pending" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Pending contract filters">
+                {PENDING_SUBFILTERS.map(({ key, label }) => {
+                  const count = key === "all"
+                    ? scopedContracts.filter(c => c.status === "Pending" || c.status === "Pending Owner Review").length
+                    : scopedContracts.filter(c => c.status === (key === "supplier-signature" ? "Pending" : "Pending Owner Review")).length;
+                  const selected = pendingSubfilter === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => { setPendingSubfilter(key); setSelectedContractId(null); }}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                        selected
+                          ? "border-green-dark bg-green-pale text-green-dark"
+                          : "border-beige-dark bg-white text-brown-light hover:border-brown-light hover:text-brown-mid"
+                      }`}
+                    >
+                      {label} ({count})
+                    </button>
+                  );
+                })}
               </div>
-              <div className="relative shrink-0">
-                <LuArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brown-light pointer-events-none" />
-                <select
-                  value={sort}
-                  onChange={e => { setSort(e.target.value); setSelectedContractId(null); }}
-                  className="pl-7 pr-7 py-2 rounded-lg border border-beige-dark bg-white text-brown-dark text-sm
-                    focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all appearance-none cursor-pointer"
-                >
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="az">Supplier A → Z</option>
-                  <option value="za">Supplier Z → A</option>
-                  <option value="price_asc">Price: Low → High</option>
-                  <option value="price_desc">Price: High → Low</option>
-                </select>
-              </div>
-            </div>
+            )}
           </div>
 
           {loading ? (
@@ -433,7 +488,7 @@ export default function BOContractsPage() {
               <div className="w-14 h-14 bg-beige rounded-2xl flex items-center justify-center mb-4">
                 <LuFileText className="w-7 h-7 text-brown-light" />
               </div>
-              <p className="text-brown-dark font-semibold">No {filter !== "All" ? `"${filter}"` : ""} contracts{search ? ` matching "${search}"` : ""}</p>
+              <p className="text-brown-dark font-semibold">No {filter === "Pending" ? `"${PENDING_SUBFILTERS.find(s => s.key === pendingSubfilter)?.label}"` : filter !== "All" ? `"${filter}"` : ""} contracts{search ? ` matching "${search}"` : ""}</p>
               <p className="text-brown-light text-sm mt-1">{search ? "Try a different name or contract number." : "Contracts are created when a price negotiation is accepted."}</p>
             </div>
           ) : (
@@ -466,6 +521,22 @@ export default function BOContractsPage() {
           )}
         </>
       )}
+
+      {/* Pending contracts panel — triggered by either dashboard banner.
+          Lists every system-wide contract awaiting the Supplier's signature
+          or the BO's review/approval; "View" reuses openContract() so
+          approvals still go through the existing ContractApprovalModal. */}
+      <AnimatePresence>
+        {pendingPanelOpen && (
+          <PendingContractsPanel
+            key="pending-contracts-panel"
+            signatureContracts={pendingSignatureContracts}
+            reviewContracts={pendingReviewContracts}
+            onClose={() => setPendingPanelOpen(false)}
+            onView={viewFromPanel}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ContractApprovalModal — BO must open, review, and explicitly approve
           & sign a contract the Supplier has already signed. This is the ONLY
@@ -572,6 +643,109 @@ function ContractStatusBadge({ status }) {
   );
 }
 
+// Right-side slide-in panel opened by the dashboard's two pending-contract
+// banners. Purely a read/navigate surface over already-fetched `contracts`
+// state — "View" delegates to the caller's existing openContract() router,
+// so approvals still flow through the same ContractApprovalModal and
+// generation still flows through the same ContractReviewModal used
+// everywhere else on this page. No new contract statuses or workflows.
+function PendingContractsPanel({ signatureContracts, reviewContracts, onClose, onView }) {
+  const groups = [
+    {
+      key: "signature",
+      title: "Awaiting Supplier Signature",
+      contracts: signatureContracts,
+      emptyText: "No contracts are currently awaiting a Supplier's signature.",
+    },
+    {
+      key: "review",
+      title: "Awaiting Owner Review",
+      contracts: reviewContracts,
+      emptyText: "No contracts are currently awaiting your review & approval.",
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <MotionButton
+        type="button"
+        aria-label="Close pending contracts panel"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-sm"
+      />
+      <MotionAside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pending contracts"
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+        className="absolute inset-y-0 right-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-beige-dark/40 px-5 py-4">
+          <div>
+            <h2 className="text-base font-black text-brown-dark">Pending Contracts</h2>
+            <p className="text-xs text-brown-light">
+              {signatureContracts.length + reviewContracts.length} contract
+              {signatureContracts.length + reviewContracts.length !== 1 ? "s" : ""} need attention
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-brown-light transition-colors hover:bg-beige hover:text-brown-dark"
+          >
+            <LuX className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {groups.map(group => (
+            <section key={group.key} className="mb-6 last:mb-0">
+              <h3 className="mb-2.5 text-xs font-bold uppercase tracking-wide text-brown-light">
+                {group.title} ({group.contracts.length})
+              </h3>
+              {group.contracts.length === 0 ? (
+                <p className="rounded-xl border border-beige-dark/40 bg-beige/40 px-3 py-3 text-xs text-brown-light">
+                  {group.emptyText}
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {group.contracts.map(c => (
+                    <li key={c.contract_id}
+                      className="flex items-center gap-3 rounded-xl border border-beige-dark/50 bg-white px-3 py-3 shadow-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-brown-dark">
+                          {`${c.supplier?.first_name ?? ""} ${c.supplier?.last_name ?? ""}`.trim() || "—"}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-brown-light">{c.contract_number}</p>
+                        <div className="mt-1.5"><ContractStatusBadge status={c.status} /></div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onView(c)}
+                        className="shrink-0 rounded-full border border-beige-dark bg-beige px-3 py-1.5 text-xs font-bold text-brown-mid transition-colors hover:bg-beige-dark hover:text-brown-dark"
+                      >
+                        View
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
+      </MotionAside>
+    </div>
+  );
+}
+
 function ContractProgress({ value, status }) {
   const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
   const color = status === "Breached" || safeValue < 34
@@ -654,17 +828,18 @@ const OWNER_CONTRACT_COLUMNS = [
 ];
 
 const SUPPLIER_STAT_ORDER = ["Active", "Completed", "Breached"];
+const SUPPLIER_STAT_LABELS = {
+  Active: "Active",
+  Completed: "Completed",
+  Breached: "Breached",
+};
 const SUPPLIER_STAT_ICON_BG = {
   Active: "bg-green-pale",
-  Pending: "bg-beige",
-  "Pending Owner Review": "bg-amber-50",
   Completed: "bg-blue-50",
   Breached: "bg-red-50",
 };
 const SUPPLIER_STAT_DOT = {
   Active: "bg-green-mid",
-  Pending: "bg-brown-light",
-  "Pending Owner Review": "bg-amber-500",
   Completed: "bg-blue-500",
   Breached: "bg-red-500",
 };
@@ -716,13 +891,19 @@ function OwnerSupplierList({ suppliers, onSelect, search, onSearchChange }) {
             <article key={s.supplierId}
               className="rounded-2xl border-2 border-beige-dark/80 bg-white p-4 shadow-card sm:p-5">
               <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-                <div className="flex min-w-0 items-center gap-4 sm:flex-1 sm:min-w-[180px]">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-pale text-lg font-black text-green-dark">
                     {s.initialsText}
                   </div>
                   <h2 className="truncate text-lg font-black text-brown-dark">{s.name}</h2>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                {/* Pinned flush right (sm:ml-auto) as one fixed-width unit —
+                    since every card's Contracts/Active/Completed/Breached/
+                    View content is the same labels at the same tight gaps,
+                    anchoring the whole cluster to the right edge keeps it
+                    aligned across cards regardless of supplier name length,
+                    without stretching the gaps between items. */}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 sm:ml-auto">
                   <SupplierStat iconBg="bg-orange-50" icon={<LuFileText className="w-4 h-4 text-orange-500" />} value={s.total} label="Contracts" />
                   {SUPPLIER_STAT_ORDER.map(k => (
                     <div key={k} className="flex items-center gap-x-5">
@@ -731,17 +912,17 @@ function OwnerSupplierList({ suppliers, onSelect, search, onSearchChange }) {
                         iconBg={SUPPLIER_STAT_ICON_BG[k]}
                         dotColor={SUPPLIER_STAT_DOT[k]}
                         value={s.counts[k]}
-                        label={STATUS_META[k].label}
+                        label={SUPPLIER_STAT_LABELS[k]}
                       />
                     </div>
                   ))}
+                  <button
+                    onClick={() => onSelect(s.supplierId)}
+                    className="flex shrink-0 items-center gap-2 rounded-full bg-green-dark px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-green-dark/90"
+                  >
+                    View <LuArrowRight className="w-4 h-4" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => onSelect(s.supplierId)}
-                  className="ml-auto flex shrink-0 items-center gap-2 rounded-full bg-green-dark px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-green-dark/90"
-                >
-                  View <LuArrowRight className="w-4 h-4" />
-                </button>
               </div>
             </article>
           ))}
@@ -967,7 +1148,7 @@ const OWNER_BATCH_COLUMNS = [
   { label: "Truck" },
   { label: "Gross Weight", numeric: true },
   { label: "Tare Weight", numeric: true },
-  { label: "Net Weight", numeric: true },
+  { label: "Allocated Weight", numeric: true },
   { label: "Moisture", numeric: true },
   { label: "Status" },
 ];
@@ -992,8 +1173,13 @@ function OwnerBatchTable({ batches }) {
         d?.truck_plate_number || "—",
         batchWeight(wr?.gross_weight_kg),
         batchWeight(tare),
-        batchWeight(wr?.net_weight_kg),
-        moisture == null ? "—" : `${Number(moisture).toLocaleString("en-PH", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`,
+        // This contract's own allocation share (allocated_weight_kg), not
+        // the delivery's raw Net Weight — a delivery can be cascade-split
+        // across this contract and Spot/other contracts, so this column
+        // (and the footer total below) must match the same per-contract
+        // amount already shown in that delivery's own Allocation Breakdown.
+        batchWeight(allocation.allocated_weight_kg),
+        moisture == null ? "—" : `${Number(moisture).toLocaleString("en-PH", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}cc`,
         <BatchStatusBadge key="status" status={d?.delivery_status} />,
       ],
     };
@@ -1112,7 +1298,16 @@ function DeliveryBatchesModal({ contract, onClose }) {
             <div className="flex justify-between items-center">
               <span className="text-sm text-brown-light">{batches.length} batch{batches.length !== 1 ? "es" : ""}</span>
               <span className="font-bold text-brown-dark">
-                {(batches.reduce((s, a) => s + Number(a.allocated_weight_kg ?? 0), 0) / 1000).toFixed(2)} tons total
+                {/* Sum this contract's own allocation share (allocated_weight_kg),
+                    not the delivery's full Net Weight — a batch's delivery can be
+                    cascade-split across this contract and Spot/other contracts,
+                    so only the portion actually allocated to THIS contract (as
+                    shown in each delivery's own Allocation Breakdown) counts
+                    toward this contract's total. Rejected batches are excluded
+                    entirely; only Accepted batches contribute. */}
+                {(batches
+                  .filter(a => a.delivery?.delivery_status === "Accepted")
+                  .reduce((s, a) => s + Number(a.allocated_weight_kg ?? 0), 0) / 1000).toFixed(2)} tons total
               </span>
             </div>
           </div>

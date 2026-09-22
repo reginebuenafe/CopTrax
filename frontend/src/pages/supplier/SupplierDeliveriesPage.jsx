@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  LuTruck, LuFlaskConical, LuCheck, LuX,
+  LuTruck, LuClock, LuCheck, LuX,
   LuChevronDown, LuChevronUp, LuSearch,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -60,20 +60,21 @@ function buildContractBatchMeta(deliveries) {
 }
 
 const STATUS_META = {
-  Weighed:  { color: "bg-blue-50 text-blue-700",      label: "Weighed",  icon: LuTruck },
-  Assessed: { color: "bg-amber-50 text-amber-700",    label: "Assessed", icon: LuFlaskConical },
+  Pending:  { color: "bg-beige text-brown-mid",       label: "Pending",  icon: LuClock },
   Accepted: { color: "bg-green-dark text-white", label: "Accepted", icon: LuCheck },
   Rejected: { color: "bg-red-50 text-red-600",        label: "Rejected", icon: LuX },
 };
 
-const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
+const FILTERS = ["All", "Pending", "Accepted", "Rejected"];
 
-function supplierStatusKey(status, hasWeighing, hasAssessment, qualityResult) {
+// Weighing and moisture assessment are both pre-decision steps from the
+// Supplier's point of view — a delivery only ever resolves to Accepted or
+// Rejected once assessed, so both raw "Weighed" and "Inspected" statuses
+// (and a truly untouched "Pending" delivery) all display/filter as Pending.
+function supplierStatusKey(status, qualityResult) {
   if (status === "Rejected" || qualityResult === "Rejected") return "Rejected";
   if (status === "Accepted" || qualityResult === "Accepted") return "Accepted";
-  if (status === "Inspected" || hasAssessment) return "Assessed";
-  if (status === "Weighed" || hasWeighing) return "Weighed";
-  return null;
+  return "Pending";
 }
 
 export default function SupplierDeliveriesPage() {
@@ -172,7 +173,7 @@ export default function SupplierDeliveriesPage() {
 
   const batchMetaByDelivery = buildContractBatchMeta(deliveries);
   const filtered = deliveries.filter(d => {
-    if (filter !== "All" && d.delivery_status !== filter) return false;
+    if (filter !== "All" && supplierStatusKey(d.delivery_status, d.quality_results?.[0]?.result) !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
       const batchMeta = batchMetaByDelivery.get(d.delivery_id);
@@ -250,7 +251,7 @@ export default function SupplierDeliveriesPage() {
             const wr = d.weighing_records?.[0];
             const li = d.laboratory_inspections?.[0];
             const qr = d.quality_results?.[0];
-            const displayStatus = supplierStatusKey(d.delivery_status, Boolean(wr), Boolean(li), qr?.result);
+            const displayStatus = supplierStatusKey(d.delivery_status, qr?.result);
             const meta = displayStatus ? STATUS_META[displayStatus] : null;
             const StatusIcon = meta?.icon;
             const contractRef = contractLabel(d);
@@ -423,7 +424,7 @@ export default function SupplierDeliveriesPage() {
                       />
                     </dl>
 
-                    {allocs.length > 0 && (
+                    {displayStatus !== "Rejected" && allocs.length > 0 && (
                       <div className="mt-3 rounded-xl bg-beige px-4 py-1">
                         <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
                           Allocation Breakdown

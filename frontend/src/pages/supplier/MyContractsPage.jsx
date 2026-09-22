@@ -197,7 +197,11 @@ export default function MyContractsPage() {
 
   const filtered = contracts
     .filter(c => contractMatchesSearch(c, searchQuery))
-    .filter(c => statusFilter === "All" || c.status === statusFilter)
+    .filter(c => (
+      statusFilter === "All"
+      || (statusFilter === "Pending" && ["Pending", "Pending Owner Review"].includes(c.status))
+      || c.status === statusFilter
+    ))
     .sort((a, b) => sortOrder === "newest"
       ? new Date(b.created_at) - new Date(a.created_at)
       : new Date(a.created_at) - new Date(b.created_at));
@@ -210,11 +214,16 @@ export default function MyContractsPage() {
         <p className="text-brown-light text-sm mt-0.5">All negotiated contracts with NERC Copra Trading</p>
       </div>
 
-      <div className="mt-6 flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <nav aria-label="Contract status filters" className="min-w-0 overflow-x-auto border-b border-beige-dark/70">
-          <div className="flex w-max min-w-full items-end gap-1 sm:gap-3">
+      <div className="mt-6 flex min-w-0 flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
+        <nav aria-label="Contract status filters" className="min-w-0 border-b border-beige-dark/70">
+          <div className="flex min-w-full flex-wrap items-end gap-x-1 gap-y-1 sm:gap-x-3">
             {CONTRACT_TABS.map(status => {
               const selected = statusFilter === status;
+              const tabCount = status === "All"
+                ? contracts.length
+                : contracts.filter(c => status === "Pending"
+                  ? ["Pending", "Pending Owner Review"].includes(c.status)
+                  : c.status === status).length;
               return (
                 <button
                   key={status}
@@ -223,7 +232,7 @@ export default function MyContractsPage() {
                   onClick={() => { setStatusFilter(status); setSelectedContractId(null); }}
                   className={`relative min-h-11 shrink-0 px-3 pb-3 pt-2 text-sm font-semibold transition-colors sm:px-4 ${selected ? "text-green-dark" : "text-brown-light hover:text-brown-dark"}`}
                 >
-                  {status}{status === "All" ? ` (${contracts.length})` : ""}
+                  {status}{(status === "All" || tabCount > 0) ? ` (${tabCount})` : ""}
                   {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-green-dark" />}
                 </button>
               );
@@ -746,7 +755,7 @@ function batchMoisture(value) {
   return `${Number(value).toLocaleString("en-PH", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 2,
-  })}%`;
+  })}cc`;
 }
 
 function BatchStatusBadge({ status }) {

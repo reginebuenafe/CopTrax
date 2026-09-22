@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   LuPencil, LuCheck, LuX, LuCircleAlert, LuTrendingUp,
   LuUserPlus, LuTruck, LuStar,
@@ -551,6 +552,7 @@ function Section({ title, children }) {
 
 export default function OwnerOverview() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // ── existing state (unchanged) ──────────────────────────────────────────
   const [spotPrice, setSpotPrice]   = useState(null);
@@ -743,13 +745,23 @@ export default function OwnerOverview() {
 
 
   const STAT_CARDS = stats ? [
-    { label: "Pending Approvals",   value: stats.pendingApprovals,   color: "bg-amber-50 text-amber-600" },
+    {
+      label: "Pending Registrations", value: stats.pendingApprovals, color: "bg-amber-50 text-amber-600",
+      // Supplier account approvals — User Management already defaults to
+      // its "Pending" tab, so no extra query param/filter wiring is needed.
+      onClick: () => navigate("/dashboard/owner/users"),
+    },
     { label: "Active Contracts",    value: stats.activeContracts,    color: "bg-green-pale text-green-dark" },
     { label: "Total Amount Paid",   value: paymentSummary
         ? "₱" + Number(paymentSummary.paidTotal ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : "—",
       color: "bg-purple-50 text-purple-700", small: true },
-    { label: "Pending Payments",    value: stats.pendingPayments,    color: "bg-blue-50 text-blue-600" },
+    {
+      label: "Pending Payments", value: stats.pendingPayments, color: "bg-blue-50 text-blue-600",
+      // Matches this stat's own query (payments.payment_status = "Pending")
+      // — lands on the Payment Batches tab with its existing Pending filter.
+      onClick: () => navigate("/dashboard/owner/payments?tab=batches&filter=Pending"),
+    },
   ] : [];
 
   const now = new Date();
@@ -846,13 +858,20 @@ export default function OwnerOverview() {
       {/* ── Summary stat cards ── */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {STAT_CARDS.map(s => (
-            <div key={s.label}
-              className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4 hover:border-green-dark/30 transition-colors">
-              <p className="text-2xl font-bold text-brown-dark leading-none">{s.value}</p>
-              <p className="text-xs text-brown-light mt-1.5 leading-snug">{s.label}</p>
-            </div>
-          ))}
+          {STAT_CARDS.map(s => {
+            const Tag = s.onClick ? "button" : "div";
+            return (
+              <Tag key={s.label}
+                type={s.onClick ? "button" : undefined}
+                onClick={s.onClick}
+                className={`bg-white border border-beige-dark/40 rounded-xl px-5 py-4 text-left transition-colors hover:border-green-dark/30 ${
+                  s.onClick ? "cursor-pointer hover:bg-beige/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-mid/40" : ""
+                }`}>
+                <p className="text-2xl font-bold text-brown-dark leading-none">{s.value}</p>
+                <p className="text-xs text-brown-light mt-1.5 leading-snug">{s.label}</p>
+              </Tag>
+            );
+          })}
         </div>
       )}
 

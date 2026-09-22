@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   LuWallet, LuCheck, LuClock, LuCircleAlert, LuChevronDown,
   LuReceipt, LuX, LuLoader, LuPackage, LuBanknote, LuTruck,
@@ -18,6 +19,17 @@ function fmt3(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFracti
 function fmtDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+}
+// Masks a bank account number for receipt display — keeps only the last
+// 4–5 digits visible (e.g. "1234567890" -> "••••••7890"), never rendering
+// the full number.
+function maskAccountNumber(accountNumber) {
+  const digits = String(accountNumber ?? "").replace(/\s+/g, "");
+  if (!digits) return "—";
+  const visibleCount = digits.length > 8 ? 5 : 4;
+  const visible = digits.slice(-visibleCount);
+  const maskedLength = Math.max(digits.length - visibleCount, 6);
+  return "•".repeat(maskedLength) + visible;
 }
 
 // ── payment computation: one line per allocation (spec §3.5) ──────────────
@@ -120,7 +132,12 @@ function getPaymentFriday(isoTimestamp) {
 // ── main component ────────────────────────────────────────────────────────────
 export default function PaymentsPage() {
   const { user, profile } = useAuth();
-  const [tab, setTab] = useState(0);
+  // Supports deep-linking from the Owner Dashboard's "Pending Payments" stat
+  // card (?tab=batches&filter=Pending) directly onto the matching tab/filter
+  // — read once on mount, existing tab-switch/filter UI is unchanged.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => (searchParams.get("tab") === "batches" ? 1 : 0));
+  const initialBatchFilter = searchParams.get("filter");
   const [readyDeliveries, setReadyDeliveries] = useState([]); // ungrouped Accepted contractual deliveries without payment
   const [batches, setBatches] = useState([]);
   const [walkinDeliveries, setWalkinDeliveries] = useState([]);
@@ -158,7 +175,7 @@ export default function PaymentsPage() {
       supabase.from("payments").select(`
         payment_id, payment_week, total_amount, payment_status,
         reference_number, payment_date, created_at, payment_method,
-        supplier:supplier_id(first_name, last_name),
+        supplier:supplier_id(first_name, last_name, bank_accounts(bank_name, account_name, account_number)),
         payment_details(
           payment_detail_id, delivery_id, gross_weight_kg, tare_weight_kg,
           net_weight_kg, moisture_content_pct, moisture_deduction_kg,
@@ -342,6 +359,7 @@ export default function PaymentsPage() {
         <BatchesTab
           batches={batches}
           onRelease={setReleaseModal}
+          initialFilter={initialBatchFilter}
         />
       ) : (
         <WalkinPaymentsTab
@@ -738,10 +756,7 @@ function PreviewRow({ label, value }) {
 }
 
 // ── Batches Tab ───────────────────────────────────────────────────────────
-function BatchesTab({ batches, onRelease }) {
-  const [filter, setFilter]           = useState("All");
-  const [receiptBatch, setReceiptBatch] = useState(null);
-
+function BatchesTab({ batches, onRelease, initialFilter }) {
   const BATCH_FILTERS = [
     { label: "All",        match: () => true },
     { label: "Pending",    match: b => b.payment_status === "Pending" },
@@ -749,6 +764,11 @@ function BatchesTab({ batches, onRelease }) {
     { label: "Done",       match: b => b.payment_status === "Released" },
     { label: "Failed",     match: b => b.payment_status === "Failed" },
   ];
+
+  const [filter, setFilter]           = useState(
+    () => (BATCH_FILTERS.some(f => f.label === initialFilter) ? initialFilter : "All")
+  );
+  const [receiptBatch, setReceiptBatch] = useState(null);
 
   const shown = batches.filter(BATCH_FILTERS.find(f => f.label === filter)?.match ?? (() => true));
 
@@ -937,6 +957,7 @@ function BatchReceiptModal({ batch: b, onClose }) {
 
   const receiptNum   = b.e_receipts?.[0]?.receipt_number;
   const supplierName = `${b.supplier?.first_name ?? ""} ${b.supplier?.last_name ?? ""}`.trim();
+  const bankAccount  = Array.isArray(b.supplier?.bank_accounts) ? b.supplier.bank_accounts[0] : b.supplier?.bank_accounts;
   const details      = b.payment_details ?? [];
   const totalPaid    = Number(b.total_amount ?? 0);
 
@@ -1038,6 +1059,16 @@ function BatchReceiptModal({ batch: b, onClose }) {
             <div className="flex justify-between"><span className="text-brown-light">Method</span><span className="text-brown-dark">{b.payment_method ?? "Bank Transfer"}</span></div>
             {b.reference_number && (
               <div className="flex justify-between gap-2"><span className="text-brown-light shrink-0">Ref</span><span className="text-brown-mid text-right break-all" style={{ fontSize: "10px" }}>{b.reference_number}</span></div>
+            )}
+
+            {bankAccount && (
+              <>
+                <div className="border-t border-dashed border-brown-light/40 my-2" />
+                <p className="text-center font-bold text-brown-dark">BANK DETAILS</p>
+                <div className="flex justify-between"><span className="text-brown-light">Bank Name</span><span className="text-brown-dark text-right">{bankAccount.bank_name ?? "—"}</span></div>
+                <div className="flex justify-between"><span className="text-brown-light">Account Name</span><span className="text-brown-dark text-right">{bankAccount.account_name ?? "—"}</span></div>
+                <div className="flex justify-between"><span className="text-brown-light">Account Number</span><span className="text-brown-dark">{maskAccountNumber(bankAccount.account_number)}</span></div>
+              </>
             )}
 
             <div className="border-t border-dashed border-brown-light/40 my-2" />

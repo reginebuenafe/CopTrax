@@ -12,14 +12,28 @@ function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// jsPDF's built-in "helvetica" font only supports WinAnsi-encoded glyphs and
+// has no ₱ (U+20B1) glyph — rendering it garbles into stray characters.
+// PDF cell/body text must use this "PHP " prefix instead; the on-screen
+// table and XLSX (browser/Excel Unicode fonts) keep the real ₱ symbol via
+// peso() above.
+function pesoPdf(n) {
+  return "PHP " + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function fmtDate(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
 }
 
-function fmtWeight(kg) {
-  if (kg == null) return "—";
-  return Number(kg).toLocaleString("en-PH", { maximumFractionDigits: 2 }) + " kg";
+function fmtKg(kg) {
+  if (kg == null || kg === "") return "—";
+  return Number(kg).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " kg";
+}
+
+function fmtTons(kg) {
+  if (kg == null || kg === "") return "—";
+  return (Number(kg) / 1000).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " t";
 }
 
 // ── Report definitions ────────────────────────────────────────────────────────
@@ -111,7 +125,7 @@ async function fetchInventory(from, to) {
     .select(`
       source_type, batch_status, weight_kg, recorded_date, merge_eligible_date,
       merged_at, review_decision,
-      delivery:delivery_id(batch_number, delivery_date)
+      delivery:delivery_id(batch_number, delivery_date, weighing_records(net_weight_kg))
     `)
     .order("recorded_date", { ascending: false });
   if (from) q.gte("recorded_date", from);
@@ -119,6 +133,18 @@ async function fetchInventory(from, to) {
   const { data, error } = await q;
   if (error) throw error;
   return data;
+}
+
+// Pre-deduction Net Weight (Gross − Tare) for an inventory batch's own
+// delivery — NOT the post-PCA-deduction weight_kg stored on
+// inventory_batches. Rejected deliveries never produce inventory_batches
+// rows (see InspectionQueuePage.jsx), and each delivery contributes
+// exactly one inventory_batches row regardless of how many contracts it
+// was split across, so summing this per unique row can never include a
+// rejected delivery or double-count a multi-contract batch.
+function inventoryNetWeightKg(row) {
+  const wr = Array.isArray(row.delivery?.weighing_records) ? row.delivery.weighing_records[0] : row.delivery?.weighing_records;
+  return Number(wr?.net_weight_kg ?? 0);
 }
 
 async function fetchPayments(from, to) {
@@ -165,421 +191,507 @@ async function fetchRatings(from, to) {
   });
 }
 
-// ── Preview tables ────────────────────────────────────────────────────────────
+// ── Column model ──────────────────────────────────────────────────────────────
+// Single source of truth per report: the same column list drives the on-screen
+// preview table, the PDF (via jspdf-autotable), and the XLSX export, so all
+// three surfaces always show the exact same records/columns/totals.
+//
+// Each column's get(row) returns { text, raw, numFmt, align }:
+//   text   – human-readable string for the on-screen table and the PDF body
+//   raw    – the underlying value written into the XLSX cell (number/Date/string)
+//   numFmt – optional Excel number format applied to that XLSX cell
+//   align  – "left" | "right" (defaults to left)
 
-function ContractsTable({ rows }) {
+function textCol(header, get) {
+  return {
+    header, align: "left",
+    get: row => { const v = get(row); return { text: v == null || v === "" ? "—" : String(v), raw: v ?? "" }; },
+  };
+}
+
+function dateCol(header, get) {
+  return {
+    header, align: "left",
+    get: row => {
+      const v = get(row);
+      return { text: fmtDate(v), raw: v ? new Date(v) : "", numFmt: v ? "yyyy-mm-dd" : undefined };
+    },
+  };
+}
+
+function currencyCol(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      if (v == null || v === "") return { text: "—", pdfText: "—", raw: "" };
+      return { text: peso(v), pdfText: pesoPdf(v), raw: Number(v), numFmt: '"₱"#,##0.00' };
+    },
+  };
+}
+
+// value is already stored in kilograms
+function kgCol(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return { text: fmtKg(v), raw: v == null || v === "" ? "" : Number(v), numFmt: '#,##0.00" kg"' };
+    },
+  };
+}
+
+// value is already stored in tons (no kg→t conversion)
+function tonsDirectCol(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return {
+        text: v == null || v === "" ? "—" : `${Number(v).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t`,
+        raw: v == null || v === "" ? "" : Number(v),
+        numFmt: '#,##0.00" t"',
+      };
+    },
+  };
+}
+
+function percentCol(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return { text: v == null || v === "" ? "—" : `${v}%`, raw: v == null || v === "" ? "" : Number(v), numFmt: '0.0"%"' };
+    },
+  };
+}
+
+function moistureCol(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return { text: v == null || v === "" ? "—" : `${v}cc`, raw: v == null || v === "" ? "" : Number(v), numFmt: '0.0"cc"' };
+    },
+  };
+}
+
+function scoreCol(header, get, decimals, suffix) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return {
+        text: v == null || v === "" ? "—" : `${Number(v).toFixed(decimals)}${suffix}`,
+        raw: v == null || v === "" ? "" : Number(v),
+        numFmt: `0.${"0".repeat(decimals)}"${suffix}"`,
+      };
+    },
+  };
+}
+
+// ── Report-specific helpers ───────────────────────────────────────────────────
+
+function supplierName(r) {
+  if (r.supplier) return `${r.supplier.first_name ?? ""} ${r.supplier.last_name ?? ""}`.trim();
+  if (r.walkin_supplier) return `${r.walkin_supplier.first_name ?? ""} ${r.walkin_supplier.last_name ?? ""}`.trim() + " (Walk-in)";
+  return null;
+}
+
+function deliveryQualityText(r) {
+  const isWalkin = r.delivery_source === "Walkin";
+  const condition = r.weighing?.[0]?.copra_condition;
+  const quality = r.quality?.[0]?.result;
+  if (isWalkin) return condition ?? null;
+  return quality ?? null;
+}
+
+function deliveryAllocationSummary(r, forPdf = false) {
+  const pesoFmt = forPdf ? pesoPdf : peso;
+  const isWalkin = r.delivery_source === "Walkin";
+  if (isWalkin) {
+    const spotPrice = r.walkin_spot_price_kg != null ? Number(r.walkin_spot_price_kg) : null;
+    const amountPaid = r.walkin_amount_paid != null ? Number(r.walkin_amount_paid) : null;
+    const netWt = r.weighing?.[0]?.net_weight_kg;
+    if (spotPrice == null) return null;
+    return `Spot: ${fmtKg(netWt)} @ ${pesoFmt(spotPrice)}/kg${amountPaid != null ? ` = ${pesoFmt(amountPaid)}` : ""}`;
+  }
+  const allocs = (r.allocations ?? []).slice().sort((a, b) => a.sequence_order - b.sequence_order);
+  if (allocs.length === 0) return null;
+  return allocs.map(a => `${a.contract?.contract_number ?? "Spot"}: ${fmtKg(a.allocated_weight_kg)} (${a.price_type})`).join("; ");
+}
+
+function paymentDetailTotals(r) {
+  const details = r.detail ?? [];
+  const totalNetWt = details.reduce((s, d) => s + (Number(d.net_weight_kg) || 0), 0);
+  const totalFinalWt = details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
+  const totalPayable = details.reduce((s, d) => s + (Number(d.line_amount) || 0), 0);
+  const mcValues = details.map(d => d.moisture_content_pct).filter(v => v != null);
+  const avgMc = mcValues.length === 0 ? null : mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length;
+  return { totalNetWt, totalFinalWt, totalPayable, avgMc };
+}
+
+// ── Column configs (single source of truth for screen/PDF/XLSX) ─────────────
+
+const CONTRACTS_COLUMNS = [
+  textCol("Contract #", r => r.contract_number),
+  textCol("Supplier", r => supplierName(r)),
+  textCol("Email", r => r.supplier?.email),
+  textCol("Status", r => r.status),
+  currencyCol("Price/kg", r => r.negotiated_price_per_kg),
+  tonsDirectCol("Contracted", r => r.contracted_tons),
+  dateCol("Signing Date", r => r.signing_date),
+  dateCol("Activation Date", r => r.activation_date),
+  dateCol("Due Date", r => r.due_date),
+];
+
+const DELIVERIES_COLUMNS = [
+  textCol("Batch #", r => r.batch_number),
+  dateCol("Date", r => r.delivery_date),
+  textCol("Type", r => (r.delivery_source === "Walkin" ? "Walk-in" : "Contractual")),
+  textCol("Supplier", r => supplierName(r)),
+  kgCol("Gross Wt", r => r.weighing?.[0]?.gross_weight_kg),
+  kgCol("Tare Wt", r => r.weighing?.[0]?.tare_weight_kg),
+  kgCol("Net Wt", r => r.weighing?.[0]?.net_weight_kg),
+  moistureCol("Moisture", r => r.lab?.[0]?.moisture_content_pct),
+  textCol("Quality", r => deliveryQualityText(r)),
+  {
+    header: "Allocation Summary", align: "left",
+    get: row => {
+      const text = deliveryAllocationSummary(row, false);
+      const pdfText = deliveryAllocationSummary(row, true);
+      return { text: text ?? "—", pdfText: pdfText ?? "—", raw: text ?? "" };
+    },
+  },
+];
+
+// Inventory's weight columns are unit-aware per row (Contractual → tons,
+// Walk-in → kg, per the non-negotiable display convention), so they use a
+// bespoke get() instead of the static kgCol/tonsDirectCol factories.
+function inventoryWeightCol(header, getKg) {
+  return {
+    header, align: "right",
+    get: row => {
+      const kg = getKg(row);
+      const isContractual = row.source_type !== "Walkin";
+      if (kg == null) return { text: "—", raw: "" };
+      return isContractual
+        ? { text: fmtTons(kg), raw: kg / 1000, numFmt: '#,##0.00" t"' }
+        : { text: fmtKg(kg), raw: kg, numFmt: '#,##0.00" kg"' };
+    },
+  };
+}
+
+const INVENTORY_COLUMNS = [
+  textCol("Delivery Batch #", r => r.delivery?.batch_number),
+  dateCol("Recorded Date", r => r.recorded_date),
+  textCol("Source", r => (r.source_type === "Walkin" ? "Walk-in" : "Contractual")),
+  inventoryWeightCol("Net Weight", r => inventoryNetWeightKg(r)),
+  inventoryWeightCol("After Deduction", r => Number(r.weight_kg ?? 0)),
+  textCol("Status", r => r.batch_status),
+  dateCol("Merge Eligible", r => r.merge_eligible_date),
+  dateCol("Merged At", r => r.merged_at),
+  textCol("Decision", r => r.review_decision),
+];
+
+const PAYMENTS_COLUMNS = [
+  textCol("Reference #", r => r.reference_number),
+  textCol("Supplier", r => supplierName(r)),
+  textCol("Email", r => r.supplier?.email),
+  dateCol("Payment Date", r => r.payment_date),
+  kgCol("Net Wt", r => paymentDetailTotals(r).totalNetWt || null),
+  moistureCol("Moisture", r => { const v = paymentDetailTotals(r).avgMc; return v == null ? null : Number(v.toFixed(1)); }),
+  kgCol("Final Wt", r => paymentDetailTotals(r).totalFinalWt || null),
+  currencyCol("Payable", r => paymentDetailTotals(r).totalPayable || null),
+  textCol("Status", r => r.payment_status),
+  textCol("Method", r => r.payment_method),
+];
+
+const RATINGS_COLUMNS = [
+  textCol("Supplier", r => supplierName(r)),
+  textCol("Email", r => r.supplier?.email),
+  textCol("Contract #", r => r.contract?.contract_number),
+  textCol("Contract Status", r => r.contract?.status),
+  dateCol("Snapshot Date", r => r.snapshot_date),
+  percentCol("Fulfillment", r => r.contract_fulfillment_score),
+  percentCol("Volume", r => r.delivered_volume_score),
+  percentCol("Quality", r => r.copra_quality_score),
+  scoreCol("Performance Score", r => r.performance_score, 1, "%"),
+  scoreCol("Rating", r => r.supplier_rating, 0, "/5"),
+  scoreCol("Overall Rating", r => r.overall_supplier_rating, 2, "/5"),
+];
+
+const REPORT_COLUMNS = {
+  contracts: CONTRACTS_COLUMNS,
+  deliveries: DELIVERIES_COLUMNS,
+  inventory: INVENTORY_COLUMNS,
+  payments: PAYMENTS_COLUMNS,
+  ratings: RATINGS_COLUMNS,
+};
+
+// ── Inventory Total Net Weight (shared by screen, PDF, XLSX) ─────────────────
+// Computed from ALL fetched inventory rows (before the Delivery Type filter is
+// applied for display), split by source_type, so "All" can always show both
+// subtotals regardless of which filter is currently selected on screen.
+function computeInventoryNetTotals(allRows) {
+  const contractualRows = allRows.filter(r => r.source_type !== "Walkin");
+  const walkinRows = allRows.filter(r => r.source_type === "Walkin");
+  // All sums use unrounded kg values; rounding happens only at display time
+  // (fmtTons/fmtKg), per the "round only for display" requirement.
+  const contractualNetKg = contractualRows.reduce((s, r) => s + inventoryNetWeightKg(r), 0);
+  const walkinNetKg = walkinRows.reduce((s, r) => s + inventoryNetWeightKg(r), 0);
+  const contractualAfterDeductionKg = contractualRows.reduce((s, r) => s + Number(r.weight_kg ?? 0), 0);
+  const walkinAfterDeductionKg = walkinRows.reduce((s, r) => s + Number(r.weight_kg ?? 0), 0);
+  return { contractualNetKg, walkinNetKg, contractualAfterDeductionKg, walkinAfterDeductionKg };
+}
+
+function inventoryTotalsLines(allRows, deliveryTypeFilter) {
+  const { contractualNetKg, walkinNetKg, contractualAfterDeductionKg, walkinAfterDeductionKg } = computeInventoryNetTotals(allRows);
+
+  if (deliveryTypeFilter === "Contractual") {
+    const diffKg = contractualNetKg - contractualAfterDeductionKg;
+    return [
+      `Total Net Weight: ${fmtTons(contractualNetKg)}`,
+      `Total After Deduction: ${fmtTons(contractualAfterDeductionKg)}`,
+      `Weight Difference: ${fmtTons(diffKg)}`,
+    ];
+  }
+  if (deliveryTypeFilter === "Walk-in") {
+    const diffKg = walkinNetKg - walkinAfterDeductionKg;
+    return [
+      `Total Net Weight: ${fmtKg(walkinNetKg)}`,
+      `Total After Deduction: ${fmtKg(walkinAfterDeductionKg)}`,
+      `Weight Difference: ${fmtKg(diffKg)}`,
+    ];
+  }
+
+  // "All" — never add tons and kilograms directly; keep Contractual/Walk-in
+  // subtotals in their own units, then convert both to a common unit (tons)
+  // for one clearly-labeled combined figure per metric.
+  const toTons = kg => (kg / 1000).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const combinedNetKg = contractualNetKg + walkinNetKg;
+  const combinedAfterDeductionKg = contractualAfterDeductionKg + walkinAfterDeductionKg;
+  const combinedDiffKg = combinedNetKg - combinedAfterDeductionKg;
+  return [
+    `Contractual Subtotal (Net Weight): ${fmtTons(contractualNetKg)}`,
+    `Walk-in Subtotal (Net Weight): ${fmtKg(walkinNetKg)}`,
+    `Combined Total Net Weight: ${toTons(combinedNetKg)} t`,
+    `Contractual Subtotal (After Deduction): ${fmtTons(contractualAfterDeductionKg)}`,
+    `Walk-in Subtotal (After Deduction): ${fmtKg(walkinAfterDeductionKg)}`,
+    `Combined Total After Deduction: ${toTons(combinedAfterDeductionKg)} t`,
+    `Combined Weight Difference: ${toTons(combinedDiffKg)} t`,
+  ];
+}
+
+// ── On-screen preview table (shared renderer for all 5 reports) ─────────────
+
+function ReportTable({ reportId, rows, totalsLines }) {
+  const columns = REPORT_COLUMNS[reportId];
+  if (!columns) return null;
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Contract #","Supplier","Status","Price/ton","Contracted (t)","Activation","Due Date"].map(h => (
-            <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
+          {columns.map(c => (
+            <th key={c.header} className={`px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap ${c.align === "right" ? "text-right" : "text-left"}`}>
+              {c.header}
+            </th>
           ))}
         </tr>
       </thead>
       <tbody className="divide-y divide-beige-dark/10">
-        {rows.map((r, i) => (
+        {rows.map((row, i) => (
           <tr key={i} className="hover:bg-beige/30">
-            <td className="px-3 py-2.5 font-medium text-brown-dark">{r.contract_number}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—"}</td>
-            <td className="px-3 py-2.5">
-              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                r.status === "Active" ? "bg-green-pale text-green-dark" :
-                r.status === "Completed" ? "bg-blue-50 text-blue-600" :
-                r.status === "Breached" ? "bg-red-50 text-red-600" : "bg-beige text-brown-mid"}`}>
-                {r.status}
-              </span>
-            </td>
-            <td className="px-3 py-2.5 text-brown-mid">{peso(r.negotiated_price_per_kg)}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.contracted_tons}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{fmtDate(r.activation_date)}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{fmtDate(r.due_date)}</td>
+            {columns.map(c => (
+              <td key={c.header} className={`px-3 py-2.5 text-brown-mid whitespace-nowrap ${c.align === "right" ? "text-right" : "text-left"}`}>
+                {c.get(row).text}
+              </td>
+            ))}
           </tr>
         ))}
       </tbody>
-    </table>
-  );
-}
-
-function DeliveriesTable({ rows }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Batch #","Date","Supplier","Type","Net Wt","Moisture (cc)","Quality","Allocations"].map(h => (
-            <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-beige-dark/10">
-        {rows.map((r, i) => {
-          const isWalkin = r.delivery_source === "Walkin";
-          const supplier = r.supplier
-            ? `${r.supplier.first_name} ${r.supplier.last_name}`
-            : r.walkin_supplier
-            ? `${r.walkin_supplier.first_name} ${r.walkin_supplier.last_name} (Walk-in)`
-            : "—";
-          const wr      = r.weighing?.[0];
-          const netWt   = wr?.net_weight_kg;
-          const moisture = r.lab?.[0]?.moisture_content_pct;
-
-          // Quality: Dry/Wet for walk-in, result badge for contractual
-          const condition = wr?.copra_condition;
-          const quality   = r.quality?.[0]?.result;
-
-          // Allocations: walk-in shows spot computation; contractual shows alloc lines
-          const allocs = (r.allocations ?? []).sort((a, b) => a.sequence_order - b.sequence_order);
-          const spotPrice = r.walkin_spot_price_kg != null ? Number(r.walkin_spot_price_kg) : null;
-          const amountPaid = r.walkin_amount_paid != null ? Number(r.walkin_amount_paid) : null;
-
-          return (
-            <tr key={i} className="hover:bg-beige/30">
-              <td className="px-3 py-2.5 font-medium text-brown-dark">{r.batch_number ?? "—"}</td>
-              <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.delivery_date)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{supplier}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{r.delivery_source}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(netWt)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{moisture != null ? `${moisture}cc` : "—"}</td>
-              <td className="px-3 py-2.5">
-                {isWalkin && condition ? (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    condition === "Wet" ? "bg-blue-50 text-blue-600" : "bg-green-pale text-green-dark"}`}>
-                    {condition}
-                  </span>
-                ) : quality ? (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    quality === "Accepted" ? "bg-green-pale text-green-dark" :
-                    quality === "Rejected" ? "bg-red-50 text-red-600" : "bg-beige text-brown-mid"}`}>
-                    {quality}
-                  </span>
-                ) : "—"}
-              </td>
-              <td className="px-3 py-2.5 text-brown-mid">
-                {isWalkin ? (
-                  spotPrice != null
-                    ? <span>Spot: {fmtWeight(netWt)} · {peso(spotPrice)}/kg{amountPaid != null ? ` = ${peso(amountPaid)}` : ""}</span>
-                    : "—"
-                ) : allocs.length === 0 ? "—" : allocs.map((a, j) => (
-                  <div key={j}>{a.contract?.contract_number ?? "Spot"}: {fmtWeight(a.allocated_weight_kg)} ({a.price_type})</div>
-                ))}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function InventoryTable({ rows }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Delivery","Recorded","Source","Weight","Status","Eligible to Merge","Decision"].map(h => (
-            <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-beige-dark/10">
-        {rows.map((r, i) => (
-          <tr key={i} className="hover:bg-beige/30">
-            <td className="px-3 py-2.5 font-medium text-brown-dark">{r.delivery?.batch_number ?? "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.recorded_date)}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.source_type}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(r.weight_kg)}</td>
-            <td className="px-3 py-2.5">
-              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                r.batch_status === "Resecada" ? "bg-green-pale text-green-dark" :
-                r.batch_status === "Ready to Merge" ? "bg-amber-50 text-amber-700" : "bg-beige text-brown-mid"}`}>
-                {r.batch_status}
-              </span>
-            </td>
-            <td className="px-3 py-2.5 text-brown-mid">{fmtDate(r.merge_eligible_date)}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.review_decision ?? "—"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function PaymentsTable({ rows }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Reference","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status","Method"].map(h => (
-            <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-beige-dark/10">
-        {rows.map((r, i) => {
-          const details = r.detail ?? [];
-          const totalNetWt    = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
-          const totalFinalWt  = details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
-          const totalPayable  = details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
-          const mcValues      = details.map(d => d.moisture_content_pct).filter(v => v != null);
-          const mcDisplay     = mcValues.length === 0 ? "—"
-            : mcValues.length === 1 ? `${mcValues[0]}cc`
-            : `${(mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1)}cc avg`;
-          return (
-            <tr key={i} className="hover:bg-beige/30">
-              <td className="px-3 py-2.5 font-medium text-brown-dark">{r.reference_number ?? "—"}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—"}</td>
-              <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.payment_date)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(totalNetWt || null)}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{mcDisplay}</td>
-              <td className="px-3 py-2.5 text-brown-mid">{fmtWeight(totalFinalWt || null)}</td>
-              <td className="px-3 py-2.5 font-semibold text-brown-dark">{totalPayable > 0 ? peso(totalPayable) : "—"}</td>
-              <td className="px-3 py-2.5">
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                  r.payment_status === "Released" ? "bg-green-pale text-green-dark" :
-                  r.payment_status === "Failed"   ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
-                  {r.payment_status}
-                </span>
-              </td>
-              <td className="px-3 py-2.5 text-brown-mid">{r.payment_method}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function RatingsTable({ rows }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="bg-beige/60 border-b border-beige-dark/30">
-          {["Supplier","Contract","Date","Fulfillment","Volume","Quality","Score","Rating","Overall"].map(h => (
-            <th key={h} className="text-left px-3 py-2.5 font-semibold text-brown-light uppercase tracking-wide whitespace-nowrap">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-beige-dark/10">
-        {rows.map((r, i) => (
-          <tr key={i} className="hover:bg-beige/30">
-            <td className="px-3 py-2.5 font-medium text-brown-dark">{r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.contract?.contract_number ?? "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid whitespace-nowrap">{fmtDate(r.snapshot_date)}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.contract_fulfillment_score != null ? `${r.contract_fulfillment_score}%` : "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.delivered_volume_score != null ? `${r.delivered_volume_score}%` : "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.copra_quality_score != null ? `${r.copra_quality_score}%` : "—"}</td>
-            <td className="px-3 py-2.5 text-brown-mid">{r.performance_score != null ? `${Number(r.performance_score).toFixed(1)}%` : "—"}</td>
-            <td className="px-3 py-2.5">
-              <span className={`font-bold ${r.supplier_rating >= 4 ? "text-green-dark" : r.supplier_rating >= 3 ? "text-amber-600" : "text-red-600"}`}>
-                {r.supplier_rating != null ? `${r.supplier_rating} / 5` : "—"}
-              </span>
-            </td>
-            <td className="px-3 py-2.5 font-bold text-brown-dark">
-              {r.overall_supplier_rating != null ? `${Number(r.overall_supplier_rating).toFixed(2)} / 5` : "—"}
+      {totalsLines && totalsLines.length > 0 && (
+        <tfoot>
+          <tr className="border-t-2 border-green-dark/30 bg-green-pale/40">
+            <td colSpan={columns.length} className="px-3 py-2.5">
+              {totalsLines.map((line, i) => (
+                <p key={i} className="text-sm font-bold text-green-dark">{line}</p>
+              ))}
             </td>
           </tr>
-        ))}
-      </tbody>
+        </tfoot>
+      )}
     </table>
   );
 }
 
 // ── Export helpers ────────────────────────────────────────────────────────────
 
-function exportXLSX(reportId, rows) {
-  import("xlsx").then(XLSX => {
-    let wsData = [];
+const XLSX_HEADER_STYLE = {
+  font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+  fill: { fgColor: { rgb: "2E5B1C" } },
+  alignment: { horizontal: "center", vertical: "center", wrapText: true },
+  border: {
+    top: { style: "thin", color: { rgb: "B8A88A" } },
+    bottom: { style: "thin", color: { rgb: "B8A88A" } },
+    left: { style: "thin", color: { rgb: "B8A88A" } },
+    right: { style: "thin", color: { rgb: "B8A88A" } },
+  },
+};
 
-    if (reportId === "contracts") {
-      wsData = [
-        ["Contract #", "Supplier", "Email", "Status", "Price/kg (₱)", "Contracted (tons)", "Signing Date", "Activation Date", "Due Date"],
-        ...rows.map(r => [
-          r.contract_number,
-          r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
-          r.supplier?.email ?? "",
-          r.status,
-          r.negotiated_price_per_kg,
-          r.contracted_tons,
-          fmtDate(r.signing_date),
-          fmtDate(r.activation_date),
-          fmtDate(r.due_date),
-        ]),
-      ];
-    } else if (reportId === "deliveries") {
-      wsData = [
-        ["Batch #", "Delivery Date", "Source", "Supplier", "Gross Wt (kg)", "Tare Wt (kg)", "Net Wt (kg)", "Moisture (cc)", "Quality", "Allocation Summary"],
-        ...rows.map(r => {
-          const w = r.weighing?.[0];
-          const allocs = (r.allocations ?? []).map(a => `${a.contract?.contract_number ?? "Spot"}: ${a.allocated_weight_kg}kg (${a.price_type})`).join("; ");
-          return [
-            r.batch_number,
-            fmtDate(r.delivery_date),
-            r.delivery_source,
-            r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : r.walkin_supplier ? `${r.walkin_supplier.first_name} ${r.walkin_supplier.last_name}` : "",
-            w?.gross_weight_kg ?? "",
-            w?.tare_weight_kg ?? "",
-            w?.net_weight_kg ?? "",
-            r.lab?.[0]?.moisture_content_pct ?? "",
-            r.quality?.[0]?.result ?? "",
-            allocs,
-          ];
-        }),
-      ];
-    } else if (reportId === "inventory") {
-      wsData = [
-        ["Delivery Batch #", "Recorded Date", "Source", "Weight (kg)", "Status", "Merge Eligible Date", "Merged At", "Decision"],
-        ...rows.map(r => [
-          r.delivery?.batch_number ?? "",
-          fmtDate(r.recorded_date),
-          r.source_type,
-          r.weight_kg,
-          r.batch_status,
-          fmtDate(r.merge_eligible_date),
-          fmtDate(r.merged_at),
-          r.review_decision ?? "",
-        ]),
-      ];
-    } else if (reportId === "payments") {
-      wsData = [
-        ["Reference #", "Supplier", "Email", "Payment Date", "Net Wt (kg)", "Moisture (cc)", "Final Wt (kg)", "Payable (₱)", "Status", "Method"],
-        ...rows.map(r => {
-          const details = r.detail ?? [];
-          const totalNetWt   = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
-          const totalFinalWt = details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
-          const totalPayable = details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
-          const mcValues     = details.map(d => d.moisture_content_pct).filter(v => v != null);
-          const mcDisplay    = mcValues.length === 0 ? ""
-            : mcValues.length === 1 ? mcValues[0]
-            : (mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1);
-          return [
-            r.reference_number ?? "",
-            r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
-            r.supplier?.email ?? "",
-            fmtDate(r.payment_date),
-            totalNetWt   || "",
-            mcDisplay,
-            totalFinalWt || "",
-            totalPayable || "",
-            r.payment_status,
-            r.payment_method,
-          ];
-        }),
-      ];
-    } else if (reportId === "ratings") {
-      wsData = [
-        ["Supplier", "Email", "Contract #", "Contract Status", "Snapshot Date", "Fulfillment %", "Volume %", "Quality %", "Performance Score", "Rating (1-5)", "Overall Rating"],
-        ...rows.map(r => [
-          r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "",
-          r.supplier?.email ?? "",
-          r.contract?.contract_number ?? "",
-          r.contract?.status ?? "",
-          fmtDate(r.snapshot_date),
-          r.contract_fulfillment_score ?? "",
-          r.delivered_volume_score ?? "",
-          r.copra_quality_score ?? "",
-          r.performance_score ?? "",
-          r.supplier_rating ?? "",
-          r.overall_supplier_rating ?? "",
-        ]),
-      ];
-    }
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Report");
-    XLSX.writeFile(wb, `coptrax_${reportId}_report_${new Date().toISOString().split("T")[0]}.xlsx`);
-  });
+function xlsxBodyCellStyle(align) {
+  return {
+    alignment: { horizontal: align === "right" ? "right" : "left", vertical: "center" },
+    border: {
+      top: { style: "thin", color: { rgb: "E4D5BD" } },
+      bottom: { style: "thin", color: { rgb: "E4D5BD" } },
+      left: { style: "thin", color: { rgb: "E4D5BD" } },
+      right: { style: "thin", color: { rgb: "E4D5BD" } },
+    },
+  };
 }
 
-function exportPDF(reportId, reportLabel, rows) {
-  import("jspdf").then(({ jsPDF }) => {
-    import("jspdf-autotable").then(() => {
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const dateStr = new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
+async function exportXLSX(reportId, reportLabel, rows, filterDescription, totalsLines) {
+  const XLSX = (await import("xlsx-js-style")).default ?? await import("xlsx-js-style");
+  const columns = REPORT_COLUMNS[reportId];
+  if (!columns) return;
 
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("CopTrax · NERC Copra Trading", 14, 16);
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(reportLabel, 14, 22);
-      doc.text(`Generated: ${dateStr}`, 14, 28);
+  const dateStr = new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
+  const metaRows = [
+    ["CopTrax · NERC Copra Trading"],
+    [reportLabel],
+    [`Generated: ${dateStr}`],
+    ...(filterDescription ? [[filterDescription]] : []),
+    [],
+  ];
+  const headerRowIndex = metaRows.length;
+  const headerRow = columns.map(c => c.header);
+  const cellMeta = rows.map(row => columns.map(c => c.get(row)));
+  const bodyRows = cellMeta.map(cells => cells.map(c => c.raw));
 
-      let head = [], body = [];
+  const aoa = [...metaRows, headerRow, ...bodyRows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-      if (reportId === "contracts") {
-        head = [["Contract #","Supplier","Status","Price/kg","Contracted (t)","Activation","Due Date"]];
-        body = rows.map(r => [
-          r.contract_number, r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
-          r.status, peso(r.negotiated_price_per_kg), r.contracted_tons,
-          fmtDate(r.activation_date), fmtDate(r.due_date),
-        ]);
-      } else if (reportId === "deliveries") {
-        head = [["Batch #","Date","Supplier","Net Wt","Moisture (cc)","Quality"]];
-        body = rows.map(r => [
-          r.batch_number, fmtDate(r.delivery_date),
-          r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : (r.walkin_supplier ? `${r.walkin_supplier.first_name} ${r.walkin_supplier.last_name}` : "—"),
-          fmtWeight(r.weighing?.[0]?.net_weight_kg),
-          r.lab?.[0]?.moisture_content_pct != null ? `${r.lab[0].moisture_content_pct}cc` : "—",
-          r.quality?.[0]?.result ?? "—",
-        ]);
-      } else if (reportId === "inventory") {
-        head = [["Delivery Batch","Recorded","Source","Weight","Status","Merge Eligible","Decision"]];
-        body = rows.map(r => [
-          r.delivery?.batch_number ?? "—", fmtDate(r.recorded_date), r.source_type,
-          fmtWeight(r.weight_kg), r.batch_status, fmtDate(r.merge_eligible_date), r.review_decision ?? "—",
-        ]);
-      } else if (reportId === "payments") {
-        head = [["Reference #","Supplier","Date","Net Wt","Moisture (cc)","Final Wt","Payable","Status"]];
-        body = rows.map(r => {
-          const details     = r.detail ?? [];
-          const totalNetWt  = details.reduce((s, d) => s + (Number(d.net_weight_kg)   || 0), 0);
-          const totalFinalWt= details.reduce((s, d) => s + (Number(d.final_weight_kg) || 0), 0);
-          const totalPayable= details.reduce((s, d) => s + (Number(d.line_amount)     || 0), 0);
-          const mcValues    = details.map(d => d.moisture_content_pct).filter(v => v != null);
-          const mcDisplay   = mcValues.length === 0 ? "—"
-            : mcValues.length === 1 ? `${mcValues[0]}cc`
-            : `${(mcValues.reduce((s, v) => s + Number(v), 0) / mcValues.length).toFixed(1)}cc avg`;
-          return [
-            r.reference_number ?? "—",
-            r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
-            fmtDate(r.payment_date), fmtWeight(totalNetWt || null),
-            mcDisplay,
-            fmtWeight(totalFinalWt || null), totalPayable > 0 ? peso(totalPayable) : "—",
-            r.payment_status,
-          ];
-        });
-      } else if (reportId === "ratings") {
-        head = [["Supplier","Contract","Fulfillment","Volume","Quality","Score","Rating","Overall"]];
-        body = rows.map(r => [
-          r.supplier ? `${r.supplier.first_name} ${r.supplier.last_name}` : "—",
-          r.contract?.contract_number ?? "—",
-          r.contract_fulfillment_score != null ? `${r.contract_fulfillment_score}%` : "—",
-          r.delivered_volume_score != null ? `${r.delivered_volume_score}%` : "—",
-          r.copra_quality_score != null ? `${r.copra_quality_score}%` : "—",
-          r.performance_score != null ? `${Number(r.performance_score).toFixed(1)}%` : "—",
-          r.supplier_rating != null ? `${r.supplier_rating}/5` : "—",
-          r.overall_supplier_rating != null ? `${Number(r.overall_supplier_rating).toFixed(2)}/5` : "—",
-        ]);
-      }
+  ws["!cols"] = columns.map(c => ({ wch: Math.max(14, c.header.length + 4) }));
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: columns.length - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: columns.length - 1 } },
+  ];
 
-      // jspdf-autotable may not chain from the import — use doc.autoTable if available
-      if (typeof doc.autoTable === "function") {
-        doc.autoTable({ head, body, startY: 34, styles: { fontSize: 8 }, headStyles: { fillColor: [46, 91, 28] } });
-      } else {
-        // fallback: print as text
-        doc.setFontSize(9);
-        let y = 36;
-        body.forEach(row => {
-          doc.text(row.join("  |  "), 14, y);
-          y += 6;
-          if (y > 190) { doc.addPage(); y = 14; }
-        });
-      }
+  const titleAddr = XLSX.utils.encode_cell({ r: 0, c: 0 });
+  if (ws[titleAddr]) ws[titleAddr].s = { font: { bold: true, sz: 14, color: { rgb: "2E5B1C" } } };
+  const subtitleAddr = XLSX.utils.encode_cell({ r: 1, c: 0 });
+  if (ws[subtitleAddr]) ws[subtitleAddr].s = { font: { bold: true, sz: 11 } };
 
-      doc.save(`coptrax_${reportId}_report_${new Date().toISOString().split("T")[0]}.pdf`);
+  for (let c = 0; c < columns.length; c++) {
+    const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c });
+    if (ws[addr]) ws[addr].s = XLSX_HEADER_STYLE;
+  }
+
+  bodyRows.forEach((rowVals, rIdx) => {
+    const r = headerRowIndex + 1 + rIdx;
+    columns.forEach((col, cIdx) => {
+      const addr = XLSX.utils.encode_cell({ r, c: cIdx });
+      if (!ws[addr]) return;
+      ws[addr].s = xlsxBodyCellStyle(col.align);
+      const meta = cellMeta[rIdx][cIdx];
+      if (meta.numFmt) ws[addr].z = meta.numFmt;
     });
   });
+
+  // Totals block (Inventory report) appended after the data rows.
+  if (totalsLines && totalsLines.length > 0) {
+    const totalsStartRow = headerRowIndex + 1 + bodyRows.length + 1;
+    totalsLines.forEach((line, i) => {
+      const r = totalsStartRow + i;
+      XLSX.utils.sheet_add_aoa(ws, [[line]], { origin: { r, c: 0 } });
+      ws["!merges"].push({ s: { r, c: 0 }, e: { r, c: columns.length - 1 } });
+      const addr = XLSX.utils.encode_cell({ r, c: 0 });
+      if (ws[addr]) ws[addr].s = { font: { bold: true, color: { rgb: "2E5B1C" } } };
+    });
+    ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalsStartRow + totalsLines.length - 1, c: columns.length - 1 } });
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Report");
+  XLSX.writeFile(wb, `coptrax_${reportId}_report_${new Date().toISOString().split("T")[0]}.xlsx`);
+}
+
+async function exportPDF(reportId, reportLabel, rows, filterDescription, totalsLines) {
+  const { jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+  const columns = REPORT_COLUMNS[reportId];
+  if (!columns) return;
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const dateStr = new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(46, 91, 28);
+  doc.text("CopTrax · NERC Copra Trading", margin, 14);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(60, 45, 40);
+  doc.text(reportLabel, margin, 20);
+  doc.setFontSize(8.5);
+  doc.setTextColor(120, 105, 95);
+  doc.text(`Generated: ${dateStr}`, margin, 25);
+  let startY = 30;
+  if (filterDescription) {
+    doc.text(filterDescription, margin, startY);
+    startY += 5;
+  }
+
+  const head = [columns.map(c => c.header)];
+  const body = rows.map(row => columns.map(c => { const cell = c.get(row); return cell.pdfText ?? cell.text; }));
+
+  autoTable(doc, {
+    head,
+    body,
+    startY: startY + 2,
+    margin: { top: startY + 2, left: margin, right: margin, bottom: 16 },
+    styles: { fontSize: 8, cellPadding: 2.2, valign: "middle", overflow: "linebreak", lineColor: [228, 213, 189], lineWidth: 0.1 },
+    headStyles: { fillColor: [46, 91, 28], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" },
+    alternateRowStyles: { fillColor: [247, 241, 232] },
+    columnStyles: Object.fromEntries(columns.map((c, i) => [i, { halign: c.align === "right" ? "right" : "left" }])),
+  });
+
+  // Totals block (Inventory report) drawn below the table, wrapping to a new
+  // page if there isn't enough room left on the current one.
+  if (totalsLines && totalsLines.length > 0) {
+    let y = (doc.lastAutoTable?.finalY ?? startY + 2) + 8;
+    const neededHeight = totalsLines.length * 6 + 6;
+    if (y + neededHeight > pageHeight - margin) {
+      doc.addPage();
+      y = margin + 6;
+    }
+    doc.setDrawColor(46, 91, 28);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y - 4, pageWidth - margin, y - 4);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(46, 91, 28);
+    totalsLines.forEach(line => {
+      doc.text(line, margin, y);
+      y += 6;
+    });
+  }
+
+  // Page numbers on every page, added last so pagination is final and correct.
+  const pageCount = doc.internal.getNumberOfPages();
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(150, 135, 125);
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin - 22, pageHeight - 6);
+  }
+
+  doc.save(`coptrax_${reportId}_report_${new Date().toISOString().split("T")[0]}.pdf`);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -588,7 +700,7 @@ export default function BOReportsPage() {
   const [selected, setSelected] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [deliverySource, setDeliverySource] = useState("All"); // All | Contractual | Walk-in
+  const [deliveryTypeFilter, setDeliveryTypeFilter] = useState("All"); // All | Contractual | Walk-in
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -616,11 +728,32 @@ export default function BOReportsPage() {
   }
 
   const reportMeta = REPORTS.find(r => r.id === selected);
+  const showDeliveryTypeFilter = selected === "deliveries" || selected === "inventory";
 
-  // Apply source filter for deliveries report
-  const displayRows = (selected === "deliveries" && deliverySource !== "All")
-    ? rows.filter(r => deliverySource === "Walk-in" ? r.delivery_source === "Walkin" : r.delivery_source !== "Walkin")
+  // Apply the Delivery Type filter consistently — Deliveries uses
+  // `delivery_source` ("Walkin" | "Contract-based"), Inventory uses
+  // `source_type` ("Walkin" | "Contractual"); both compare against the
+  // same "All" | "Contractual" | "Walk-in" selector.
+  const displayRows = (showDeliveryTypeFilter && deliveryTypeFilter !== "All")
+    ? rows.filter(r => {
+        const isWalkin = selected === "deliveries" ? r.delivery_source === "Walkin" : r.source_type === "Walkin";
+        return deliveryTypeFilter === "Walk-in" ? isWalkin : !isWalkin;
+      })
     : rows;
+
+  // Inventory Report's Total Net Weight — computed from every fetched row
+  // (not just the currently-displayed/filtered subset) so "All" can always
+  // show both the Contractual and Walk-in subtotals.
+  const totalsLines = selected === "inventory" && generated
+    ? inventoryTotalsLines(rows, deliveryTypeFilter)
+    : null;
+
+  const dateRangeLabel = dateFrom || dateTo
+    ? `Date range: ${dateFrom ? fmtDate(dateFrom) : "…"} – ${dateTo ? fmtDate(dateTo) : "…"}`
+    : "Date range: All dates";
+  const filterDescription = showDeliveryTypeFilter
+    ? `${dateRangeLabel} · Delivery Type: ${deliveryTypeFilter}`
+    : dateRangeLabel;
 
   const inputCls = "w-full px-3 py-2 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark " +
     "focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all";
@@ -644,7 +777,7 @@ export default function BOReportsPage() {
           return (
             <button
               key={r.id}
-              onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); setDeliverySource("All"); }}
+              onClick={() => { setSelected(r.id); setGenerated(false); setRows([]); setError(""); setDeliveryTypeFilter("All"); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                 isActive ? "bg-green-dark text-white border-green-dark" : "bg-white text-brown-mid border-beige-dark/60 hover:border-brown-light hover:text-brown-dark"
               }`}
@@ -679,15 +812,15 @@ export default function BOReportsPage() {
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
           </div>
 
-          {/* Delivery Type filter — only for Delivery Report */}
-          {selected === "deliveries" && (
+          {/* Delivery Type filter — Delivery Report and Inventory Report */}
+          {showDeliveryTypeFilter && (
             <div className="flex-1 min-w-0">
               <label className="block text-xs font-medium text-brown-dark mb-1.5">Delivery Type</label>
               <div className="flex gap-3 border-b border-beige-dark/40 overflow-x-auto">
                 {["All", "Contractual", "Walk-in"].map(s => (
-                  <button key={s} onClick={() => setDeliverySource(s)}
+                  <button key={s} onClick={() => setDeliveryTypeFilter(s)}
                     className={`pb-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-                      deliverySource === s ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"
+                      deliveryTypeFilter === s ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"
                     }`}>
                     {s}
                   </button>
@@ -718,12 +851,12 @@ export default function BOReportsPage() {
             <p className="text-xs font-bold text-brown-light uppercase tracking-wide">Export Report</p>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
               <button
-                onClick={() => exportXLSX(selected, displayRows)}
+                onClick={() => exportXLSX(selected, reportMeta?.label ?? "Report", displayRows, filterDescription, totalsLines)}
                 className="flex w-full items-center justify-center gap-2 bg-green-pale text-green-dark font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-green-mid/20 transition-all border border-green-dark/20 sm:w-auto">
                 <LuDownload className="w-4 h-4" /> Export .xlsx
               </button>
               <button
-                onClick={() => exportPDF(selected, reportMeta?.label ?? "Report", displayRows)}
+                onClick={() => exportPDF(selected, reportMeta?.label ?? "Report", displayRows, filterDescription, totalsLines)}
                 className="flex w-full items-center justify-center gap-2 bg-amber-50 text-amber-700 font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-amber-100 transition-all border border-amber-200 sm:w-auto">
                 <LuDownload className="w-4 h-4" /> Export PDF
               </button>
@@ -753,11 +886,7 @@ export default function BOReportsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              {selected === "contracts"  && <ContractsTable  rows={displayRows} />}
-              {selected === "deliveries" && <DeliveriesTable rows={displayRows} />}
-              {selected === "inventory"  && <InventoryTable  rows={displayRows} />}
-              {selected === "payments"   && <PaymentsTable   rows={displayRows} />}
-              {selected === "ratings"    && <RatingsTable    rows={displayRows} />}
+              <ReportTable reportId={selected} rows={displayRows} totalsLines={totalsLines} />
             </div>
           )}
         </div>
