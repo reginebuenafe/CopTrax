@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuTruck, LuArrowLeft, LuUser,
@@ -24,23 +24,10 @@ export default function WalkinDeliveryForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
   const [reviewing, setReviewing] = useState(false);
-  const [spotPrice, setSpotPrice] = useState(null);
   const [reportingIssue, setReportingIssue] = useState(false);
   const [issueNote, setIssueNote] = useState("");
   const [issueError, setIssueError] = useState("");
   const [issueSaved, setIssueSaved] = useState(false);
-
-  useEffect(() => {
-    async function fetchSpotPrice() {
-      const { data } = await supabase
-        .from("spot_price")
-        .select("price_per_kg")
-        .limit(1)
-        .maybeSingle();
-      if (data?.price_per_kg != null) setSpotPrice(Number(data.price_per_kg));
-    }
-    fetchSpotPrice();
-  }, []);
 
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
@@ -82,7 +69,6 @@ export default function WalkinDeliveryForm() {
       return;
     }
     const currentSpotPrice = Number(currentSpot.price_per_kg);
-    setSpotPrice(currentSpotPrice);
 
     // 1. Create walk-in supplier
     const { data: walkinSupplier, error: wsErr } = await supabase
@@ -363,19 +349,6 @@ export default function WalkinDeliveryForm() {
               </div>
             </div>
 
-            {/* Estimated payout — full width. Uses the spot price fetched on
-                load as a preview only; the actual price locked in at
-                submission time is re-fetched fresh in handleSubmit. */}
-            {spotPrice != null && (
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-brown-dark mb-1.5">Estimated Payout</label>
-                <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
-                  {finalWeight > 0
-                    ? `₱${(finalWeight * spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (at ₱${spotPrice.toFixed(2)}/kg spot price)`
-                    : "—"}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
