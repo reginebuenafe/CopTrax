@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { LuCoins, LuX, LuPackage } from "react-icons/lu";
+import { LuCoins, LuX, LuPackage, LuTrendingUp } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
 
 export default function ProposePriceModal({
@@ -35,6 +35,21 @@ export default function ProposePriceModal({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Reference-only: current Spot Price, shown so the Supplier doesn't have
+  // to leave this modal to check it before proposing a price. Purely
+  // informational — never sent with the proposal and never touches
+  // negotiation logic/state.
+  const [spotPrice, setSpotPrice] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle();
+      if (!cancelled) setSpotPrice(data?.price_per_kg ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     sessionStorage.setItem(draftStorageKey, JSON.stringify({ pricePerKg, volumeTons }));
@@ -100,11 +115,20 @@ export default function ProposePriceModal({
           </button>
         </div>
 
-        <p className="text-brown-light text-sm mb-5">
+        <p className="text-brown-light text-sm mb-4">
           {isCounter
             ? "Submit a new price and volume counter to the other party."
             : "Propose your desired price and volume to NERC Copra Trading."}
         </p>
+
+        {spotPrice != null && (
+          <div className="flex items-center gap-2 bg-green-pale/60 border border-green-mid/20 rounded-xl px-4 py-2.5 mb-5">
+            <LuTrendingUp className="w-4 h-4 text-green-dark shrink-0" />
+            <span className="text-sm text-brown-dark">
+              Current Spot Price: <span className="font-bold text-green-dark">₱{Number(spotPrice).toFixed(2)}/kg</span>
+            </span>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-2.5 mb-4">

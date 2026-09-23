@@ -143,8 +143,18 @@ function ContractCard({ contractData, onReviewSign, onView, signed, pendingOwner
 
 // ── Proposal card ─────────────────────────────────────────────────────────────
 function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
+  // Offer-history label shown above the card — states exactly who made THIS
+  // offer, the action (proposed vs. counteroffered), and its actual
+  // price/volume. Display-only; does not affect any negotiation state.
+  const offerHistoryText = `${submittedByMe ? "You" : "NERC Copra Trading"} ${
+    proposal.supersedes_proposal_id ? "counteroffered" : "proposed"
+  }: ₱${Number(proposal.proposed_price_per_kg).toFixed(2)}/kg for ${proposal.proposed_volume_tons} tons`;
+
   return (
-    <div className="flex justify-center my-3 px-4">
+    <div className="flex flex-col items-center my-3 px-4">
+      <p className="text-[11px] italic text-[#2d5a27] text-center mb-1.5 font-medium">
+        {offerHistoryText}
+      </p>
       <div className="w-full max-w-xs rounded-2xl border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <LuCoins className="w-4 h-4 text-[#2d5a27]" />

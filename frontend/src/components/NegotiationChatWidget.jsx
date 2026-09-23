@@ -632,7 +632,7 @@ export default function NegotiationChatWidget() {
 
   const boName = conversation?.business_owner
     ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
-    : "Edison Buenafe";
+    : "NERC Copra Trading";
 
   // ── Latest-proposal logic (matches SupplierChatLayout exactly) ───────────
   // Only the most-recent non-resolved proposal triggers action buttons.
@@ -649,12 +649,19 @@ export default function NegotiationChatWidget() {
 
   // ── Propose eligibility (matches SupplierChatLayout: max 3 Active contracts) ─
   const canPropose = activeContracts.length < 3;
-  // Merge messages and proposal cards chronologically for chat feed display
+  // Merge messages and proposal cards chronologically for chat feed display.
+  // Only the single authoritative "latest actionable" proposal (computed
+  // above) is ever pushed here — guarding by proposal_id (not just status)
+  // guarantees exactly one card can ever render, even if two rows are
+  // transiently both "Pending" in the DB for a moment (e.g. right after a
+  // counteroffer is inserted but before the superseded row's status update
+  // lands) — preventing any duplicate card rendering.
   const combinedItems = [];
   messages.forEach((m) => {
     combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
   });
   proposals.forEach((p, proposalIndex) => {
+    if (!latestProposal || p.proposal_id !== latestProposal.proposal_id) return;
     if (p.proposal_status !== "Pending") return;
     combinedItems.push({
       type: "proposal",
@@ -924,9 +931,20 @@ export default function NegotiationChatWidget() {
                   const isMine = p.submitted_by
                     ? p.submitted_by === user?.id
                     : item.proposalIndex % 2 === 0;
+                  // Offer-history label — states exactly who made THIS offer,
+                  // the action (proposed vs. counteroffered), and its actual
+                  // price/volume, replacing the old vague "edited your
+                  // proposal form" note. Display-only; does not affect who
+                  // may act on the card or any negotiation state.
+                  const offerHistoryText = `${isMine ? "You" : boName} ${
+                    p.supersedes_proposal_id ? "counteroffered" : "proposed"
+                  }: ₱${Number(p.proposed_price_per_kg).toFixed(2)}/kg for ${p.proposed_volume_tons} tons`;
 
                   return (
                     <div key={p.proposal_id || idx} className="my-2 flex flex-col items-center px-1">
+                      <p className="text-[11px] italic text-[#2E7D32] text-center mb-1.5 font-medium">
+                        {offerHistoryText}
+                      </p>
                       <div className="w-[92%] overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
                         {/* Card Header */}
                         <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
@@ -1000,13 +1018,6 @@ export default function NegotiationChatWidget() {
                           </div>
                         )}
                       </div>
-
-                      {/* Editor note under card if counter/edited */}
-                      {p.supersedes_proposal_id && (
-                        <p className="text-[11px] italic text-[#2E7D32] text-center my-1 font-medium">
-                          {boName} edited your proposal form.
-                        </p>
-                      )}
                     </div>
                   );
                 }

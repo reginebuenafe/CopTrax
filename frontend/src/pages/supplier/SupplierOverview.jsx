@@ -184,7 +184,7 @@ export default function SupplierOverview() {
               value={stats.overallRating !== null
                 ? <span className="inline-flex items-center gap-1.5">
                     <LuStar className="w-5 h-5 text-amber-400 fill-amber-400 shrink-0" />
-                    {Number(stats.overallRating).toFixed(1)} / 5
+                    {Number(stats.overallRating).toFixed(1)} / 5.0
                   </span>
                 : "—"}
               sub={stats.overallRating !== null ? "Overall Performance" : "No Rated Contracts Yet"}

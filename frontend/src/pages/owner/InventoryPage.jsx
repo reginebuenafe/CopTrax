@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, createElement } from "react";
 import {
-  LuLeaf, LuTruck, LuCheck, LuCircleAlert, LuArrowRightLeft,
+  LuCheck, LuCircleAlert, LuLeaf, LuTruck,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
@@ -120,8 +120,8 @@ export default function InventoryPage() {
           <LuCircleAlert className="h-5 w-5 shrink-0" />
           <p className="text-sm font-semibold">
             {bodegaIsFull
-              ? `Bodega Stock is Full: ${fmtTons(bodegaStockKg)}t / ${fmtTons(BODEGA_CAPACITY_KG)}t. No additional capacity remains — sell or merge before accepting more.`
-              : `Bodega Stock is Almost Full: ${fmtTons(bodegaStockKg)}t / ${fmtTons(BODEGA_CAPACITY_KG)}t. Consider selling soon.`}
+              ? `Bodega Stock is Full: ${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t. No additional capacity remains. Sell or merge before accepting more.`
+              : `Bodega Stock is Almost Full: ${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t. Consider selling soon.`}
           </p>
         </div>
       )}
@@ -132,20 +132,16 @@ export default function InventoryPage() {
           label="Bodega Stock"
           value={`${fmtTons(bodegaStockKg)} t`}
           count={resecada.length}
-          color="bg-green-pale"
           textColor="text-green-dark"
-          icon={LuLeaf}
           capacityPercent={bodegaCapacityPercent}
-          capacityLabel={`${fmtTons(bodegaStockKg)}t / ${fmtTons(BODEGA_CAPACITY_KG)}t used · ${fmtTons(bodegaRemainingKg)}t remaining`}
+          capacityLabel={`${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t used · ${fmtTons(bodegaRemainingKg)} t remaining`}
           barColor={bodegaIsFull ? "bg-red-500" : bodegaIsAlmostFull ? "bg-amber-500" : "bg-green-dark"}
         />
         <SummaryCard
           label="Walk-in Holding"
           value={`${fmt3(walkinTotal)} kg`}
           count={walkin.length}
-          color="bg-orange-50"
           textColor="text-orange-600"
-          icon={LuTruck}
         />
       </div>
 
@@ -174,18 +170,15 @@ export default function InventoryPage() {
 }
 
 // ── Summary card ──────────────────────────────────────────────────────────────
-function SummaryCard({ label, value, count, color, textColor, icon: Icon, badge, capacityPercent, capacityLabel, barColor }) {
+function SummaryCard({ label, value, count, textColor, badge, capacityPercent, capacityLabel, barColor }) {
   return (
-    <div className={`bg-white rounded-xl border border-beige-dark/40 p-4 relative ${badge ? "ring-2 ring-amber-300" : ""}`}>
+    <div className={`bg-white rounded-xl border border-beige-dark/40 p-5 relative ${badge ? "ring-2 ring-amber-300" : ""}`}>
       {badge && (
         <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-400 rounded-full border-2 border-white" />
       )}
-      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center mb-3`}>
-        {createElement(Icon, { className: `w-5 h-5 ${textColor}` })}
-      </div>
-      <p className={`break-words text-xl font-extrabold ${textColor}`}>{value}</p>
-      <p className="text-brown-light text-xs mt-0.5">{label}</p>
-      <p className="text-brown-light text-xs">{count} batch{count !== 1 ? "es" : ""}</p>
+      <p className={`break-words text-3xl font-extrabold ${textColor}`}>{value}</p>
+      <p className="text-brown-light text-sm mt-1">{label}</p>
+      <p className="text-brown-light text-sm">{count} batch{count !== 1 ? "es" : ""}</p>
       {capacityPercent !== undefined && (
         <div className="mt-3">
           <div className="h-2 w-full overflow-hidden rounded-full bg-beige">
