@@ -12,6 +12,7 @@ import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import MoistureContentTable from "./MoistureContentTable";
 import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
+import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
 
@@ -501,8 +502,9 @@ export default function NegotiationChatWidget() {
     setSending(false);
     if (!error) {
       fetchMessages(conv.conversation_id);
-      // Fire-and-forget: let AI FAQ respond if enabled globally
-      supabase.functions.invoke("ai-faq", { body: { conversation_id: conv.conversation_id, message_text: textToSend } });
+      // Fire-and-forget: let AI FAQ respond if enabled globally. Bounded,
+      // deduped, and error-logged — see utils/aiFaq.js.
+      invokeAiFaq(conv.conversation_id, textToSend);
     } else {
       // Restore the unsent text so the user can try again
       setInputText(textToSend);

@@ -159,6 +159,140 @@ function isOwnerAssistanceRequest(text: string): boolean {
   return verbTarget.test(t) || assistanceFrom.test(t);
 }
 
+/**
+ * Actually escalates to the Business Owner: creates the (spam-guarded)
+ * "Supplier Assistance Requested" notification via the EXISTING
+ * notifications table/bell and returns the reply text to show the
+ * Supplier. This is the single source of truth for "notify the BO" —
+ * reused both by an explicit "can I talk to the owner?" request and by a
+ * Supplier answering "yes" to a BO-discretion offer (see
+ * detectBoDiscretionRequest below) so both paths behave identically and
+ * never create a second/duplicate notification system.
+ */
+async function escalateToOwner(
+  // deno-lint-ignore no-explicit-any
+  db: ReturnType<typeof createClient<any, any>>,
+  // deno-lint-ignore no-explicit-any
+  conv: { business_owner_id: string; supplier?: any },
+  conversation_id: string,
+): Promise<string> {
+  const supplierName = conv.supplier
+    ? `${conv.supplier.first_name ?? ""} ${conv.supplier.last_name ?? ""}`.trim()
+    : "";
+
+  // Spam guard: skip creating a duplicate notification if an unread one
+  // already exists for THIS conversation. Once the Business Owner marks it
+  // read (e.g. by opening the chat), a future request may create a new one.
+  const { data: existingNotif } = await db
+    .from("notifications")
+    .select("notification_id")
+    .eq("user_id", conv.business_owner_id)
+    .eq("notification_type", "Supplier Assistance Requested")
+    .eq("related_entity_type", "conversations")
+    .eq("related_entity_id", conversation_id)
+    .eq("is_read", false)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingNotif) {
+    return "The Business Owner has already been notified. You can leave your message here while waiting for their response.";
+  }
+
+  const { error: notifErr } = await db.from("notifications").insert({
+    user_id: conv.business_owner_id,
+    notification_type: "Supplier Assistance Requested",
+    message: `${supplierName || "A supplier"} would like to speak with you.`,
+    related_entity_type: "conversations",
+    related_entity_id: conversation_id,
+    is_read: false,
+  });
+
+  if (notifErr) {
+    console.error("ai-faq: failed to create owner-assistance notification:", notifErr.message);
+    return "I wasn't able to reach the Business Owner right now — please try again in a moment, or continue describing your concern here.";
+  }
+
+  return "Sure. I've notified the Business Owner that you'd like to speak with them. You can continue typing your concern here while waiting for their response.";
+}
+
+// ── BO-discretion / approval-required request interception ─────────────────
+// Some Supplier questions ask for something only the Business Owner can
+// actually decide — e.g. releasing a payment earlier than the normal
+// schedule, extending a contract's delivery deadline, or a one-off pricing
+// exception. The AI must NEVER invent an answer, promise the outcome, or
+// decide this itself — see COPTRAX_SYSTEM_PROMPT's privacy/scope rules,
+// which this interception runs ahead of specifically so these questions
+// get a helpful, on-topic offer instead of the generic
+// "I can't provide private, sensitive, or restricted information" refusal.
+// It only ever offers to notify the Business Owner; the actual
+// notification (on "yes") reuses escalateToOwner() above — the exact same
+// flow as an explicit "can I talk to the owner?" request.
+const BO_OFFER_MARKER = "Would you like me to inform the Business Owner";
+
+const BO_DISCRETION_CATEGORIES: { match: RegExp; intro: string; topic: string }[] = [
+  {
+    match: /\b(pay(?:ment)?s?|paid|payout|released?)\b[^.?!]{0,30}\b(earlier|early|sooner|in advance|ahead of (?:schedule|time)|before (?:friday|the (?:usual|normal) (?:day|schedule)))\b/,
+    intro: "Payment arrangements are handled by NERC Copra Trading.",
+    topic: "receiving your payment earlier",
+  },
+  {
+    match: /\b(advance|early)\b[^.?!]{0,15}\b(payment|payout)\b/,
+    intro: "Payment arrangements are handled by NERC Copra Trading.",
+    topic: "receiving your payment earlier",
+  },
+  {
+    match: /\bextend(?:ed|ing)?\b[^.?!]{0,25}\b(deadline|delivery date|contract deadline)\b/,
+    intro: "Delivery deadlines are set by NERC Copra Trading.",
+    topic: "extending your delivery deadline",
+  },
+  {
+    match: /\bmore time\b[^.?!]{0,25}\b(deliver|delivery|deadline)\b/,
+    intro: "Delivery deadlines are set by NERC Copra Trading.",
+    topic: "extending your delivery deadline",
+  },
+  {
+    match: /\b(special|better|lower)\b[^.?!]{0,20}\b(price|rate|discount)\b[^.?!]{0,30}\b(outside|beyond|without)\b[^.?!]{0,20}\bnegotiation\b/,
+    intro: "Pricing outside the standard negotiation process is handled by NERC Copra Trading.",
+    topic: "a special pricing arrangement",
+  },
+  {
+    match: /\b(waive|remove|reduce)\b[^.?!]{0,25}\b(deduction|discount|penalty)\b/,
+    intro: "Deduction exceptions are handled by NERC Copra Trading.",
+    topic: "an exception to the standard deduction",
+  },
+  {
+    match: /\b(more than|exceed|additional|extra)\b[^.?!]{0,20}\b(3|three)?\s*active contracts?\b/,
+    intro: "Contract limits are set by NERC Copra Trading.",
+    topic: "having more than 3 active contracts",
+  },
+  {
+    match: /\b(approve|verify|verification|approval)\b[^.?!]{0,25}\b(faster|sooner|quickly|expedite|speed up|rush)\b/,
+    intro: "Account approvals are handled by NERC Copra Trading.",
+    topic: "speeding up your account approval",
+  },
+];
+
+/** Detects a request for something only the Business Owner can decide. */
+function detectBoDiscretionRequest(text: string): { intro: string; topic: string } | null {
+  const t = text.toLowerCase();
+  for (const category of BO_DISCRETION_CATEGORIES) {
+    if (category.match.test(t)) return category;
+  }
+  return null;
+}
+
+/** Loose yes-ish reply (e.g. "yes", "sure", "go ahead", "please do"). */
+function isAffirmativeReply(text: string): boolean {
+  const t = text.trim().toLowerCase().replace(/[.!]+$/, "");
+  return /^(y|yes|yeah|yep|yup|sure|ok|okay|please|please do|go ahead|do it|alright|affirmative|inform (him|her|them)|notify (him|her|them))\b/.test(t);
+}
+
+/** Loose no-ish reply (e.g. "no", "nope", "not now", "no thanks"). */
+function isNegativeReply(text: string): boolean {
+  const t = text.trim().toLowerCase().replace(/[.!]+$/, "");
+  return /^(n|no|nope|nah|not (now|really|yet)|no thanks?|no thank you|never ?mind|don'?t)\b/.test(t);
+}
+
 // ── Moisture Content FAQ interception ───────────────────────────────────────
 // Moisture content questions are intercepted BEFORE calling Gemini and
 // answered deterministically from the real `pca_discount_table` (the same
@@ -215,8 +349,17 @@ async function lookupMcResult(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
+  // Hoisted out of the try block so the catch handler below can still send
+  // a fallback chat reply even if the failure happened after these were
+  // resolved (e.g. during the Gemini call or the final insert).
+  let conversationIdForCatch: string | undefined;
+  let businessOwnerIdForCatch: string | undefined;
+  // deno-lint-ignore no-explicit-any
+  let dbForCatch: any;
+
   try {
     const { conversation_id, message_text } = await req.json();
+    conversationIdForCatch = conversation_id;
     if (!conversation_id || !message_text) {
       return new Response(JSON.stringify({ error: "conversation_id and message_text are required" }), {
         status: 400, headers: { ...CORS, "Content-Type": "application/json" },
@@ -242,6 +385,7 @@ Deno.serve(async (req) => {
     }
 
     const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    dbForCatch = db;
 
     // 1. Check global FAQ AI flag
     const { data: faqConfig, error: configErr } = await db
@@ -276,6 +420,7 @@ Deno.serve(async (req) => {
         status: 404, headers: { ...CORS, "Content-Type": "application/json" },
       });
     }
+    businessOwnerIdForCatch = conv.business_owner_id;
 
     // 2b. Only the conversation's own Supplier may trigger their own AI FAQ
     // reply — otherwise anyone holding this conversation_id could make the
@@ -291,45 +436,7 @@ Deno.serve(async (req) => {
     // (via the existing notifications table/bell) and reply in THIS SAME
     // conversation — never a new one, and never an unrelated negotiation.
     if (isOwnerAssistanceRequest(message_text)) {
-      const supplierName = conv.supplier
-        ? `${conv.supplier.first_name ?? ""} ${conv.supplier.last_name ?? ""}`.trim()
-        : "";
-
-      // Spam guard: skip creating a duplicate notification if an unread
-      // one already exists for THIS conversation. Once the Business Owner
-      // marks it read (e.g. by opening the chat), a future request may
-      // create a new one.
-      const { data: existingNotif } = await db
-        .from("notifications")
-        .select("notification_id")
-        .eq("user_id", conv.business_owner_id)
-        .eq("notification_type", "Supplier Assistance Requested")
-        .eq("related_entity_type", "conversations")
-        .eq("related_entity_id", conversation_id)
-        .eq("is_read", false)
-        .limit(1)
-        .maybeSingle();
-
-      let replyText: string;
-      if (existingNotif) {
-        replyText = "The Business Owner has already been notified. You can leave your message here while waiting for their response.";
-      } else {
-        const { error: notifErr } = await db.from("notifications").insert({
-          user_id: conv.business_owner_id,
-          notification_type: "Supplier Assistance Requested",
-          message: `${supplierName || "A supplier"} would like to speak with you.`,
-          related_entity_type: "conversations",
-          related_entity_id: conversation_id,
-          is_read: false,
-        });
-
-        if (notifErr) {
-          console.error("ai-faq: failed to create owner-assistance notification:", notifErr.message);
-          replyText = "I wasn't able to reach the Business Owner right now — please try again in a moment, or continue describing your concern here.";
-        } else {
-          replyText = "Sure. I've notified the Business Owner that you'd like to speak with them. You can continue typing your concern here while waiting for their response.";
-        }
-      }
+      const replyText = await escalateToOwner(db, conv, conversation_id);
 
       const { error: replyInsertErr } = await db.from("messages").insert({
         conversation_id,
@@ -343,6 +450,51 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, intercepted: "owner_assistance_request" }), {
         status: 200, headers: { ...CORS, "Content-Type": "application/json" },
       });
+    }
+
+    // 2c. If the immediately preceding message in THIS conversation was an
+    // AI offer to notify the Business Owner (either from 2a above or from
+    // the BO-discretion detector at 2d below), interpret a clear yes/no
+    // reply as the answer to that specific offer instead of treating it as
+    // a brand-new question. Intentionally stateless — no new column/table
+    // is added; it just looks at the previous row in `messages`. An
+    // ambiguous reply (neither yes nor no) falls through to the rest of
+    // the pipeline below instead of forcing a re-ask loop.
+    const { data: recentMsgs } = await db
+      .from("messages")
+      .select("message_text, is_ai_generated")
+      .eq("conversation_id", conversation_id)
+      .order("sent_at", { ascending: false })
+      .limit(2);
+
+    const priorMessage = recentMsgs?.[1];
+    const awaitingBoOfferReply = !!priorMessage?.is_ai_generated
+      && typeof priorMessage.message_text === "string"
+      && priorMessage.message_text.includes(BO_OFFER_MARKER);
+
+    if (awaitingBoOfferReply) {
+      let replyText: string | null = null;
+      if (isAffirmativeReply(message_text)) {
+        // Same exact escalation as 2a — no separate notification system.
+        replyText = await escalateToOwner(db, conv, conversation_id);
+      } else if (isNegativeReply(message_text)) {
+        replyText = "Okay. If you need anything else, I'm here to help.";
+      }
+
+      if (replyText) {
+        const { error: replyInsertErr } = await db.from("messages").insert({
+          conversation_id,
+          sender_id:       conv.business_owner_id,
+          message_type:    "Text",
+          is_ai_generated: true,
+          message_text:    replyText,
+        });
+        console.log("ai-faq: BO-offer yes/no reply inserted, err=", replyInsertErr?.message ?? null);
+
+        return new Response(JSON.stringify({ success: true, intercepted: "bo_offer_reply" }), {
+          status: 200, headers: { ...CORS, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // 2b. Moisture content questions are answered deterministically, as a
@@ -396,12 +548,50 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 3. Call Gemini with the FAQ system prompt
+    // 2d. Requests that require Business Owner discretion/approval (early
+    // payment, deadline extension, a one-off pricing/deduction exception,
+    // etc.) — never decided or promised by the AI. Only offers to notify
+    // the Business Owner; a "yes" reply is handled by 2c above via the
+    // exact same escalateToOwner() flow as an explicit "talk to the owner"
+    // request. Intercepted before Gemini so it never falls back to the
+    // generic privacy/restricted-information refusal, which doesn't fit
+    // this situation (this isn't a request for private data — it's a
+    // request for something the AI simply isn't authorized to decide).
+    const boDiscretion = detectBoDiscretionRequest(message_text);
+    if (boDiscretion) {
+      const offerText = `${boDiscretion.intro} ${BO_OFFER_MARKER} so you can discuss ${boDiscretion.topic}?`;
+
+      const { error: offerInsertErr } = await db.from("messages").insert({
+        conversation_id,
+        sender_id:       conv.business_owner_id,
+        message_type:    "Text",
+        is_ai_generated: true,
+        message_text:    offerText,
+      });
+      console.log("ai-faq: BO-discretion offer inserted, err=", offerInsertErr?.message ?? null);
+
+      return new Response(JSON.stringify({ success: true, intercepted: "bo_discretion_offer" }), {
+        status: 200, headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
+    // 3. Call Gemini with the FAQ system prompt.
+    //
+    // Model list corrected 2026-09-24 after a live diagnostic against the
+    // real GEMINI_API_KEY revealed the actual root cause of "AI FAQ doesn't
+    // respond": "gemini-2.5-flash-lite" and "gemini-2.5-flash" now return
+    // HTTP 404 ("no longer available to new users") for this key/project,
+    // and the remaining "*-latest" aliases resolve to newer Gemini 3.x
+    // models that have extended "thinking" reasoning enabled BY DEFAULT —
+    // observed taking 16–46 SECONDS per call, and in one case consuming the
+    // entire maxOutputTokens budget on invisible thinking tokens before
+    // producing any visible answer text at all (200 OK with empty content).
+    // "gemini-3.1-flash-lite" and "gemini-3.6-flash" were confirmed (via
+    // repeated live calls) to respond in ~2–6 seconds once thinking is
+    // disabled below, and are used here instead.
     const models = [
-      "gemini-2.5-flash-lite",
-      "gemini-flash-lite-latest",
-      "gemini-2.5-flash",
-      "gemini-flash-latest",
+      "gemini-3.1-flash-lite",
+      "gemini-3.6-flash",
     ];
 
     const geminiBody = JSON.stringify({
@@ -415,56 +605,117 @@ Deno.serve(async (req) => {
         temperature: 0.1,
         maxOutputTokens: 200,
         responseMimeType: "text/plain",
+        // Disabling "thinking" is the single biggest speed/reliability fix
+        // here: with it left on (the default), both models above take
+        // 16–46s and can silently return empty text after burning the
+        // whole token budget on hidden reasoning. Both models above accept
+        // this field; models that don't (e.g. some "-latest" aliases)
+        // return HTTP 400, which is exactly why those aliases were dropped
+        // from the model list above rather than kept as silent 400 retries.
+        thinkingConfig: { thinkingBudget: 0 },
       },
     });
 
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-    let aiText = "";
-    let responded = false;
 
-    for (const model of models) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
-        console.log(`ai-faq: calling Gemini model=${model} attempt=${attempt}`);
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: geminiBody,
-          });
+    // Per-request timeout: a single hung Gemini call must never be allowed
+    // to stall the whole function indefinitely (previously there was no
+    // timeout at all — a slow/unresponsive model could hang the request
+    // until the platform's own hard limit, which is far too slow for a
+    // chat reply and could look like "never responds"). 12s gives a safe
+    // margin above the ~2–6s observed for the models above with thinking
+    // disabled, while still being short enough that a genuinely stuck
+    // request can't stall the reply for long.
+    const PER_REQUEST_TIMEOUT_MS = 12000;
+    // Overall retry budget across every model/attempt. Once elapsed time
+    // crosses this, stop trying more models and fall through to the
+    // friendly fallback reply below instead of continuing to retry.
+    const OVERALL_BUDGET_MS = 20000;
+    const startedAt = Date.now();
 
-          console.log(`ai-faq: Gemini status=${res.status} model=${model}`);
+    async function callGemini(model: string): Promise<{ text: string } | { error: string; retryable: boolean }> {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), PER_REQUEST_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: geminiBody,
+          signal: controller.signal,
+        });
 
-          if (res.ok) {
-            const json = await res.json();
-            aiText = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
-            console.log("ai-faq: Gemini responded, length=", aiText.length);
-            responded = true;
-            break;
-          }
+        console.log(`ai-faq: Gemini status=${res.status} model=${model}`);
 
-          const errText = await res.text();
-          console.log(`ai-faq: Gemini error ${res.status}: ${errText.slice(0, 200)}`);
-          if (res.status !== 503 && res.status !== 429 && res.status !== 500) break;
-          await sleep(600 * (attempt + 1));
-        } catch (fetchErr) {
-          console.log(`ai-faq: fetch error model=${model}:`, String(fetchErr));
-          break;
+        if (res.ok) {
+          const json = await res.json();
+          const text = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+          console.log("ai-faq: Gemini responded, length=", text.length);
+          return { text };
         }
+
+        const errText = await res.text();
+        console.error(`ai-faq: Gemini error ${res.status} model=${model}:`, errText.slice(0, 500));
+        return { error: `HTTP ${res.status}`, retryable: res.status === 503 || res.status === 429 || res.status === 500 };
+      } catch (fetchErr) {
+        const isAbort = fetchErr instanceof DOMException && fetchErr.name === "AbortError";
+        console.error(
+          `ai-faq: ${isAbort ? "timed out" : "fetch error"} model=${model} after ${Date.now() - startedAt}ms:`,
+          fetchErr instanceof Error ? (fetchErr.stack ?? fetchErr.message) : String(fetchErr),
+        );
+        // Timeouts are worth retrying (once, budget permitting); other
+        // network errors are treated the same way rather than aborting the
+        // whole loop outright, so a single transient failure doesn't turn
+        // into total silence.
+        return { error: isAbort ? "timeout" : "network error", retryable: true };
+      } finally {
+        clearTimeout(timeoutId);
       }
-      if (responded) break;
     }
 
-    if (!aiText) {
-      console.log("ai-faq: no Gemini response — skipping insert");
-      return new Response(JSON.stringify({ skipped: "Gemini returned no response" }), {
-        status: 200, headers: { ...CORS, "Content-Type": "application/json" },
-      });
+    let aiText = "";
+
+    outer:
+    for (const model of models) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (Date.now() - startedAt > OVERALL_BUDGET_MS) {
+          console.error("ai-faq: overall retry budget exceeded — giving up and using fallback reply");
+          break outer;
+        }
+
+        console.log(`ai-faq: calling Gemini model=${model} attempt=${attempt}`);
+        const result = await callGemini(model);
+
+        if ("text" in result) {
+          if (result.text) {
+            aiText = result.text;
+            break outer;
+          }
+          // Empty-but-successful response: nothing useful to retry for on
+          // this model, move on to the next one.
+          break;
+        }
+
+        if (!result.retryable) break;
+        await sleep(500 * (attempt + 1));
+      }
     }
 
     // 4. Insert the AI response as a message from the Business Owner, flagged
     //    as AI-generated so the Supplier UI can clearly indicate this came
     //    from Coco (the AI assistant) rather than a human BO reply.
+    //
+    //    If every model/attempt failed or timed out, the Supplier must
+    //    still get a reply — silently skipping the insert (the previous
+    //    behavior) is exactly what made it look like the assistant "never
+    //    responds at all". A short, honest, user-friendly fallback is sent
+    //    instead, without ever inventing FAQ content.
+    const usedFallback = !aiText;
+    if (usedFallback) {
+      console.error("ai-faq: no Gemini response after all retries — sending fallback reply instead of skipping");
+      aiText = "I'm having trouble responding right now. Please try again in a moment, or contact NERC Copra Trading directly if this continues.";
+    }
+
     const { error: insertErr } = await db.from("messages").insert({
       conversation_id,
       sender_id:       conv.business_owner_id,
@@ -472,14 +723,34 @@ Deno.serve(async (req) => {
       is_ai_generated: true,
       message_text:    aiText,
     });
-    console.log("ai-faq: message inserted, err=", insertErr?.message ?? null);
+    if (insertErr) console.error("ai-faq: message insert failed:", insertErr.message);
+    else console.log("ai-faq: message inserted successfully, fallback=", usedFallback);
 
-    return new Response(JSON.stringify({ success: true, response: aiText }), {
+    return new Response(JSON.stringify({ success: true, response: aiText, fallback: usedFallback }), {
       status: 200, headers: { ...CORS, "Content-Type": "application/json" },
     });
 
   } catch (err) {
-    console.error("ai-faq error:", err);
+    console.error("ai-faq error:", err instanceof Error ? (err.stack ?? err.message) : String(err));
+
+    // Best-effort fallback reply even on an unexpected exception, so the
+    // Supplier isn't left waiting on a response that will never arrive.
+    // Only attempted when we already know who to reply to/as — if the
+    // conversation lookup itself failed, there's nowhere safe to insert.
+    try {
+      if (conversationIdForCatch && businessOwnerIdForCatch && dbForCatch) {
+        await dbForCatch.from("messages").insert({
+          conversation_id: conversationIdForCatch,
+          sender_id:       businessOwnerIdForCatch,
+          message_type:    "Text",
+          is_ai_generated: true,
+          message_text:    "I'm having trouble responding right now. Please try again in a moment, or contact NERC Copra Trading directly if this continues.",
+        });
+      }
+    } catch (fallbackErr) {
+      console.error("ai-faq: fallback reply insert also failed:", fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
+    }
+
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500, headers: { ...CORS, "Content-Type": "application/json" },
     });

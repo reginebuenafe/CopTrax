@@ -13,6 +13,7 @@ import ContractDocumentModal from "../../components/ContractDocumentModal";
 import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
+import { invokeAiFaq } from "../../utils/aiFaq";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -509,9 +510,10 @@ export default function SupplierChatLayout() {
     }
     setText("");
     setSending(false);
-    // Fire-and-forget: let AI FAQ respond if enabled globally
+    // Fire-and-forget: let AI FAQ respond if enabled globally. Bounded,
+    // deduped, and error-logged — see utils/aiFaq.js.
     if (newMsg?.message_text) {
-      supabase.functions.invoke("ai-faq", { body: { conversation_id: conversationId, message_text: newMsg.message_text } });
+      invokeAiFaq(conversationId, newMsg.message_text);
     }
   }
 
