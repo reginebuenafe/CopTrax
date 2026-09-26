@@ -5,6 +5,7 @@
 // Historical data (contracts, deliveries, payments, etc.) is preserved.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { writeAuditLog } from "../_shared/audit_log.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -109,6 +110,18 @@ Deno.serve(async (req) => {
       // Roll back profile update so state stays consistent
       await admin.from("users").update({ account_status: target.account_status }).eq("user_id", target_user_id);
       return json({ error: `Auth ban failed: ${banErr.message}` }, 500);
+    }
+
+    try {
+      await writeAuditLog(admin, {
+        userId: caller.id,
+        action: "Deleted user account",
+        entityType: "users",
+        entityId: target_user_id,
+      });
+    } catch (auditErr) {
+      console.error("delete-user-account: audit log failed:", auditErr);
+      return json({ error: "Account was deleted, but the audit log could not be recorded." }, 500);
     }
 
     return json({ success: true });

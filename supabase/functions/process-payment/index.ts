@@ -5,6 +5,7 @@
 // the payment (Released / Failed) once Xendit sends the callback.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { writeAuditLog } from "../_shared/audit_log.ts";
 
 const XENDIT_SECRET_KEY        = Deno.env.get("XENDIT_SECRET_KEY") ?? "";
 const SUPABASE_URL             = Deno.env.get("SUPABASE_URL") ?? "";
@@ -203,11 +204,37 @@ Deno.serve(async (req) => {
     if (payoutRefErr) {
       console.error(`[process-payment] Failed to store xendit_payout_id for payment_id=${payment_id}: ${payoutRefErr.message}`);
       // Do not fail the payout here: webhook can still resolve by reference_id → payment_id.
+      try {
+        await writeAuditLog(supabase, {
+          userId: caller.id,
+          action: "Released payment",
+          entityType: "payments",
+          entityId: payment_id,
+        });
+      } catch (auditErr) {
+        console.error(`[process-payment] Audit log failed for payment_id=${payment_id}:`, auditErr);
+      }
       return json({
         processing: true,
         xendit_payout_id: xenditPayoutId,
         warning: "Payout created but payout reference was not saved locally. Webhook fallback matching will be used.",
       });
+    }
+
+    try {
+      await writeAuditLog(supabase, {
+        userId: caller.id,
+        action: "Released payment",
+        entityType: "payments",
+        entityId: payment_id,
+      });
+    } catch (auditErr) {
+      console.error(`[process-payment] Audit log failed for payment_id=${payment_id}:`, auditErr);
+      return json({
+        processing: true,
+        xendit_payout_id: xenditPayoutId,
+        warning: "Payout was created, but the audit log could not be recorded.",
+      }, 202);
     }
 
     return json({ processing: true, xendit_payout_id: xenditPayoutId });

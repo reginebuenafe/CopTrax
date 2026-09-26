@@ -47,6 +47,7 @@ import { renderContractPDF } from "../_shared/contract_pdf.ts";
 import { sendEmail } from "../_shared/send_email.ts";
 import { priceToWords } from "../_shared/price_to_words.ts";
 import { callerIP, fetchSignatureBytes } from "../_shared/contract_signing_helpers.ts";
+import { writeAuditLog } from "../_shared/audit_log.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -275,6 +276,18 @@ Deno.serve(async (req) => {
       // request over the audit row — the PDF and activation are already the
       // source of truth for this approval.
       console.error("approve-contract: BO signature audit insert failed:", sigInsertErr.message);
+    }
+
+    try {
+      await writeAuditLog(admin, {
+        userId: caller.id,
+        action: "Approved and signed contract",
+        entityType: "contracts",
+        entityId: contract_id,
+      });
+    } catch (auditErr) {
+      console.error("approve-contract: audit log failed:", auditErr);
+      return json({ error: "Contract was activated, but the audit log could not be recorded." }, 500);
     }
 
     // ── 10. Notifications ─────────────────────────────────────────────────────

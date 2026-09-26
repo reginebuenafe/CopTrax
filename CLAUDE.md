@@ -339,6 +339,12 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 ## Recent changes (keep this updated)
 
+### 2026-09-26 — Owner mutation audit logging wired to `audit_logs`
+
+- Added migration `20260926000072_audit_log_writes.sql` with a protected `record_audit_log()` RPC that permits only authenticated Business Owners to create UI-originated audit entries.
+- Added a shared Edge Function audit writer and connected it to staff-account creation, user deletion, contract approval/signing, and payment release.
+- Connected Supplier approval/rejection and Owner spot-price updates to the protected RPC. Audit failures are surfaced explicitly instead of being silently ignored.
+
 ### 2026-09-24 — AI FAQ ("Coco") now offers to notify the Business Owner for requests that require BO discretion/approval (e.g. "Can I receive payment earlier?"), instead of the generic privacy refusal
 
 - **Problem**: "Can I receive payment earlier?" (and similar requests only the Business Owner can actually decide) hit the model's STRICT PRIVACY & SECURITY BOUNDARY refusal ("I can help with general information... but I can't provide private, sensitive, or restricted information.") — technically not wrong (the AI correctly didn't invent an answer), but unhelpful: these aren't requests for private data, they're requests for a human decision the AI has no authority to make.

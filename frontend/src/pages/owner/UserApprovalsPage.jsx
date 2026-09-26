@@ -275,6 +275,18 @@ export default function UserApprovalsPage() {
 
     if (error) { showToast("error", "Something went wrong. Please try again."); return; }
 
+    const { error: auditError } = await supabase.rpc("record_audit_log", {
+      p_action: action === "approve" ? "Approved user account" : "Rejected user account",
+      p_entity_type: "users",
+      p_entity_id: targetUser.user_id,
+    });
+    if (auditError) {
+      console.error("User approval audit log failed:", auditError);
+      showToast("error", "Account status was updated, but the audit log could not be recorded.");
+      fetchUsers();
+      return;
+    }
+
     // Insert in-app notification so the supplier sees it in their notifications panel
     if (!error && targetUser.roles?.role_name === "Supplier") {
       await supabase.from("notifications").insert({

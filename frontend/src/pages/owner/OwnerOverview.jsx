@@ -734,6 +734,16 @@ export default function OwnerOverview() {
         .insert({ price_per_kg: val });
       if (insertErr) { setError("Failed to set spot price."); return; }
     }
+    const { error: auditError } = await supabase.rpc("record_audit_log", {
+      p_action: "Updated spot price",
+      p_entity_type: "spot_price",
+      p_entity_id: null,
+    });
+    if (auditError) {
+      console.error("Spot price audit log failed:", auditError);
+      setError("Spot price was updated, but the audit log could not be recorded.");
+      return;
+    }
     setSpotPrice(val); setEditing(false); setNewPrice("");
   }
 

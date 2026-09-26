@@ -4,6 +4,7 @@
 // The account is Active immediately — no pending/approval step for these roles.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { writeAuditLog } from "../_shared/audit_log.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -128,6 +129,18 @@ Deno.serve(async (req) => {
       // Roll back the auth user to avoid orphaned auth entries
       await admin.auth.admin.deleteUser(newUserId);
       return json({ error: `Profile upsert failed: ${upsertErr.message}` }, 500);
+    }
+
+    try {
+      await writeAuditLog(admin, {
+        userId: caller.id,
+        action: `Created ${role_name} account`,
+        entityType: "users",
+        entityId: newUserId,
+      });
+    } catch (auditErr) {
+      console.error("create-staff-account: audit log failed:", auditErr);
+      return json({ error: "Staff account was created, but the audit log could not be recorded." }, 500);
     }
 
     return json({ success: true, user_id: newUserId });
