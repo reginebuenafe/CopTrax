@@ -24,7 +24,6 @@ export default function WeigherHistoryPage() {
         delivery_id, delivery_source, delivery_date, delivery_status,
         truck_plate_number, batch_number, created_at,
         supplier:supplier_id(first_name, last_name),
-        contract:contract_id(contract_number),
         walkin_supplier:walkin_supplier_id(first_name, last_name),
         weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg)
       `)
@@ -84,9 +83,6 @@ export default function WeigherHistoryPage() {
                     <tr key={d.delivery_id} className="hover:bg-beige/30 transition-colors duration-150">
                       <td className="px-5 py-3.5">
                        <p className="font-semibold text-brown-dark">{supplierName || <span className="text-brown-light italic text-xs">Unknown supplier</span>}</p>
-                        {d.delivery_source === "Contract-based" && d.contract?.contract_number && (
-                          <p className="text-xs text-brown-light mt-0.5">{d.contract.contract_number}</p>
-                        )}
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
