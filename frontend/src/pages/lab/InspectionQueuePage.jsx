@@ -69,7 +69,7 @@ export default function InspectionQueuePage() {
       setPreview({ result: "Rejected", discountValue: null });
       return;
     }
-    if (mc <= 5.0) {
+    if (mc < 5.0) {
       setPreview({ result: "Accepted", discountValue: 0.0 });
       return;
     }

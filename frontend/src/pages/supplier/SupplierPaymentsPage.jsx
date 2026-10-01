@@ -5,6 +5,9 @@ import {
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+// Reuse the exact same receipt UI/logic already used in BO Payments —
+// do not duplicate the receipt format.
+import { BatchReceiptModal } from "../owner/PaymentsPage.jsx";
 
 function peso(n) {
   return "₱" + Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -26,18 +29,31 @@ export default function SupplierPaymentsPage() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  // Which payment's receipt is currently open in the shared BatchReceiptModal.
+  const [receiptPayment, setReceiptPayment] = useState(null);
 
   useEffect(() => {
     async function fetchPayments() {
+      // Scoped server-side to the authenticated Supplier's own user id — never
+      // trusted from the frontend alone. RLS on payments/payment_details/
+      // e_receipts/bank_accounts independently enforces the same ownership
+      // (supplier_id = auth.uid() / user_id = auth.uid()), so this query can
+      // never return, and RLS can never be bypassed into returning, another
+      // Supplier's payment or receipt data.
+      // Field set mirrors the BO Payments query exactly (see PaymentsPage.jsx)
+      // so the shared BatchReceiptModal can render this data unmodified.
       const { data } = await supabase
         .from("payments")
         .select(`
           payment_id, payment_week, payment_date, total_amount,
           payment_status, reference_number, payment_method, created_at,
+          supplier:supplier_id(first_name, last_name, bank_accounts(bank_name, account_name, account_number)),
           payment_details(
-            payment_detail_id, delivery_id, net_weight_kg, final_weight_kg,
+            payment_detail_id, delivery_id, gross_weight_kg, tare_weight_kg,
+            net_weight_kg, final_weight_kg,
             moisture_content_pct, price_type, price_per_kg_used,
-            moisture_deduction_kg, line_amount
+            moisture_deduction_kg, pca_discount_amount, line_amount,
+            delivery:delivery_id(weigher:weigher_id(first_name, last_name))
           ),
           e_receipts(receipt_number, generated_at)
         `)
@@ -146,6 +162,18 @@ export default function SupplierPaymentsPage() {
                       </div>
                     )}
 
+                    {/* View Receipt — same eligibility rule as BO Payments'
+                        "E-Receipt" action (payment already Released), and
+                        reuses the exact same BatchReceiptModal component. */}
+                    {p.payment_status === "Released" && (p.payment_details?.length ?? 0) > 0 && (
+                      <button
+                        onClick={() => setReceiptPayment(p)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-green-mid/40 text-green-dark font-semibold text-xs hover:bg-green-pale transition-all"
+                      >
+                        <LuReceipt className="w-3.5 h-3.5" /> View Receipt
+                      </button>
+                    )}
+
                     {/* Reference */}
                     {p.reference_number && (
                       <div className="bg-beige rounded-xl px-4 py-3 text-sm">
@@ -206,6 +234,17 @@ export default function SupplierPaymentsPage() {
             );
           })}
         </div>
+      )}
+
+      {/* Same shared receipt modal used by BO Payments — ownership is
+          guaranteed by the query above (.eq("supplier_id", user.id)) and by
+          RLS on payments/payment_details/e_receipts/bank_accounts, so this
+          can only ever render the authenticated Supplier's own receipt. */}
+      {receiptPayment && (
+        <BatchReceiptModal
+          batch={receiptPayment}
+          onClose={() => setReceiptPayment(null)}
+        />
       )}
     </div>
   );

@@ -323,7 +323,7 @@ function extractMcValue(text: string): number | null {
  * Looks up the exact Accept/Reject + discount outcome for a specific MC
  * value, using the same boundary rules and table lookup as the Laboratory
  * Staff's inspection screen:
- *   MC <= 5.0   → Accepted, 0% discount
+ *   MC < 5.0    → Accepted, 0% discount
  *   MC > 20.2   → Rejected, no payment
  *   otherwise   → Accepted, discount from pca_discount_table (rounded to 0.1)
  */
@@ -333,7 +333,7 @@ async function lookupMcResult(
   mc: number,
 ): Promise<{ mc: number; result: "Accepted" | "Rejected"; discount: number | null }> {
   if (mc > 20.2) return { mc, result: "Rejected", discount: null };
-  if (mc <= 5.0)  return { mc, result: "Accepted", discount: 0.0 };
+  if (mc < 5.0)  return { mc, result: "Accepted", discount: 0.0 };
 
   const rounded = Math.round(mc * 10) / 10;
   const { data } = await db

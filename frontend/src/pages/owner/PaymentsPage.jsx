@@ -950,7 +950,9 @@ function BatchesTab({ batches, onRelease, initialFilter }) {
     </>
   );
 } // ── Batch E-Receipt Modal ─────────────────────────────────────────────────────
-function BatchReceiptModal({ batch: b, onClose }) {
+// Exported so other roles' payment pages (e.g. Supplier Payments) can reuse
+// the exact same receipt UI/logic instead of duplicating it.
+export function BatchReceiptModal({ batch: b, onClose }) {
   const [page, setPage] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const receiptRef = useRef(null);
