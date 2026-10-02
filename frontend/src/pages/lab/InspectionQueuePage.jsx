@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   LuFlaskConical, LuTruck, LuFileText, LuCheck, LuX,
-  LuCircleAlert, LuArrowLeft, LuDroplets,
-  LuFlag, LuX as LuClose,
+  LuCircleAlert, LuArrowLeft, LuDroplets, LuFlag,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import ReportCorrectionModal from "../../components/ReportCorrectionModal";
 
 function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
@@ -22,8 +22,6 @@ export default function InspectionQueuePage() {
   const [success, setSuccess] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [reportingIssue, setReportingIssue] = useState(false);
-  const [issueNote, setIssueNote] = useState("");
-  const [issueError, setIssueError] = useState("");
   const [issueSaved, setIssueSaved] = useState(false);
 
   const fetchQueue = useCallback(async () => {
@@ -212,29 +210,24 @@ export default function InspectionQueuePage() {
     setError("");
     setSuccess(null);
     setReportingIssue(false);
-    setIssueNote("");
-    setIssueError("");
     setIssueSaved(false);
     fetchQueue();
   }
 
-  async function submitIssueReport() {
-    const note = issueNote.trim();
-    if (!note) { setIssueError("Describe the problem before submitting."); return; }
-
-    setIssueError("");
+  async function submitIssueReport({ note, photo1FileId, photo2FileId }) {
     const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
       delivery_id: selected.delivery_id,
       reported_by: user.id,
       issue_note: note,
+      issue_type: "MC Correction",
+      evidence_photo_1_file_id: photo1FileId,
+      evidence_photo_2_file_id: photo2FileId,
     });
 
     if (reportError) {
-      setIssueError("Could not save the issue report. Please try again.");
-      return;
+      throw new Error("Could not save the issue report. Please try again.");
     }
 
-    setIssueNote("");
     setIssueSaved(true);
     setReportingIssue(false);
   }
@@ -271,15 +264,35 @@ export default function InspectionQueuePage() {
               className="w-full py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
               Back to Queue
             </button>
+            {issueSaved ? (
+              <p className="text-sm text-green-dark text-center mt-4">Issue report sent for Business Owner review.</p>
+            ) : (
+              <button type="button" onClick={() => setReportingIssue(true)}
+                className="w-full mt-4 inline-flex items-center justify-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800">
+                <LuFlag className="w-4 h-4" /> Report Issue
+              </button>
+            )}
           </div>
         </div>
+
+        {reportingIssue && (
+          <ReportCorrectionModal
+            title="Report Issue — MC Correction"
+            subtitle="This delivery reference is automatically linked. The recorded moisture content is not changed here — the Business Owner reviews your evidence and applies the correction."
+            photo1Label="Photo of Apparatus Reading"
+            photo1Hint="Evidence showing the correct moisture content reading from the apparatus."
+            photo2Label="Photo of Paper Receipt"
+            photo2Hint="Paper receipt/slip showing the correct MC."
+            onClose={() => setReportingIssue(false)}
+            onSubmit={submitIssueReport}
+          />
+        )}
       </div>
     );
   }
 
   // ── Inspection form ──────────────────────────────────────────
   if (selected) {
-    const netKg = selected.weighing_records?.[0]?.net_weight_kg ?? 0;
     const mc = parseFloat(moisture);
 
     return (
@@ -302,18 +315,6 @@ export default function InspectionQueuePage() {
             <div>
               <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Supplier</p>
               <p className="font-bold text-brown-dark truncate">{getSupplierName(selected)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Type</p>
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                selected.delivery_source === "Walkin" ? "bg-orange-50 text-orange-600" : "bg-green-pale text-green-dark"
-              }`}>
-                {selected.delivery_source === "Walkin" ? <><LuTruck className="w-3 h-3" />Walk-in</> : <><LuFileText className="w-3 h-3" />Contractual</>}
-              </span>
-            </div>
-            <div>
-              <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Net Weight</p>
-              <p className="font-bold text-brown-dark">{fmtKg(netKg)} kg</p>
             </div>
             <div>
               <p className="text-[10px] text-brown-light uppercase tracking-widest mb-1">Delivery Date</p>
@@ -366,31 +367,6 @@ export default function InspectionQueuePage() {
               Review &amp; Submit
             </button>
           </div>
-          {issueSaved && <p className="text-sm text-green-dark text-center mt-3">Issue report sent for staff review.</p>}
-          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
-            className="w-full mt-3 inline-flex items-center justify-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
-            <LuFlag className="w-4 h-4" /> Report Issue
-          </button>
-
-          {reportingIssue && (
-            <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
-              <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
-                  <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuClose /></button>
-                </div>
-                <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or inspection.</p>
-                <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
-                  placeholder="Enter the issue or correction needed..."
-                  className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
-                {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
-                <button type="button" onClick={submitIssueReport}
-                  className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
-                  Submit Issue Report
-                </button>
-              </div>
-            </div>
-          )}
         </form>
 
         {/* ── Confirmation modal ────────────────────────────────── */}
@@ -495,8 +471,6 @@ export default function InspectionQueuePage() {
                       setPreview(null);
                       setError("");
                       setReportingIssue(false);
-                      setIssueNote("");
-                      setIssueError("");
                       setIssueSaved(false);
                     }}
                     className="w-full flex items-center gap-4 px-5 py-4 hover:bg-beige/40 transition-colors text-left"

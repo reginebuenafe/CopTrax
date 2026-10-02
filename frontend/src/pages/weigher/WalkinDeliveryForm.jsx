@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuTruck, LuArrowLeft, LuUser,
-  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage, LuFlag, LuX,
+  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage, LuFlag,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import ReportCorrectionModal from "../../components/ReportCorrectionModal";
 
 function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
@@ -25,8 +26,6 @@ export default function WalkinDeliveryForm() {
   const [success, setSuccess] = useState(null);
   const [reviewing, setReviewing] = useState(false);
   const [reportingIssue, setReportingIssue] = useState(false);
-  const [issueNote, setIssueNote] = useState("");
-  const [issueError, setIssueError] = useState("");
   const [issueSaved, setIssueSaved] = useState(false);
 
   function set(field) {
@@ -157,23 +156,20 @@ export default function WalkinDeliveryForm() {
     });
   }
 
-  async function submitIssue() {
-    const note = issueNote.trim();
-    if (!note) { setIssueError("Describe the problem before submitting."); return; }
-
-    setIssueError("");
+  async function submitIssue({ note, photo1FileId, photo2FileId }) {
     const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
       delivery_id: success.deliveryId,
       reported_by: user.id,
       issue_note: note,
+      issue_type: "Weight Correction",
+      evidence_photo_1_file_id: photo1FileId,
+      evidence_photo_2_file_id: photo2FileId,
     });
 
     if (reportError) {
-      setIssueError("Could not save the issue report. Please try again.");
-      return;
+      throw new Error("Could not save the issue report. Please try again.");
     }
 
-    setIssueNote("");
     setIssueSaved(true);
     setReportingIssue(false);
   }
@@ -205,14 +201,19 @@ export default function WalkinDeliveryForm() {
               <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{fmtKg(success.finalWeight)} kg</span></p>
             </div>
           </div>
-          {issueSaved && <p className="text-sm text-green-dark mb-4">Issue report sent for staff review.</p>}
+          {issueSaved ? (
+            <p className="text-sm text-green-dark mb-4">Issue report sent for Business Owner review.</p>
+          ) : (
+            <button type="button" onClick={() => setReportingIssue(true)}
+              className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800">
+              <LuFlag className="w-4 h-4" /> Report Issue
+            </button>
+          )}
           <div className="flex gap-3">
             <button onClick={() => {
               setSuccess(null);
               setReviewing(false);
               setReportingIssue(false);
-              setIssueNote("");
-              setIssueError("");
               setIssueSaved(false);
               setForm({ supplierName: "", deliveryDate: new Date().toISOString().split("T")[0], weight: "", numSacks: "", condition: "Dry" });
             }}
@@ -224,30 +225,19 @@ export default function WalkinDeliveryForm() {
               View History
             </button>
           </div>
-          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
-            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
-            <LuFlag className="w-4 h-4" /> Report Issue
-          </button>
         </div>
 
         {reportingIssue && (
-          <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
-            <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
-                <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuX /></button>
-              </div>
-              <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or weighing entry.</p>
-              <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
-                placeholder="Enter the issue or correction needed..."
-                className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
-              {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
-              <button type="button" onClick={submitIssue}
-                className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
-                Submit Issue Report
-              </button>
-            </div>
-          </div>
+          <ReportCorrectionModal
+            title="Report Issue — Weight Correction"
+            subtitle="This delivery reference is automatically linked. The recorded weight is not changed here — the Business Owner reviews your evidence and applies the correction."
+            photo1Label="Photo of Correct Weight"
+            photo1Hint="Evidence showing the correct weight from the weighing scale/display."
+            photo2Label="Photo of Paper Receipt"
+            photo2Hint="Paper receipt/slip showing the correct recorded weight."
+            onClose={() => setReportingIssue(false)}
+            onSubmit={submitIssue}
+          />
         )}
       </div>
     );

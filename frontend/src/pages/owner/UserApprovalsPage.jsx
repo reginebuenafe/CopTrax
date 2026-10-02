@@ -132,8 +132,8 @@ function DocumentsModal({ targetUser, onClose, onApprove, onReject, processing }
               {/* E-Signature */}
               <DocSection
                 icon={<LuPenLine className="w-4 h-4 text-green-dark" />}
-                title="Handwritten E-Signature (3× on white paper)"
-                subtitle="3 signatures on a white bond paper"
+                title="Handwritten E-Signature"
+                subtitle="Handwritten signature on a white bond paper"
                 url={docs.esign?.url}
               />
             </>

@@ -6,6 +6,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSensitiveSessionTimeout } from "../../hooks/useSensitiveSessionTimeout";
+import CameraModal from "../../components/CameraModal";
 
 /* ─── small helpers ───────────────────────────────────────────────────────── */
 
@@ -442,6 +443,7 @@ function SignatureSection({ showToast }) {
   const [signatureUrl, setSignatureUrl] = useState(null);
   const [loading, setLoading]           = useState(true);
   const [uploading, setUploading]       = useState(false);
+  const [showCamera, setShowCamera]     = useState(false);
 
   const loadSignature = useCallback(async () => {
     setLoading(true);
@@ -547,20 +549,25 @@ function SignatureSection({ showToast }) {
               e.target.value = "";
             }} />
         </label>
-        <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-green-dark/40 py-2.5 transition-all hover:bg-green-pale/30 ${uploading ? "cursor-wait opacity-60" : ""}`}>
+        <button type="button" onClick={() => setShowCamera(true)} disabled={uploading}
+          className={`flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-green-dark/40 py-2.5 transition-all hover:bg-green-pale/30 ${uploading ? "cursor-wait opacity-60" : ""}`}>
           <LuCamera className="h-4 w-4 text-green-dark" />
           <span className="text-sm font-semibold text-green-dark">Capture Signature</span>
-          <input type="file" accept="image/*" capture="environment" disabled={uploading} className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0];
-              if (file) handleUpload(file);
-              e.target.value = "";
-            }} />
-        </label>
+        </button>
       </div>
       <p className="text-[11px] text-brown-light mt-2 leading-relaxed">
         Tip: Sign on plain white paper with a black or blue pen, then take a clear, well-lit photo.
       </p>
+
+      {showCamera && (
+        <CameraModal
+          facing="environment"
+          title="Capture Your Signature"
+          instructions="Point the camera at your signature on a plain white sheet of paper. Make sure it is fully visible, well-lit, and in focus."
+          onCapture={photo => handleUpload(photo.file)}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
     </Section>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LuFileChartColumn, LuDownload, LuLoader, LuFilter,
-  LuFileText, LuTruck, LuPackage, LuWallet, LuStar,
+  LuFileText, LuTruck, LuPackage, LuWallet, LuStar, LuHandCoins,
   LuCircleAlert,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -73,6 +73,13 @@ const REPORTS = [
     icon: LuStar,
     color: "bg-orange-50 text-orange-600",
     description: "Supplier ratings with fulfillment, volume, quality scores, and overall rating.",
+  },
+  {
+    id: "copra_sales",
+    label: "Copra Sales Report",
+    icon: LuHandCoins,
+    color: "bg-teal-50 text-teal-600",
+    description: "All recorded copra sales out of Bodega Stock, with total volume sold.",
   },
 ];
 
@@ -191,6 +198,18 @@ async function fetchRatings(from, to) {
   });
 }
 
+async function fetchCopraSales(from, to) {
+  const q = supabase
+    .from("copra_sales")
+    .select("copra_sale_id, date_sold, net_weight_kg")
+    .order("date_sold", { ascending: false });
+  if (from) q.gte("date_sold", from);
+  if (to)   q.lte("date_sold", to);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data;
+}
+
 // ── Column model ──────────────────────────────────────────────────────────────
 // Single source of truth per report: the same column list drives the on-screen
 // preview table, the PDF (via jspdf-autotable), and the XLSX export, so all
@@ -237,6 +256,22 @@ function kgCol(header, get) {
     get: row => {
       const v = get(row);
       return { text: fmtKg(v), raw: v == null || v === "" ? "" : Number(v), numFmt: '#,##0.00" kg"' };
+    },
+  };
+}
+
+// Plain 2-decimal number, no unit suffix on the cell itself — used where the
+// column header already states the unit (e.g. "Volume Sold (kg)").
+function number2Col(header, get) {
+  return {
+    header, align: "right",
+    get: row => {
+      const v = get(row);
+      return {
+        text: v == null || v === "" ? "—" : Number(v).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        raw: v == null || v === "" ? "" : Number(v),
+        numFmt: "#,##0.00",
+      };
     },
   };
 }
@@ -421,12 +456,18 @@ const RATINGS_COLUMNS = [
   scoreCol("Overall Rating", r => r.overall_supplier_rating, 2, "/5"),
 ];
 
+const COPRA_SALES_COLUMNS = [
+  dateCol("Date Sold", r => r.date_sold),
+  number2Col("Volume Sold (kg)", r => r.net_weight_kg),
+];
+
 const REPORT_COLUMNS = {
   contracts: CONTRACTS_COLUMNS,
   deliveries: DELIVERIES_COLUMNS,
   inventory: INVENTORY_COLUMNS,
   payments: PAYMENTS_COLUMNS,
   ratings: RATINGS_COLUMNS,
+  copra_sales: COPRA_SALES_COLUMNS,
 };
 
 // ── Inventory Total Net Weight (shared by screen, PDF, XLSX) ─────────────────
@@ -481,6 +522,12 @@ function inventoryTotalsLines(allRows, deliveryTypeFilter) {
     `Combined Total After Deduction: ${toTons(combinedAfterDeductionKg)} t`,
     `Combined Weight Difference: ${toTons(combinedDiffKg)} t`,
   ];
+}
+
+// ── Copra Sales Report totals ─────────────────────────────────────────────────
+function copraSalesTotalsLines(rows) {
+  const totalKg = rows.reduce((s, r) => s + (Number(r.net_weight_kg) || 0), 0);
+  return [`Total Volume Sold: ${totalKg.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`];
 }
 
 // ── On-screen preview table (shared renderer for all 5 reports) ─────────────
@@ -719,6 +766,7 @@ export default function BOReportsPage() {
       else if (selected === "inventory")  data = await fetchInventory(dateFrom, dateTo);
       else if (selected === "payments")   data = await fetchPayments(dateFrom, dateTo);
       else if (selected === "ratings")    data = await fetchRatings(dateFrom, dateTo);
+      else if (selected === "copra_sales") data = await fetchCopraSales(dateFrom, dateTo);
       setRows(data);
       setGenerated(true);
     } catch (e) {
@@ -743,9 +791,11 @@ export default function BOReportsPage() {
 
   // Inventory Report's Total Net Weight — computed from every fetched row
   // (not just the currently-displayed/filtered subset) so "All" can always
-  // show both the Contractual and Walk-in subtotals.
-  const totalsLines = selected === "inventory" && generated
-    ? inventoryTotalsLines(rows, deliveryTypeFilter)
+  // show both the Contractual and Walk-in subtotals. Copra Sales Report has
+  // no delivery-type filter, so `rows` and `displayRows` are the same set.
+  const totalsLines = !generated ? null
+    : selected === "inventory" ? inventoryTotalsLines(rows, deliveryTypeFilter)
+    : selected === "copra_sales" ? copraSalesTotalsLines(rows)
     : null;
 
   const dateRangeLabel = dateFrom || dateTo

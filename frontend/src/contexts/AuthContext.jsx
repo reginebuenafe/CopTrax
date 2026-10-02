@@ -38,8 +38,16 @@ export function AuthProvider({ children }) {
     inactivityTimeoutMsRef.current = inactivityTimeoutMs;
   }, [inactivityTimeoutMs]);
 
-  const fetchProfile = useCallback(async (userId) => {
-    setProfileLoading(true);
+  const fetchProfile = useCallback(async (userId, { silent = false } = {}) => {
+    // `silent` updates `profile` without touching `profileLoading` (and
+    // therefore the global `isLoading` flag). ProtectedRoute unmounts its
+    // entire children tree while `isLoading` is true (see the comment
+    // below about the auth-event path), which would wipe any in-progress
+    // local component state — including a just-set success/error toast —
+    // on every call to the public `refreshProfile()`. The initial/auth-
+    // event-driven load below still needs the real gating behavior, so
+    // only `refreshProfile()` opts into `silent`.
+    if (!silent) setProfileLoading(true);
     try {
       // Race against a 10-second timeout so a stalled network never blocks login
       const timeout = new Promise((_, reject) =>
@@ -57,7 +65,7 @@ export function AuthProvider({ children }) {
       console.error("fetchProfile failed:", err?.message ?? err);
       setProfile(null);
     } finally {
-      setProfileLoading(false);
+      if (!silent) setProfileLoading(false);
     }
   }, []);
 
@@ -219,7 +227,7 @@ export function AuthProvider({ children }) {
     endSensitiveContext,
     signOut,
     refreshProfile: () =>
-      session?.user?.id ? fetchProfile(session.user.id) : Promise.resolve(),
+      session?.user?.id ? fetchProfile(session.user.id, { silent: true }) : Promise.resolve(),
   };
 
   return (
