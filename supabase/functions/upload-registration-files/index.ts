@@ -70,23 +70,23 @@ Deno.serve(async (req) => {
     }
 
     // ── Caller-identity check ─────────────────────────────────────────────────
-    // If the client sent a JWT (which supabase.functions.invoke does when a
-    // session exists), verify that the JWT subject matches the user_id being
-    // submitted. This prevents any other caller from overwriting another user's
-    // profile/documents/bank row by guessing a UUID.
+    // A valid JWT is now mandatory (not merely checked when present): this is the
+    // only real authorization gate on this endpoint, since account_status alone
+    // is guessable/enumerable and must never be trusted as the sole authorizer.
     const authHeader = req.headers.get("Authorization") ?? "";
     const jwtMatch  = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (jwtMatch) {
-      const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
-      if (jwtErr || !jwtUser) {
-        return json({ error: "Invalid or expired authentication token." }, 401);
-      }
-      if (jwtUser.id !== user_id) {
-        return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
-      }
+    if (!jwtMatch) {
+      return json({ error: "Unauthorized: missing authentication token." }, 401);
+    }
+    const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
+    if (jwtErr || !jwtUser) {
+      return json({ error: "Invalid or expired authentication token." }, 401);
+    }
+    if (jwtUser.id !== user_id) {
+      return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
     }
     // ─────────────────────────────────────────────────────────────────────────
 

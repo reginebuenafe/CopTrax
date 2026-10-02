@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  LuWallet, LuCheck, LuClock, LuX, LuChevronDown, LuChevronUp,
+  LuWallet, LuCheck, LuClock, LuX, LuLoader, LuChevronDown, LuChevronUp,
   LuReceipt,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -19,9 +19,10 @@ function fmtDate(d) {
 }
 
 const STATUS_META = {
-  Pending:  { color: "bg-amber-50 text-amber-700",  icon: LuClock, label: "Pending" },
-  Released: { color: "bg-green-pale text-green-dark", icon: LuCheck, label: "Released" },
-  Failed:   { color: "bg-red-50 text-red-600",       icon: LuX,    label: "Failed" },
+  Pending:    { color: "bg-amber-50 text-amber-700",  icon: LuClock,  label: "Pending" },
+  Processing: { color: "bg-blue-50 text-blue-600",    icon: LuLoader, label: "Processing" },
+  Released:   { color: "bg-green-pale text-green-dark", icon: LuCheck, label: "Released" },
+  Failed:     { color: "bg-red-50 text-red-600",       icon: LuX,    label: "Failed" },
 };
 
 export default function SupplierPaymentsPage() {
@@ -70,7 +71,7 @@ export default function SupplierPaymentsPage() {
     .filter(p => p.payment_status === "Released")
     .reduce((s, p) => s + Number(p.total_amount), 0);
   const totalPending = payments
-    .filter(p => p.payment_status === "Pending")
+    .filter(p => p.payment_status === "Pending" || p.payment_status === "Processing")
     .reduce((s, p) => s + Number(p.total_amount), 0);
 
   return (

@@ -152,6 +152,9 @@ export default function NegotiationChatWidget() {
   const messagesEndRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const knownMessageIdsRef = useRef(new Set());
+  // Synchronous guard so a fast double-click can't fire two accept/decline
+  // calls before React commits the state update from the first click.
+  const proposalActingRef = useRef(false);
   const {
     modalState: proposalModalState,
     openPropose,
@@ -540,13 +543,30 @@ export default function NegotiationChatWidget() {
   // by generate-contract using the service role, because the Supplier's JWT
   // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
   async function acceptCounter(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     const conversationId = conversation?.conversation_id;
 
     // Optimistically hide the card immediately
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
+
+    // On failure, don't assume nothing happened — re-fetch this proposal's
+    // true status, since a concurrent accept attempt may have already
+    // succeeded (the duplicate-contract error can arrive for the call that
+    // lost the race, even though a contract now genuinely exists).
+    async function revertToTrueState() {
+      const { data } = await supabase
+        .from("proposal_forms")
+        .select("proposal_status")
+        .eq("proposal_id", proposal.proposal_id)
+        .single();
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id
+          ? { ...p, proposal_status: data?.proposal_status ?? "Pending" }
+          : p));
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -560,11 +580,12 @@ export default function NegotiationChatWidget() {
 
       const genData = await genRes.json();
       if (!genRes.ok) {
-        setProposals(prev => prev.map(p =>
-          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        await revertToTrueState();
         console.error("acceptCounter: generate-contract failed:", genData);
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        proposalActingRef.current = false;
         setProposalActing(false);
+        if (conversationId) await fetchProposals(conversationId);
         return;
       }
 
@@ -576,10 +597,10 @@ export default function NegotiationChatWidget() {
         related_entity_id: conversationId,
       });
     } catch (err) {
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      await revertToTrueState();
       console.error("acceptCounter error:", err);
       alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
@@ -588,21 +609,35 @@ export default function NegotiationChatWidget() {
       await fetchMessages(conversationId);
       await fetchProposals(conversationId);
     }
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 
   // ── Supplier declines BO's counteroffer ───────────────────────────────────
   // Mirrors SupplierChatLayout.rejectProposal exactly.
   async function rejectCounteroffer(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     const conversationId = conversation?.conversation_id;
 
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    await supabase.from("proposal_forms")
+    // Only transition a still-Pending proposal — if a concurrent Accept already
+    // resolved it (contract created), this must not silently overwrite that
+    // Accepted status back to Rejected. Zero affected rows means we lost the race.
+    const { data: declinedRows } = await supabase.from("proposal_forms")
       .update({ proposal_status: "Rejected" })
-      .eq("proposal_id", proposal.proposal_id);
+      .eq("proposal_id", proposal.proposal_id)
+      .eq("proposal_status", "Pending")
+      .select("proposal_id");
+
+    if (!declinedRows || declinedRows.length === 0) {
+      if (conversationId) await fetchProposals(conversationId);
+      proposalActingRef.current = false;
+      setProposalActing(false);
+      return;
+    }
     if (conversationId) {
       await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
       await supabase.from("messages").insert({
@@ -614,6 +649,7 @@ export default function NegotiationChatWidget() {
       await fetchMessages(conversationId);
       await fetchProposals(conversationId);
     }
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 

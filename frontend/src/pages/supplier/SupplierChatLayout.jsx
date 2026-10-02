@@ -232,6 +232,10 @@ export default function SupplierChatLayout() {
   const [onlineBusinessOwnerIds, setOnlineBusinessOwnerIds] = useState(() => new Set());
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
+  // Synchronous guard (in addition to the proposalActing state) so a fast
+  // double-click can't fire two accept/decline calls before React commits
+  // the state update from the first click.
+  const proposalActingRef = useRef(false);
 
   function isNearBottom() {
     const el = scrollContainerRef.current;
@@ -432,12 +436,29 @@ export default function SupplierChatLayout() {
   // by generate-contract using the service role, because the Supplier's JWT
   // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
   async function acceptCounter(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
 
     // Optimistically hide the card immediately
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
+
+    // On failure, don't assume nothing happened — re-fetch this proposal's
+    // true status, since a concurrent accept attempt may have already
+    // succeeded (the duplicate-contract error can arrive for the call that
+    // lost the race, even though a contract now genuinely exists).
+    async function revertToTrueState() {
+      const { data } = await supabase
+        .from("proposal_forms")
+        .select("proposal_status")
+        .eq("proposal_id", proposal.proposal_id)
+        .single();
+      setProposals(prev => prev.map(p =>
+        p.proposal_id === proposal.proposal_id
+          ? { ...p, proposal_status: data?.proposal_status ?? "Pending" }
+          : p));
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -451,12 +472,12 @@ export default function SupplierChatLayout() {
 
       const genData = await genRes.json();
       if (!genRes.ok) {
-        // Revert optimistic update so the card re-appears and the error is visible
-        setProposals(prev => prev.map(p =>
-          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        await revertToTrueState();
         console.error("acceptCounter: generate-contract failed:", genData);
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        proposalActingRef.current = false;
         setProposalActing(false);
+        await loadChat(conversationId);
         return;
       }
 
@@ -466,25 +487,44 @@ export default function SupplierChatLayout() {
         related_entity_type: "conversations", related_entity_id: conversationId,
       });
     } catch (err) {
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      await revertToTrueState();
       console.error("acceptCounter error:", err);
       alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
 
     await loadChat(conversationId);
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 
   async function rejectProposal(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     // Immediately hide the proposal card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
+    // Only transition a still-Pending proposal — if a concurrent Accept already
+    // resolved it (contract created), this must not silently overwrite that
+    // Accepted status back to Rejected. Zero affected rows means we lost the race.
+    const { data: declinedRows } = await supabase
+      .from("proposal_forms")
+      .update({ proposal_status: "Rejected" })
+      .eq("proposal_id", proposal.proposal_id)
+      .eq("proposal_status", "Pending")
+      .select("proposal_id");
+
+    if (!declinedRows || declinedRows.length === 0) {
+      // Lost the race to a concurrent Accept — refresh to the true state
+      // instead of terminating the conversation or posting a decline message.
+      await loadChat(conversationId);
+      proposalActingRef.current = false;
+      setProposalActing(false);
+      return;
+    }
     // Rejection ends the negotiation — mark conversation Terminated
     await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
     await supabase.from("messages").insert({
@@ -492,6 +532,7 @@ export default function SupplierChatLayout() {
       message_text: `❌ Counteroffer declined.`,
     });
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+    proposalActingRef.current = false;
     setProposalActing(false); // was missing — buttons stayed permanently disabled after rejection
   }
 

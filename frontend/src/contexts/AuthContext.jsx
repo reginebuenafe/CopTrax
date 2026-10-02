@@ -210,7 +210,15 @@ export function AuthProvider({ children }) {
   async function signOut() {
     explicitSignOutRef.current = true;
     clearInactivityTimer();
-    await supabase.auth.signOut();
+    // supabase-js always clears the local session regardless of outcome, but
+    // the server-side revocation request (POST /auth/v1/logout?scope=global)
+    // has been observed to abort client-side before reaching the server. Retry
+    // once so the refresh token actually gets revoked server-side instead of
+    // silently surviving a single aborted/failed request.
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      await supabase.auth.signOut().catch(() => {});
+    }
   }
 
   const value = {

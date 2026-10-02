@@ -113,80 +113,29 @@ Deno.serve(async (req) => {
         return json({ error: "You can only accept proposals for your own conversations." }, 403);
       }
 
-      // Idempotency: if the proposal is already Accepted and a contract exists on
-      // the conversation, just re-run PDF generation for the existing contract.
-      const { data: convRow } = await admin
-        .from("conversations")
-        .select("conversation_id, contract_id, business_owner_id")
-        .eq("conversation_id", proposal.conversation_id)
-        .single();
+      // Atomic accept: the duplicate-Pending-contract check, marking this
+      // proposal Accepted, marking sibling proposals Modified, and creating
+      // the contract row all happen in ONE database transaction (serialized
+      // per-conversation via an advisory lock), so a double-click/rapid
+      // repeat Accept — or an Accept racing a Decline — can never partially
+      // complete (one contract silently created while the UI shows an error,
+      // or a Decline overwriting an already-Accepted proposal).
+      const { data: newContractId, error: rpcErr } = await admin.rpc(
+        "accept_counteroffer_and_create_contract",
+        { p_proposal_id: proposal_id, p_supplier_id: caller.id },
+      );
 
-      if (!convRow) return json({ error: "Conversation not found" }, 404);
-
-      // Check for an existing Pending contract on this conversation (real duplicate guard).
-      // A conversation may have a prior Active/Completed/Breached contract from an earlier
-      // negotiation — that does NOT block a new contract from a fresh acceptance.
-      let existingPendingContractId: string | null = null;
-      if (convRow.contract_id) {
-        const { data: existingContract } = await admin
-          .from("contracts")
-          .select("contract_id, status")
-          .eq("contract_id", convRow.contract_id)
-          .single();
-        if (existingContract?.status === "Pending") {
-          existingPendingContractId = existingContract.contract_id as string;
-        }
+      if (rpcErr || !newContractId) {
+        const msg = rpcErr?.message ?? "Contract creation failed";
+        const status = msg.includes("already exists") ? 409
+          : msg.includes("not Pending") ? 400
+          : msg.includes("own conversations") ? 403
+          : msg.includes("not found") ? 404
+          : 500;
+        return json({ error: msg }, status);
       }
 
-      if (proposal.proposal_status === "Accepted" && existingPendingContractId) {
-        // Already accepted — hand off to the existing Pending contract_id path below.
-        contract_id = existingPendingContractId;
-      } else {
-        // Guard: proposal must still be Pending
-        if (proposal.proposal_status !== "Pending") {
-          return json({ error: `Proposal is not Pending (current: ${proposal.proposal_status})` }, 400);
-        }
-
-        // Guard: block only if there is already a Pending contract (true duplicate)
-        if (existingPendingContractId) {
-          return json({ error: "A pending contract already exists for this conversation." }, 409);
-        }
-
-        // Mark this proposal as Accepted
-        await admin.from("proposal_forms")
-          .update({ proposal_status: "Accepted" })
-          .eq("proposal_id", proposal_id);
-
-        // Mark every other Pending proposal in this conversation as Modified
-        await admin.from("proposal_forms")
-          .update({ proposal_status: "Modified" })
-          .eq("conversation_id", proposal.conversation_id)
-          .eq("proposal_status", "Pending")
-          .neq("proposal_id", proposal_id);
-
-        // Create the contract row using the admin client (bypasses contracts_insert_bo RLS)
-        const { data: numData } = await admin.rpc("generate_contract_number");
-        const { data: newContract, error: insertErr } = await admin.from("contracts").insert({
-          contract_number:          numData,
-          supplier_id:              caller.id,
-          business_owner_id:        convRow.business_owner_id,
-          negotiated_price_per_kg:  proposal.proposed_price_per_kg,
-          contracted_tons:          proposal.proposed_volume_tons,
-          signing_date:             new Date().toISOString().split("T")[0],
-          status:                   "Pending",
-        }).select("contract_id").single();
-
-        if (insertErr || !newContract) {
-          return json({ error: `Contract creation failed: ${insertErr?.message ?? "unknown"}` }, 500);
-        }
-
-        // Link conversation → contract
-        await admin.from("conversations")
-          .update({ contract_id: newContract.contract_id })
-          .eq("conversation_id", proposal.conversation_id);
-
-        contract_id = newContract.contract_id;
-      }
+      contract_id = newContractId as string;
     }
 
     // ── 3. Load contract + participants ──────────────────────────────────────

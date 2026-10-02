@@ -595,9 +595,13 @@ export default function RegisterPage() {
     const steps = ["Creating account…", "Preparing documents…", "Uploading documents…"];
     const stepIndex = steps.indexOf(uploadProgress);
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4">
+      <div className="min-h-screen-safe relative flex items-center justify-center px-4">
+        {/* Background: fixed to the viewport so it always covers the full screen,
+            regardless of actual content/page height (a min-height flex wrapper can
+            fall short of the real page height, exposing the plain body color below it). */}
+        <div className="fixed inset-0 -z-10 bg-gradient-to-br from-green-pale via-cream to-beige" />
         {/* Background blobs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-24 -left-24 w-80 h-80 bg-green-light/15 rounded-full blur-3xl" />
           <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-green-mid/10 rounded-full blur-3xl" />
         </div>
@@ -992,12 +996,16 @@ export default function RegisterPage() {
         />
       )}
 
-      <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      <div className="min-h-screen-safe relative flex items-center justify-center px-4 py-12">
+        {/* Background: fixed to the viewport so it always covers the full screen,
+            regardless of actual content/page height (a min-height flex wrapper can
+            fall short of the real page height, exposing the plain body color below it). */}
+        <div className="fixed inset-0 -z-10 bg-gradient-to-br from-green-pale via-cream to-beige" />
         <Link to="/" aria-label="Back to homepage"
           className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
           <LuArrowLeft className="w-4 h-4 text-green-dark" />
         </Link>
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
           <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />
         </div>

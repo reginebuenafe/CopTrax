@@ -659,12 +659,23 @@ export default function OwnerOverview() {
       }
 
       // ── 3. Payment summary ───────────────────────────────────────────
-      const [paymentsRes, readyRes] = await Promise.all([
+      // "Ready to Batch" must mirror the Payments page exactly: Contract-based
+      // accepted deliveries not yet batched (payment_id IS NULL) PLUS Walk-in
+      // accepted deliveries not yet marked paid (walkin_paid_at IS NULL) — Walk-in
+      // deliveries never get a payment_id at all, so counting payment_id IS NULL
+      // alone overcounts Walk-in deliveries forever, even once they're paid.
+      const [paymentsRes, readyContractRes, readyWalkinRes] = await Promise.all([
         supabase.from("payments").select("total_amount, payment_status"),
         supabase.from("deliveries")
           .select("delivery_id", { count: "exact", head: true })
+          .eq("delivery_source", "Contract-based")
           .eq("delivery_status", "Accepted")
           .is("payment_id", null),
+        supabase.from("deliveries")
+          .select("delivery_id", { count: "exact", head: true })
+          .eq("delivery_source", "Walkin")
+          .eq("delivery_status", "Accepted")
+          .is("walkin_paid_at", null),
       ]);
       const allPayments = paymentsRes.data ?? [];
       const paidTotal   = allPayments.filter(p => p.payment_status === "Released").reduce((s, p) => s + Number(p.total_amount ?? 0), 0);
@@ -674,7 +685,7 @@ export default function OwnerOverview() {
         paidTotal,
         pendingTotal,
         pendingBatches,
-        readyCount: readyRes.count ?? 0,
+        readyCount: (readyContractRes.count ?? 0) + (readyWalkinRes.count ?? 0),
       });
 
       // ── 5. Top suppliers by rating ───────────────────────────────────
