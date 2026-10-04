@@ -1,8 +1,8 @@
 import { createElement, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LuArrowLeft, LuArrowUpDown, LuCheck, LuCircleAlert, LuCircleCheck, LuEye,
-  LuFileText, LuLoader, LuRefreshCw, LuScale, LuSearch, LuTrash2, LuTruck, LuUser, LuX,
+  LuArrowLeft, LuArrowUpDown, LuCalendar, LuCheck, LuCircleAlert, LuCircleCheck, LuEye,
+  LuFileText, LuLoader, LuPackage, LuRefreshCw, LuScale, LuSearch, LuTrash2, LuTruck, LuUser, LuX,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -93,10 +93,10 @@ export default function DeliveryIssuesPage() {
         photo1:evidence_photo_1_file_id(file_id, file_url, file_name),
         photo2:evidence_photo_2_file_id(file_id, file_url, file_name),
         delivery:delivery_id(
-          delivery_id, delivery_date, delivery_source,
+          delivery_id, delivery_date, delivery_source, truck_plate_number,
           supplier:supplier_id(first_name, last_name),
           walkin_supplier:walkin_supplier_id(first_name, last_name),
-          weighing_records(net_weight_kg),
+          weighing_records(weighing_id, gross_weight_kg, tare_weight_kg, net_weight_kg, copra_condition, num_sacks, weighed_at),
           laboratory_inspections(moisture_content_pct),
           quality_results(result)
         ),
@@ -370,7 +370,20 @@ export default function DeliveryIssuesPage() {
 
       {previewPhoto && <PhotoPreviewModal file={previewPhoto} onClose={() => setPreviewPhoto(null)} />}
 
-      {correctionModal && (
+      {correctionModal && correctionModal.issue_type === "Weight Correction" && (
+        <WeightCorrectionModal
+          issue={correctionModal}
+          onClose={() => setCorrectionModal(null)}
+          onPreviewPhoto={setPreviewPhoto}
+          onApplied={() => {
+            setCorrectionModal(null);
+            showToast("Weight Correction applied. Issue marked Resolved.");
+            fetchIssues();
+          }}
+        />
+      )}
+
+      {correctionModal && correctionModal.issue_type === "MC Correction" && (
         <CorrectionModal
           issue={correctionModal}
           currentValue={currentRecordedValue(correctionModal)}
@@ -542,6 +555,294 @@ function CorrectionModal({ issue, currentValue, onClose, onApplied }) {
               <button type="button" onClick={() => setStep("form")} disabled={submitting}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-50">
                 <LuArrowLeft className="w-4 h-4" /> Cancel
+              </button>
+              <button type="button" onClick={handleConfirm} disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60">
+                {submitting && <LuLoader className="w-4 h-4 animate-spin" />}
+                Confirm Correction
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── BO Weight Correction modal: the SAME full weighing form the Weigher
+// uses at weighing time (ContractualDeliveryForm.jsx / WalkinDeliveryForm.jsx
+// — same fields, labels, validation, and weight calculations), pre-filled
+// with this delivery's currently recorded values. The BO only changes the
+// field(s) that are wrong; Review shows Current → Corrected for every
+// field, highlighting only what actually changed, before Confirm Correction
+// calls apply_weight_correction() (which reuses the existing Final-Weight
+// recalculation engine) and marks the issue Resolved.
+function WeightCorrectionModal({ issue, onClose, onApplied, onPreviewPhoto }) {
+  const delivery = issue.delivery;
+  const isContractual = delivery?.delivery_source === "Contract-based";
+  const latestRecord = useMemo(() => {
+    const records = delivery?.weighing_records ?? [];
+    return [...records].sort((a, b) => new Date(b.weighed_at ?? 0) - new Date(a.weighed_at ?? 0))[0] ?? {};
+  }, [delivery]);
+
+  const original = useMemo(() => ({
+    deliveryDate: delivery?.delivery_date ?? "",
+    truckPlate: delivery?.truck_plate_number ?? "",
+    grossWeight: latestRecord.gross_weight_kg,
+    tareWeight: latestRecord.tare_weight_kg,
+    numSacks: latestRecord.num_sacks,
+    condition: latestRecord.copra_condition ?? "Dry",
+    netWeight: latestRecord.net_weight_kg,
+  }), [delivery, latestRecord]);
+
+  const [step, setStep] = useState("form"); // "form" | "review"
+  const [form, setForm] = useState({
+    deliveryDate: original.deliveryDate,
+    truckPlate: original.truckPlate ?? "",
+    grossWeight: original.grossWeight != null ? String(original.grossWeight) : "",
+    tareWeight: original.tareWeight != null ? String(original.tareWeight) : "",
+    numSacks: original.numSacks != null ? String(original.numSacks) : "",
+    condition: original.condition ?? "Dry",
+  });
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  function set(field) {
+    return e => setForm(current => ({ ...current, [field]: e.target.value }));
+  }
+
+  const gross = parseFloat(form.grossWeight) || 0;
+  const tare = parseFloat(form.tareWeight) || 0;
+  const contractualNet = gross > tare ? gross - tare : 0;
+
+  const numSacks = parseInt(form.numSacks, 10) || 0;
+  const sacksDeduction = numSacks / 2;
+  const walkinNetWeight = Math.max(gross - sacksDeduction, 0);
+  const wetDeduction = form.condition === "Wet" ? gross * 0.10 : 0;
+  const walkinFinalWeight = Math.max(walkinNetWeight - wetDeduction, 0);
+
+  function validate() {
+    if (!form.deliveryDate) return "Enter the delivery date.";
+    if (isContractual) {
+      if (gross <= 0) return "Enter a valid gross weight.";
+      if (tare < 0) return "Tare weight cannot be negative.";
+      if (tare >= gross) return "Tare weight must be less than gross weight.";
+    } else {
+      if (gross <= 0) return "Enter a valid weight.";
+      if (numSacks <= 0) return "Enter the number of sacks.";
+    }
+    return "";
+  }
+
+  function handleContinue(e) {
+    e.preventDefault();
+    const v = validate();
+    if (v) { setError(v); return; }
+    setError("");
+    setStep("review");
+  }
+
+  async function handleConfirm() {
+    if (submitting) return; // guard against a double/rapid click on Confirm Correction
+    setSubmitting(true);
+    setError("");
+
+    const { error: rpcError } = await supabase.rpc("apply_weight_correction", {
+      p_issue_report_id: issue.issue_report_id,
+      p_delivery_date: form.deliveryDate,
+      p_truck_plate: isContractual ? (form.truckPlate.trim() || null) : null,
+      p_gross_kg: gross,
+      p_tare_kg: isContractual ? tare : null,
+      p_num_sacks: isContractual ? null : numSacks,
+      p_condition: isContractual ? null : form.condition,
+    });
+
+    if (rpcError) {
+      setError(rpcError.message ?? "Failed to apply correction. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    setSubmitting(false);
+    onApplied();
+  }
+
+  const inputClass = `w-full min-w-0 max-w-full px-3.5 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+    placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all`;
+
+  const hasEvidence = issue.photo1 || issue.photo2;
+
+  // Review rows: label, original value, new (form) value, formatter.
+  const reviewRows = isContractual
+    ? [
+        { label: "Delivery Date", from: original.deliveryDate, to: form.deliveryDate },
+        { label: "Truck Plate Number", from: original.truckPlate || "—", to: form.truckPlate.trim() || "—" },
+        { label: "Gross Weight", from: original.grossWeight, to: gross, unit: " kg" },
+        { label: "Tare Weight", from: original.tareWeight, to: tare, unit: " kg" },
+        { label: "Net Weight", from: original.netWeight, to: contractualNet, unit: " kg" },
+      ]
+    : [
+        { label: "Delivery Date", from: original.deliveryDate, to: form.deliveryDate },
+        { label: "Gross Weight", from: original.grossWeight, to: gross, unit: " kg" },
+        { label: "No. of Sacks", from: original.numSacks, to: numSacks },
+        { label: "Condition", from: original.condition, to: form.condition },
+        { label: "Final Weight", from: original.netWeight, to: walkinFinalWeight, unit: " kg" },
+      ];
+
+  function formatReviewValue(row) {
+    if (row.from == null && row.to == null) return "—";
+    if (typeof row.to === "number") return `${fmt2(row.to)}${row.unit ?? ""}`;
+    return row.to || "—";
+  }
+  function formatOriginalValue(row) {
+    if (row.from == null) return "—";
+    if (typeof row.from === "number") return `${fmt2(row.from)}${row.unit ?? ""}`;
+    return row.from || "—";
+  }
+  function rowChanged(row) {
+    if (typeof row.from === "number" || typeof row.to === "number") {
+      return Math.abs((Number(row.from) || 0) - (Number(row.to) || 0)) > 0.0001;
+    }
+    return String(row.from ?? "") !== String(row.to ?? "");
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl border border-beige-dark/40 w-full max-w-2xl max-h-[92vh] overflow-y-auto p-6 relative">
+        <button onClick={onClose} disabled={submitting} className="absolute top-4 right-4 text-brown-light hover:text-brown-dark disabled:opacity-50">
+          <LuX className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
+            <LuScale className="w-5 h-5 text-green-dark" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-brown-dark">{step === "form" ? "Correct Weight" : "Review Correction"}</h2>
+            <p className="text-brown-light text-sm">
+              {step === "form"
+                ? "Edit only the field(s) that are incorrect, based on the submitted evidence."
+                : "This cannot be undone once confirmed."}
+            </p>
+          </div>
+        </div>
+
+        {hasEvidence && (
+          <div className="mb-5 bg-beige rounded-xl p-3">
+            <p className="text-brown-light text-xs font-semibold uppercase tracking-wide mb-2">Submitted Evidence</p>
+            <div className="flex flex-wrap gap-2">
+              {issue.photo1 && <EvidenceThumb file={issue.photo1} label="Evidence 1" onOpen={onPreviewPhoto} />}
+              {issue.photo2 && <EvidenceThumb file={issue.photo2} label="Evidence 2" onOpen={onPreviewPhoto} />}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-5 flex items-start gap-2.5 bg-beige rounded-xl px-4 py-3 text-sm">
+          <LuUser className="w-4 h-4 text-brown-light mt-0.5 shrink-0" />
+          <span>
+            <span className="block text-brown-light text-xs font-semibold uppercase tracking-wide">Supplier (not editable here)</span>
+            <span className="block font-semibold text-brown-dark mt-0.5">{deliverySupplierName(delivery)}</span>
+          </span>
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">
+            <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+          </div>
+        )}
+
+        {step === "form" ? (
+          <form onSubmit={handleContinue} className="space-y-5">
+            <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2"><LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="min-w-0">
+                  <label className="block text-xs font-medium text-brown-dark mb-1.5"><LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span></label>
+                  <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={`${inputClass} h-[42px] appearance-none`} />
+                </div>
+                {isContractual && (
+                  <div className="min-w-0">
+                    <label className="block text-xs font-medium text-brown-dark mb-1.5">Truck Plate Number</label>
+                    <input type="text" value={form.truckPlate} onChange={set("truckPlate")} placeholder="ABC 1234" className={inputClass} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2"><LuScale className="w-4 h-4 text-brown-light" /> Weighing Record</h3>
+              {isContractual ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0.001" required value={form.grossWeight} onChange={set("grossWeight")} placeholder="0.000" className={inputClass} /></div>
+                  <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Tare Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0" required value={form.tareWeight} onChange={set("tareWeight")} placeholder="0.000" className={inputClass} /></div>
+                  <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label><div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>{contractualNet > 0 ? contractualNet.toFixed(2) : "—"}</div></div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label>
+                    <input type="number" step="0.001" min="0.001" required value={form.grossWeight} onChange={set("grossWeight")} placeholder="0.000" className={inputClass} />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block text-xs font-medium text-brown-dark mb-1.5"><LuPackage className="inline w-3 h-3 mr-1" /> No. of Sacks <span className="text-red-500">*</span></label>
+                    <input type="number" step="1" min="1" required value={form.numSacks} onChange={set("numSacks")} placeholder="0" className={inputClass} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block text-xs font-medium text-brown-dark mb-1.5">Condition <span className="text-red-500">*</span></span>
+                    <div className="flex items-center gap-4 h-10">
+                      {['Dry', 'Wet'].map(condition => (
+                        <label key={condition} className="flex items-center gap-2 text-sm text-brown-mid cursor-pointer">
+                          <input type="radio" name="condition" value={condition} checked={form.condition === condition} onChange={set("condition")} className="accent-green-dark" />
+                          {condition}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label>
+                    <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>{walkinNetWeight > 0 ? walkinNetWeight.toFixed(2) : "—"}</div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-brown-dark mb-1.5">Final Weight (kg)</label>
+                    <div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>{walkinFinalWeight > 0 ? walkinFinalWeight.toFixed(2) : "—"}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
+                Cancel
+              </button>
+              <button type="submit"
+                className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
+                Continue
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 text-sm overflow-hidden">
+              <div className="grid grid-cols-3 gap-2 px-4 py-2.5 text-xs font-semibold text-brown-light uppercase tracking-wide">
+                <span>Field</span><span>Current</span><span>Corrected</span>
+              </div>
+              {reviewRows.map(row => {
+                const changed = rowChanged(row);
+                return (
+                  <div key={row.label} className={`grid grid-cols-3 gap-2 items-center px-4 py-3 ${changed ? "bg-amber-50/60" : ""}`}>
+                    <span className="text-brown-mid">{row.label}</span>
+                    <span className="text-brown-dark">{formatOriginalValue(row)}</span>
+                    <span className={changed ? "font-bold text-green-dark" : "text-brown-dark"}>{formatReviewValue(row)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setStep("form")} disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-50">
+                <LuArrowLeft className="w-4 h-4" /> Back
               </button>
               <button type="button" onClick={handleConfirm} disabled={submitting}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60">
