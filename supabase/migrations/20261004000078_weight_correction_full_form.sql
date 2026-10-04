@@ -33,6 +33,7 @@ DECLARE
   v_delivery        public.deliveries;
   v_weighing_id     UUID;
   v_old_net_kg      NUMERIC;
+  v_new_net_kg      NUMERIC;
   v_new_final_kg    NUMERIC;
   v_sacks_deduction NUMERIC := 0;
   v_wet_deduction   NUMERIC := 0;
@@ -91,10 +92,12 @@ BEGIN
       RAISE EXCEPTION 'Tare weight must be less than gross weight' USING ERRCODE = '22023';
     END IF;
 
+    v_new_net_kg := p_gross_kg - p_tare_kg;
+
     UPDATE public.weighing_records
     SET gross_weight_kg = p_gross_kg,
         tare_weight_kg  = p_tare_kg,
-        net_weight_kg   = p_gross_kg - p_tare_kg
+        net_weight_kg   = v_new_net_kg
     WHERE weighing_id = v_weighing_id;
 
     UPDATE public.deliveries
@@ -134,6 +137,7 @@ BEGIN
     v_sacks_deduction := p_num_sacks / 2.0;
     v_wet_deduction   := CASE WHEN p_condition = 'Wet' THEN p_gross_kg * 0.10 ELSE 0 END;
     v_new_final_kg    := GREATEST(GREATEST(p_gross_kg - v_sacks_deduction, 0) - v_wet_deduction, 0);
+    v_new_net_kg      := v_new_final_kg; -- Walk-in has no separate PCA step: net = final.
 
     UPDATE public.weighing_records
     SET gross_weight_kg = p_gross_kg,
@@ -225,11 +229,15 @@ BEGIN
   END IF;
 
   -- ── Permanent audit trail (same table/shape as apply_delivery_correction) ─
+  -- Both sides are expressed in Net Weight terms (pre-PCA-deduction for
+  -- Contract-based, which IS the final payable weight for Walk-in) so the
+  -- comparison is apples-to-apples — never the pre-deduction Net Weight
+  -- against the post-deduction allocated Final Weight.
   INSERT INTO public.delivery_corrections (
     issue_report_id, delivery_id, issue_type, old_value, corrected_value,
     submitted_by, resolved_by, date_reported
   ) VALUES (
-    p_issue_report_id, v_delivery.delivery_id, v_issue.issue_type, v_old_net_kg, v_new_final_kg,
+    p_issue_report_id, v_delivery.delivery_id, v_issue.issue_type, v_old_net_kg, v_new_net_kg,
     v_issue.reported_by, auth.uid(), v_issue.created_at
   );
 
@@ -239,7 +247,7 @@ BEGIN
 
   RETURN jsonb_build_object(
     'old_value', v_old_net_kg,
-    'corrected_value', v_new_final_kg,
+    'corrected_value', v_new_net_kg,
     'payment_note', v_payment_note
   );
 END;
