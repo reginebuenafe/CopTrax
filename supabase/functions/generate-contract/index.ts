@@ -84,21 +84,15 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { delivery_location, special_notes } = body;
     let { contract_id } = body;
-    const { proposal_id } = body; // Supplier-accepting-counteroffer path
+    const { proposal_id } = body;
+    let publicationConversationId: string | undefined;
 
     if (!contract_id && !proposal_id) {
       return json({ error: "contract_id or proposal_id is required" }, 400);
     }
 
-    // ── 2a. Supplier-accepting-counteroffer path ──────────────────────────────
-    // When a Supplier accepts a BO counteroffer, the frontend cannot INSERT into
-    // contracts (contracts_insert_bo RLS blocks it). Instead the frontend passes
-    // proposal_id and we create the contract row here using the service-role client.
+    // Both recipients use the same atomic, proposal-keyed contract creation.
     if (proposal_id) {
-      if (roleName !== "Supplier") {
-        return json({ error: "proposal_id path is only for Supplier callers" }, 403);
-      }
-
       // Load the proposal
       const { data: proposal, error: propErr } = await admin
         .from("proposal_forms")
@@ -109,27 +103,21 @@ Deno.serve(async (req) => {
       if (propErr || !proposal) {
         return json({ error: `Proposal not found (${propErr?.message ?? "no data"})` }, 404);
       }
-      if (proposal.supplier_id !== caller.id) {
+      if (roleName === "Supplier" && proposal.supplier_id !== caller.id) {
         return json({ error: "You can only accept proposals for your own conversations." }, 403);
       }
+      publicationConversationId = proposal.conversation_id;
 
-      // Atomic accept: the duplicate-Pending-contract check, marking this
-      // proposal Accepted, marking sibling proposals Modified, and creating
-      // the contract row all happen in ONE database transaction (serialized
-      // per-conversation via an advisory lock), so a double-click/rapid
-      // repeat Accept — or an Accept racing a Decline — can never partially
-      // complete (one contract silently created while the UI shows an error,
-      // or a Decline overwriting an already-Accepted proposal).
       const { data: newContractId, error: rpcErr } = await admin.rpc(
-        "accept_counteroffer_and_create_contract",
-        { p_proposal_id: proposal_id, p_supplier_id: caller.id },
+        "accept_negotiation_and_create_contract",
+        { p_proposal_id: proposal_id, p_actor_id: caller.id },
       );
 
       if (rpcErr || !newContractId) {
         const msg = rpcErr?.message ?? "Contract creation failed";
         const status = msg.includes("already exists") ? 409
-          : msg.includes("not Pending") ? 400
-          : msg.includes("own conversations") ? 403
+          : rpcErr?.code === "22023" ? 409
+          : rpcErr?.code === "42501" ? 403
           : msg.includes("not found") ? 404
           : 500;
         return json({ error: msg }, status);
@@ -159,6 +147,22 @@ Deno.serve(async (req) => {
     }
     if (roleName === "Supplier" && contract.supplier_id !== caller.id) {
       return json({ error: "You can only generate contracts you are a party to." }, 403);
+    }
+
+    async function publishContractChat() {
+      if (!publicationConversationId && roleName === "Supplier") {
+        const { data: conversation, error } = await admin.from("conversations")
+          .select("conversation_id").eq("contract_id", contract_id).maybeSingle();
+        if (error) throw new Error(`Contract conversation lookup failed: ${error.message}`);
+        publicationConversationId = conversation?.conversation_id;
+      }
+      if (!publicationConversationId) return;
+      const { error } = await admin.rpc("publish_contract_chat", {
+        p_contract_id: contract_id,
+        p_conversation_id: publicationConversationId,
+        p_is_ai_generated: false,
+      });
+      if (error) throw new Error(`Contract chat publication failed: ${error.message}`);
     }
 
     if (contract.status !== "Pending") {
@@ -207,11 +211,13 @@ Deno.serve(async (req) => {
 
     // Idempotency: if a hash is already set, reuse existing document.
     if (contract.contract_hash && contract.contract_document_url) {
+      await publishContractChat();
       return json({
         success:              true,
         contract_document_path: contract.contract_document_url,
         contract_hash:        contract.contract_hash,
         already_exists:       true,
+        contract_id,
       });
     }
 
@@ -304,45 +310,11 @@ Deno.serve(async (req) => {
       `,
     });
 
-    // ── 9. Post contract card + message into chat (as Business Owner) ────────
-    // Only when the Supplier triggered contract generation (acceptCounter flow).
-    // When the BO triggers it, the BO frontend already inserts these messages.
-    if (roleName === "Supplier") {
-      const { data: convRow } = await admin
-        .from("conversations")
-        .select("conversation_id")
-        .eq("contract_id", contract_id)
-        .maybeSingle();
-
-      if (convRow?.conversation_id) {
-        const boId = contract.business_owner_id as string;
-        const convId = convRow.conversation_id as string;
-
-        await admin.from("messages").insert({
-          conversation_id: convId,
-          sender_id:       boId,
-          message_type:    "Contract Form",
-          message_text:    `CONTRACT_CARD:${JSON.stringify({
-            contract_id:     contract.contract_id,
-            contract_number: contract.contract_number,
-            price_per_kg:    contract.negotiated_price_per_kg,
-            contracted_tons: contract.contracted_tons,
-            due_date:        contract.due_date,
-            document_path:   previewPath,
-          })}`,
-        });
-
-        await admin.from("messages").insert({
-          conversation_id: convId,
-          sender_id:       boId,
-          message_type:    "Text",
-          message_text:    "The contract has been generated. Please review and sign when you're ready.",
-        });
-      }
-    }
+    await publishContractChat();
 
     return json({
       success:                true,
+      contract_id,
       contract_document_path: previewPath,
       contract_hash:          contractHash,
       canonical_json:         canonicalJSON(terms as unknown as Record<string, unknown>),

@@ -46,22 +46,27 @@ export default function NotificationBell() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const unreadCount = notifications.filter(n => !n.is_read).length;
   const [toasts, setToasts] = useState([]);
   const panelRef = useRef(null);
+  const fetchVersionRef = useRef(0);
 
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const version = ++fetchVersionRef.current;
+    const { data, error } = await supabase
       .from("notifications")
       .select("notification_id, notification_type, message, related_entity_type, related_entity_id, is_read, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(30);
 
-    const notifs = data ?? [];
-    setNotifications(notifs);
-    setUnreadCount(notifs.filter(n => !n.is_read).length);
+    if (error) {
+      console.error("Failed to fetch notifications:", error);
+      return;
+    }
+    if (version !== fetchVersionRef.current) return;
+    setNotifications(data ?? []);
   }, [user]);
 
   useEffect(() => {
@@ -76,8 +81,7 @@ export default function NotificationBell() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
-          setNotifications(prev => [payload.new, ...prev].slice(0, 30));
-          setUnreadCount(c => c + 1);
+          fetchNotifications();
 
           // Small transient toast for a Supplier assistance request, in
           // addition to the persistent bell entry above. The bell/unread
@@ -92,9 +96,32 @@ export default function NotificationBell() {
           }
         }
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.new?.is_read) {
+            setToasts(prev => prev.filter(t => t.notification_id !== payload.new.notification_id));
+          }
+          fetchNotifications();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "notifications" },
+        (payload) => {
+          setToasts(prev => prev.filter(t => t.notification_id !== payload.old.notification_id));
+          fetchNotifications();
+        }
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") fetchNotifications();
+      });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      fetchVersionRef.current += 1;
+      supabase.removeChannel(channel);
+    };
   }, [user, fetchNotifications]);
 
   // Close on outside click
@@ -108,18 +135,24 @@ export default function NotificationBell() {
 
   async function markAllRead() {
     if (unreadCount === 0) return;
-    await supabase.from("notifications")
+    const { error } = await supabase.from("notifications")
       .update({ is_read: true })
       .eq("user_id", user.id)
       .eq("is_read", false);
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    setUnreadCount(0);
+    if (error) {
+      console.error("Failed to mark notifications read:", error);
+      return;
+    }
+    await fetchNotifications();
   }
 
   async function markOneRead(notifId) {
-    await supabase.from("notifications").update({ is_read: true }).eq("notification_id", notifId);
-    setNotifications(prev => prev.map(n => n.notification_id === notifId ? { ...n, is_read: true } : n));
-    setUnreadCount(c => Math.max(0, c - 1));
+    const { error } = await supabase.from("notifications").update({ is_read: true }).eq("notification_id", notifId);
+    if (error) {
+      console.error("Failed to mark notification read:", error);
+      return;
+    }
+    await fetchNotifications();
   }
 
   // Opens the EXISTING conversation a "Supplier Assistance Requested"

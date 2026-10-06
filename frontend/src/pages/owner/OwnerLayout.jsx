@@ -42,34 +42,51 @@ export default function OwnerLayout() {
   const location = useLocation();
 
   // ── Unread chat messages dot ─────────────────────────────────────────────
-  const [hasUnread, setHasUnread] = useState(false);
+  const [hasUnreadMessages, setHasUnread] = useState(false);
+  const hasUnread = hasUnreadMessages && !location.pathname.startsWith("/dashboard/owner/conversations");
   const pathnameRef = useRef(location.pathname);
-  pathnameRef.current = location.pathname;
+  const unreadCheckVersionRef = useRef(0);
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
 
   const LAST_VISIT_KEY = user?.id ? `coptrax_bo_convs_last_visit_${user.id}` : null;
 
   const checkUnread = useCallback(async () => {
     if (!user?.id || !LAST_VISIT_KEY) return;
+    const version = ++unreadCheckVersionRef.current;
+    if (pathnameRef.current.startsWith("/dashboard/owner/conversations")) {
+      return;
+    }
     const lastVisit = localStorage.getItem(LAST_VISIT_KEY) ?? new Date(0).toISOString();
 
     // Step 1: get conversation IDs for this BO
-    const { data: convs } = await supabase
+    const { data: convs, error: convError } = await supabase
       .from("conversations")
       .select("conversation_id")
       .eq("business_owner_id", user.id);
+    if (convError) {
+      console.error("Failed to check unread conversations:", convError);
+      return;
+    }
+    if (version !== unreadCheckVersionRef.current) return;
     if (!convs?.length) { setHasUnread(false); return; }
 
     const convIds = convs.map(c => c.conversation_id);
 
     // Step 2: count messages from non-BO senders sent after last visit
-    const { count } = await supabase
+    const { count, error: messageError } = await supabase
       .from("messages")
       .select("message_id", { count: "exact", head: true })
       .neq("sender_id", user.id)
       .gt("sent_at", lastVisit)
       .in("conversation_id", convIds);
 
-    setHasUnread((count ?? 0) > 0);
+    if (messageError) {
+      console.error("Failed to check unread messages:", messageError);
+      return;
+    }
+    if (version === unreadCheckVersionRef.current) setHasUnread((count ?? 0) > 0);
   }, [user?.id, LAST_VISIT_KEY]);
 
   // Mark as read when BO is on the conversations page
@@ -77,34 +94,40 @@ export default function OwnerLayout() {
     if (!LAST_VISIT_KEY) return;
     if (location.pathname.startsWith("/dashboard/owner/conversations")) {
       localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
-      setHasUnread(false);
+      unreadCheckVersionRef.current += 1;
+    } else {
+      (async () => { await checkUnread(); })();
     }
-  }, [location.pathname, LAST_VISIT_KEY]);
+  }, [location.pathname, LAST_VISIT_KEY, checkUnread]);
 
   // Initial check + realtime subscription for new messages
   useEffect(() => {
     if (!user?.id) return;
-    checkUnread();
+    (async () => { await checkUnread(); })();
 
     const channel = supabase
       .channel(`bo-unread-dot-${user.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          if (
-            payload.new?.sender_id !== user.id &&
-            !pathnameRef.current.startsWith("/dashboard/owner/conversations")
-          ) {
-            setHasUnread(true);
-          }
-        }
+        { event: "*", schema: "public", table: "messages" },
+        () => { checkUnread(); }
       )
-      .subscribe();
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") checkUnread();
+      });
 
-    return () => { supabase.removeChannel(channel); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+    function handleStorage(event) {
+      if (event.storageArea === localStorage && (event.key === LAST_VISIT_KEY || event.key === null)) {
+        checkUnread();
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      unreadCheckVersionRef.current += 1;
+      window.removeEventListener("storage", handleStorage);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, LAST_VISIT_KEY, checkUnread]);
 
   useEffect(() => {
     if (!user?.id) return undefined;

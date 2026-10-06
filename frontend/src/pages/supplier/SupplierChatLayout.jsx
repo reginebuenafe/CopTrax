@@ -14,6 +14,7 @@ import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import { invokeAiFaq } from "../../utils/aiFaq";
+import { uniqueContractCardMessages } from "../../utils/negotiationMessages";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -430,6 +431,7 @@ export default function SupplierChatLayout() {
     : false;
 
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
+  const visibleMessages = uniqueContractCardMessages(messages);
 
   // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
   // All DB writes (proposal status, contract row, PDF) are handled server-side
@@ -507,26 +509,18 @@ export default function SupplierChatLayout() {
     // Immediately hide the proposal card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    // Only transition a still-Pending proposal — if a concurrent Accept already
-    // resolved it (contract created), this must not silently overwrite that
-    // Accepted status back to Rejected. Zero affected rows means we lost the race.
-    const { data: declinedRows } = await supabase
-      .from("proposal_forms")
-      .update({ proposal_status: "Rejected" })
-      .eq("proposal_id", proposal.proposal_id)
-      .eq("proposal_status", "Pending")
-      .select("proposal_id");
+    const { error: declineErr } = await supabase.rpc("decline_current_proposal", {
+      p_proposal_id: proposal.proposal_id,
+    });
 
-    if (!declinedRows || declinedRows.length === 0) {
-      // Lost the race to a concurrent Accept — refresh to the true state
-      // instead of terminating the conversation or posting a decline message.
+    if (declineErr) {
+      console.error("rejectProposal:", declineErr);
+      alert(`Failed to decline counteroffer: ${declineErr.message}`);
       await loadChat(conversationId);
       proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
-    // Rejection ends the negotiation — mark conversation Terminated
-    await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Counteroffer declined.`,
@@ -656,9 +650,9 @@ export default function SupplierChatLayout() {
                   </div>
                 </div>
               )}
-              {messages.map((msg, index) => {
+              {visibleMessages.map((msg, index) => {
                 const isMine = msg.sender_id === user.id;
-                const prevMsg = messages[index - 1];
+                const prevMsg = visibleMessages[index - 1];
                 const showDateSep = !prevMsg ||
                   new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
 

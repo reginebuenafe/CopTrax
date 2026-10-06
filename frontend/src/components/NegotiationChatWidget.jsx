@@ -11,7 +11,7 @@ import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import MoistureContentTable from "./MoistureContentTable";
-import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
+import { isProposalSubmissionMessage, uniqueContractCardMessages } from "../utils/negotiationMessages";
 import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
@@ -623,23 +623,19 @@ export default function NegotiationChatWidget() {
 
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    // Only transition a still-Pending proposal — if a concurrent Accept already
-    // resolved it (contract created), this must not silently overwrite that
-    // Accepted status back to Rejected. Zero affected rows means we lost the race.
-    const { data: declinedRows } = await supabase.from("proposal_forms")
-      .update({ proposal_status: "Rejected" })
-      .eq("proposal_id", proposal.proposal_id)
-      .eq("proposal_status", "Pending")
-      .select("proposal_id");
+    const { error: declineErr } = await supabase.rpc("decline_current_proposal", {
+      p_proposal_id: proposal.proposal_id,
+    });
 
-    if (!declinedRows || declinedRows.length === 0) {
+    if (declineErr) {
+      console.error("rejectCounteroffer:", declineErr);
+      alert(`Failed to decline counteroffer: ${declineErr.message}`);
       if (conversationId) await fetchProposals(conversationId);
       proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
     if (conversationId) {
-      await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
       await supabase.from("messages").insert({
         conversation_id: conversationId,
         sender_id: user.id,
@@ -695,7 +691,7 @@ export default function NegotiationChatWidget() {
   // counteroffer is inserted but before the superseded row's status update
   // lands) — preventing any duplicate card rendering.
   const combinedItems = [];
-  messages.forEach((m) => {
+  uniqueContractCardMessages(messages).forEach((m) => {
     combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
   });
   proposals.forEach((p, proposalIndex) => {

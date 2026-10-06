@@ -172,46 +172,20 @@ function isOwnerAssistanceRequest(text: string): boolean {
 async function escalateToOwner(
   // deno-lint-ignore no-explicit-any
   db: ReturnType<typeof createClient<any, any>>,
-  // deno-lint-ignore no-explicit-any
-  conv: { business_owner_id: string; supplier?: any },
   conversation_id: string,
 ): Promise<string> {
-  const supplierName = conv.supplier
-    ? `${conv.supplier.first_name ?? ""} ${conv.supplier.last_name ?? ""}`.trim()
-    : "";
-
-  // Spam guard: skip creating a duplicate notification if an unread one
-  // already exists for THIS conversation. Once the Business Owner marks it
-  // read (e.g. by opening the chat), a future request may create a new one.
-  const { data: existingNotif } = await db
-    .from("notifications")
-    .select("notification_id")
-    .eq("user_id", conv.business_owner_id)
-    .eq("notification_type", "Supplier Assistance Requested")
-    .eq("related_entity_type", "conversations")
-    .eq("related_entity_id", conversation_id)
-    .eq("is_read", false)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingNotif) {
-    return "The Business Owner has already been notified. You can leave your message here while waiting for their response.";
-  }
-
-  const { error: notifErr } = await db.from("notifications").insert({
-    user_id: conv.business_owner_id,
-    notification_type: "Supplier Assistance Requested",
-    message: `${supplierName || "A supplier"} would like to speak with you.`,
-    related_entity_type: "conversations",
-    related_entity_id: conversation_id,
-    is_read: false,
+  const { data: created, error: notifErr } = await db.rpc("request_owner_assistance", {
+    p_conversation_id: conversation_id,
   });
 
-  if (notifErr) {
-    console.error("ai-faq: failed to create owner-assistance notification:", notifErr.message);
+  if (notifErr || typeof created !== "boolean") {
+    console.error("ai-faq: failed to create owner-assistance notification:", notifErr?.message ?? "Invalid RPC response");
     return "I wasn't able to reach the Business Owner right now — please try again in a moment, or continue describing your concern here.";
   }
 
+  if (!created) {
+    return "The Business Owner has already been notified. You can leave your message here while waiting for their response.";
+  }
   return "Sure. I've notified the Business Owner that you'd like to speak with them. You can continue typing your concern here while waiting for their response.";
 }
 
@@ -436,7 +410,7 @@ Deno.serve(async (req) => {
     // (via the existing notifications table/bell) and reply in THIS SAME
     // conversation — never a new one, and never an unrelated negotiation.
     if (isOwnerAssistanceRequest(message_text)) {
-      const replyText = await escalateToOwner(db, conv, conversation_id);
+      const replyText = await escalateToOwner(db, conversation_id);
 
       const { error: replyInsertErr } = await db.from("messages").insert({
         conversation_id,
@@ -476,7 +450,7 @@ Deno.serve(async (req) => {
       let replyText: string | null = null;
       if (isAffirmativeReply(message_text)) {
         // Same exact escalation as 2a — no separate notification system.
-        replyText = await escalateToOwner(db, conv, conversation_id);
+        replyText = await escalateToOwner(db, conversation_id);
       } else if (isNegativeReply(message_text)) {
         replyText = "Okay. If you need anything else, I'm here to help.";
       }

@@ -13,6 +13,7 @@ import ContractDocumentModal from "../../components/ContractDocumentModal";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import MoistureContentTable from "../../components/MoistureContentTable";
+import { uniqueContractCardMessages } from "../../utils/negotiationMessages";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -431,6 +432,7 @@ export default function BOChatLayout() {
 
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
+  const visibleMessages = uniqueContractCardMessages(messages);
 
   // ── Sent contract (PDF generated, awaiting supplier signature) ─────────────
   const sentContract    = contracts.find(c => c.status === "Pending" && c.contract_hash) ?? null;
@@ -462,39 +464,24 @@ export default function BOChatLayout() {
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
 
-    // Persist Accepted status — check for errors so a DB failure is visible
-    const { error: acceptErr } = await supabase.from("proposal_forms")
-      .update({ proposal_status: "Accepted", reviewed_by: user.id })
-      .eq("proposal_id", proposal.proposal_id);
-    if (acceptErr) {
-      console.error("acceptProposal: failed to update proposal status:", acceptErr);
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
-      setContractError(`Failed to accept proposal: ${acceptErr.message}`);
+    try {
+      await createAndSendContract(proposal);
+      await supabase.from("messages").insert({
+        conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
+        message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
+      });
+      await supabase.from("notifications").insert({
+        user_id: currentConv?.supplier?.user_id, notification_type: "Proposal Accepted",
+        message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated. Check the chat to review and sign.`,
+        related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
+      });
+    } catch (err) {
+      console.error("acceptProposal:", err);
+      setContractError(`Failed to accept proposal: ${err.message}`);
+    } finally {
+      await loadChat(conversationId);
       setProposalActing(false);
-      return;
     }
-
-    // Mark every other Pending proposal in this conversation as Modified immediately,
-    // so no stale action card can appear on either side while contract is being generated.
-    await supabase.from("proposal_forms")
-      .update({ proposal_status: "Modified" })
-      .eq("conversation_id", conversationId)
-      .eq("proposal_status", "Pending")
-      .neq("proposal_id", proposal.proposal_id);
-
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form",
-      message_text: `You accepted ${currentConv?.supplier?.first_name}'s proposal form.\nPrice: ₱${proposal.proposed_price_per_kg}/kg  Volume: ${proposal.proposed_volume_tons} tons`,
-    });
-    await supabase.from("notifications").insert({
-      user_id: currentConv?.supplier?.user_id, notification_type: "Proposal Accepted",
-      message: `Your proposal (₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons) was accepted. Your contract is being generated. Check the chat to review and sign.`,
-      related_entity_type: "proposal_forms", related_entity_id: proposal.proposal_id,
-    });
-    await createAndSendContract(proposal);
-    await loadChat(conversationId);
-    setProposalActing(false);
   }
 
   async function rejectProposal(proposal) {
@@ -503,9 +490,16 @@ export default function BOChatLayout() {
     // Immediately hide the proposal card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Rejected", reviewed_by: user.id }).eq("proposal_id", proposal.proposal_id);
-    // Rejection ends the negotiation — mark conversation Terminated
-    await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
+    const { error: declineErr } = await supabase.rpc("decline_current_proposal", {
+      p_proposal_id: proposal.proposal_id,
+    });
+    if (declineErr) {
+      console.error("rejectProposal:", declineErr);
+      setContractError(`Failed to decline proposal: ${declineErr.message}`);
+      await loadChat(conversationId);
+      setProposalActing(false);
+      return;
+    }
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Proposal declined: ₱${proposal.proposed_price_per_kg}/kg for ${proposal.proposed_volume_tons} tons.`,
@@ -523,62 +517,21 @@ export default function BOChatLayout() {
   async function createAndSendContract(proposal) {
     setContractError(null);
 
-    // 1. Create contract row
-    const { data: numData } = await supabase.rpc("generate_contract_number");
-    const { data: contract, error: insertErr } = await supabase.from("contracts").insert({
-      contract_number: numData,
-      supplier_id: currentConv.supplier.user_id,
-      business_owner_id: currentConv.business_owner_id ?? user.id,
-      negotiated_price_per_kg: proposal.proposed_price_per_kg,
-      contracted_tons: proposal.proposed_volume_tons,
-      signing_date: new Date().toISOString().split("T")[0],
-      status: "Pending",
-    }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
-
-    if (insertErr || !contract) {
-      setContractError("Contract record creation failed. Please refresh and try again.");
-      return;
-    }
-
-    await supabase.from("conversations").update({ contract_id: contract.contract_id }).eq("conversation_id", conversationId);
-
-    // 2. Call generate-contract to hash + render the PDF
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setContractError("Session expired. Please log in again."); return; }
+    if (!session) throw new Error("Session expired. Please log in again.");
 
     const tokenVal = session.access_token;
     const genRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-contract`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + tokenVal },
-      body: JSON.stringify({ contract_id: contract.contract_id }),
+      body: JSON.stringify({ proposal_id: proposal.proposal_id }),
     });
 
     const genData = await genRes.json();
 
     if (!genRes.ok) {
-      setContractError(`Contract created but PDF generation failed: ${genData.error ?? "unknown error"}`);
-      return;
+      throw new Error(genData.error ?? "Contract generation failed.");
     }
-
-    // 3. Post contract card into chat so the supplier can see and sign
-    await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      sender_id: user.id,
-      message_type: "Contract Form",
-      message_text: `CONTRACT_CARD:${JSON.stringify({
-        contract_id:     contract.contract_id,
-        contract_number: contract.contract_number,
-        price_per_kg:    contract.negotiated_price_per_kg,
-        contracted_tons: contract.contracted_tons,
-        due_date:        contract.due_date,
-        document_path:   genData.contract_document_path,
-      })}`,
-    });
-
-    await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text",
-      message_text: "The contract has been generated. Please review and sign when you're ready.",
-    });
 
     showToast("Contract generated and sent to supplier for signing.");
   }
@@ -707,9 +660,9 @@ export default function BOChatLayout() {
                   <p>No messages yet. Waiting for the supplier to start.</p>
                 </div>
               )}
-              {messages.map((msg, index) => {
+              {visibleMessages.map((msg, index) => {
                 const isMine = msg.sender_id === user.id;
-                const prevMsg = messages[index - 1];
+                const prevMsg = visibleMessages[index - 1];
                 const showDateSep = !prevMsg ||
                   new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
 

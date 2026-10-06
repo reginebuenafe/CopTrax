@@ -18,6 +18,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { ContractTerms, computeContractHash } from "../_shared/contract_hash.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { renderContractPDF } from "../_shared/contract_pdf.ts";
 import { computeNegotiationPrice } from "../_shared/negotiation_pricing.ts";
 import { priceToWords } from "../_shared/price_to_words.ts";
@@ -36,33 +37,39 @@ function fmtDate(iso: string): string {
 }
 
 async function generateAndSendContract(
-  db: ReturnType<typeof createClient>,
+  db: SupabaseClient,
   conv: { conversation_id: string; business_owner_id: string; supplier_id: string },
-  proposal: { proposed_price_per_kg: number; proposed_volume_tons: number },
+  proposal: { proposal_id: string; proposed_price_per_kg: number; proposed_volume_tons: number },
 ) {
-  // 1. Generate contract number
-  const { data: numData } = await db.rpc("generate_contract_number");
-
-  // 2. Insert contract row
-  const { data: contract, error: insertErr } = await db.from("contracts").insert({
-    contract_number:         numData,
-    supplier_id:             conv.supplier_id,
-    business_owner_id:       conv.business_owner_id,
-    negotiated_price_per_kg: proposal.proposed_price_per_kg,
-    contracted_tons:         proposal.proposed_volume_tons,
-    signing_date:            new Date().toISOString().split("T")[0],
-    status:                  "Pending",
-  }).select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date").single();
-
-  if (insertErr || !contract) {
-    console.error("ai-negotiate: contract insert failed:", insertErr);
+  const { data: contractId, error: acceptErr } = await db.rpc(
+    "accept_negotiation_and_create_contract",
+    { p_proposal_id: proposal.proposal_id, p_actor_id: conv.business_owner_id },
+  );
+  if (acceptErr || !contractId) throw new Error(acceptErr?.message ?? "Contract creation failed.");
+  const { data: contract, error: contractErr } = await db.from("contracts")
+    .select("contract_id, contract_number, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url")
+    .eq("contract_id", contractId).single();
+  if (contractErr || !contract) throw new Error(contractErr?.message ?? "Contract not found.");
+  async function publishContractChat() {
+    const { error } = await db.rpc("publish_contract_chat", {
+      p_contract_id: contractId,
+      p_conversation_id: conv.conversation_id,
+      p_is_ai_generated: true,
+    });
+    if (error) throw new Error(`Contract chat publication failed: ${error.message}`);
+  }
+  if (contract.contract_hash && contract.contract_document_url) {
+    await publishContractChat();
     return;
   }
 
-  // 3. Link conversation → contract
-  await db.from("conversations")
-    .update({ contract_id: contract.contract_id })
-    .eq("conversation_id", conv.conversation_id);
+  await db.from("notifications").insert({
+    user_id: conv.supplier_id,
+    notification_type: "Proposal Accepted",
+    message: "NERC Copra Trading accepted your price proposal. A contract will be sent shortly.",
+    related_entity_type: "conversations",
+    related_entity_id: conv.conversation_id,
+  });
 
   // 4. Load supplier + BO profiles for PDF
   const [{ data: supplier }, { data: bo }] = await Promise.all([
@@ -131,36 +138,16 @@ async function generateAndSendContract(
   }
 
   // 8. Update contract row with hash + document path
-  await db.from("contracts").update({
+  const { error: updateErr } = await db.from("contracts").update({
     contract_hash:           contractHash,
     contract_terms_snapshot: terms as unknown as Record<string, unknown>,
     contract_document_url:   previewPath,
   }).eq("contract_id", contract.contract_id);
+  if (updateErr) throw new Error(`Contract update failed: ${updateErr.message}`);
 
   // 9. Post contract card + message into chat (sent as BO, flagged as AI-generated
   //    so the Supplier UI can clearly indicate this came from the AI negotiator).
-  await db.from("messages").insert({
-    conversation_id: conv.conversation_id,
-    sender_id:       conv.business_owner_id,
-    message_type:    "Contract Form",
-    is_ai_generated: true,
-    message_text:    `CONTRACT_CARD:${JSON.stringify({
-      contract_id:     contract.contract_id,
-      contract_number: contract.contract_number,
-      price_per_kg:    contract.negotiated_price_per_kg,
-      contracted_tons: contract.contracted_tons,
-      due_date:        contract.due_date,
-      document_path:   previewPath,
-    })}`,
-  });
-
-  await db.from("messages").insert({
-    conversation_id: conv.conversation_id,
-    sender_id:       conv.business_owner_id,
-    message_type:    "Text",
-    is_ai_generated: true,
-    message_text:    "Your price proposal has been accepted. The contract has been generated — please review and sign when you're ready.",
-  });
+  await publishContractChat();
 
   // 10. Notify supplier about contract
   await db.from("notifications").insert({
@@ -277,26 +264,6 @@ Deno.serve(async (req) => {
 
     if (offerPrice <= threshold) {
       // ── ACCEPT ──────────────────────────────────────────────────────────────
-      await db.from("proposal_forms")
-        .update({ proposal_status: "Accepted", reviewed_by: conv.business_owner_id })
-        .eq("proposal_id", proposal_id);
-
-      // Mark all other Pending proposals in this conversation as Modified
-      await db.from("proposal_forms")
-        .update({ proposal_status: "Modified" })
-        .eq("conversation_id", conv.conversation_id)
-        .eq("proposal_status", "Pending")
-        .neq("proposal_id", proposal_id);
-
-      // Notify supplier of acceptance
-      await db.from("notifications").insert({
-        user_id:             conv.supplier_id,
-        notification_type:   "Proposal Accepted",
-        message:             "NERC Copra Trading accepted your price proposal. A contract will be sent shortly.",
-        related_entity_type: "conversations",
-        related_entity_id:   conv.conversation_id,
-      });
-
       // Generate and send the contract automatically
       await generateAndSendContract(db, conv, proposal);
 

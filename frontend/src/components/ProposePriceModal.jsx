@@ -85,7 +85,7 @@ export default function ProposePriceModal({
     setSubmitting(false);
 
     if (err) {
-      setError("Failed to submit proposal. Please try again.");
+      setError(`Failed to submit proposal: ${err.message}`);
       return;
     }
 
