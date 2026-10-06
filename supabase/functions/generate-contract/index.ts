@@ -12,10 +12,10 @@
 //   5. Upload the preview PDF to the `contracts` storage bucket at
 //      `<contract_id>/preview.pdf`.
 //   6. Persist the hash + terms snapshot + document path on the contracts row.
-//   7. Notify the Supplier.
+//   7. Publish the contract in its conversation and notify the Supplier.
 //
 // Idempotent: if a hash already exists on the row, we skip regeneration and
-// return the existing document path.
+// return the existing document path after ensuring its chat card is published.
 // -----------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -149,10 +149,16 @@ Deno.serve(async (req) => {
       return json({ error: "You can only generate contracts you are a party to." }, 403);
     }
 
+    const publicationSupplierId = contract.supplier_id;
+    const publicationOwnerId = contract.business_owner_id;
+
     async function publishContractChat() {
-      if (!publicationConversationId && roleName === "Supplier") {
+      if (!publicationConversationId) {
         const { data: conversation, error } = await admin.from("conversations")
-          .select("conversation_id").eq("contract_id", contract_id).maybeSingle();
+          .select("conversation_id")
+          .eq("supplier_id", publicationSupplierId)
+          .eq("business_owner_id", publicationOwnerId)
+          .maybeSingle();
         if (error) throw new Error(`Contract conversation lookup failed: ${error.message}`);
         publicationConversationId = conversation?.conversation_id;
       }

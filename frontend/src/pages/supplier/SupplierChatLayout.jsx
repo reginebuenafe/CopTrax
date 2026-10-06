@@ -14,7 +14,7 @@ import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import { invokeAiFaq } from "../../utils/aiFaq";
-import { uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -327,7 +327,7 @@ export default function SupplierChatLayout() {
     setChatLoading(true);
     setMessages([]); setProposals([]); setCurrentConv(null); setContracts([]);
 
-    const [{ data: conv }, { data: msgs }, { data: props }] = await Promise.all([
+    const [conversationResult, messageResult, proposalResult] = await Promise.all([
       supabase.from("conversations")
         .select("*, business_owner:business_owner_id(user_id, first_name, last_name, email)")
         .eq("conversation_id", convId).single(),
@@ -335,6 +335,16 @@ export default function SupplierChatLayout() {
       supabase.from("proposal_forms").select("*").eq("conversation_id", convId).order("submitted_at", { ascending: true }),
     ]);
 
+    const error = conversationResult.error ?? messageResult.error ?? proposalResult.error;
+    if (error) {
+      console.error("Failed to refresh negotiation:", error);
+      setChatLoading(false);
+      alert("Unable to refresh negotiation. Please reload before responding to an offer.");
+      return;
+    }
+    const conv = conversationResult.data;
+    const msgs = messageResult.data;
+    const props = proposalResult.data;
     setCurrentConv(conv);
     setMessages(msgs ?? []);
     setProposals(props ?? []);
@@ -419,9 +429,7 @@ export default function SupplierChatLayout() {
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Proposal logic ────────────────────────────────────────────────────────
-  const latestProposalIndex = [...proposals]
-    .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
   const latestSubmittedBySupplier = latestProposal
@@ -451,15 +459,7 @@ export default function SupplierChatLayout() {
     // succeeded (the duplicate-contract error can arrive for the call that
     // lost the race, even though a contract now genuinely exists).
     async function revertToTrueState() {
-      const { data } = await supabase
-        .from("proposal_forms")
-        .select("proposal_status")
-        .eq("proposal_id", proposal.proposal_id)
-        .single();
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id
-          ? { ...p, proposal_status: data?.proposal_status ?? "Pending" }
-          : p));
+      await loadChat(conversationId);
     }
 
     try {
@@ -479,7 +479,6 @@ export default function SupplierChatLayout() {
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
         proposalActingRef.current = false;
         setProposalActing(false);
-        await loadChat(conversationId);
         return;
       }
 
@@ -921,10 +920,6 @@ export default function SupplierChatLayout() {
           onClose={clearProposalModal}
           onSubmitted={async (msg) => {
             clearProposalModal();
-            // If conversation was Terminated, re-open it for the new negotiation round
-            if (currentConv.status === "Terminated") {
-              await supabase.from("conversations").update({ status: "Open" }).eq("conversation_id", conversationId);
-            }
             await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify BO
             await supabase.from("notifications").insert({
@@ -932,7 +927,7 @@ export default function SupplierChatLayout() {
               message: `${profile?.first_name ?? "Supplier"} submitted a new price proposal.`,
               related_entity_type: "conversations", related_entity_id: conversationId,
             });
-            await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+            await loadChat(conversationId);
           }}
         />
       )}

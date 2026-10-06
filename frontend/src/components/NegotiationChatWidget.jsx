@@ -11,7 +11,7 @@ import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import MoistureContentTable from "./MoistureContentTable";
-import { isProposalSubmissionMessage, uniqueContractCardMessages } from "../utils/negotiationMessages";
+import { actionableProposalIndex, isProposalSubmissionMessage, uniqueContractCardMessages } from "../utils/negotiationMessages";
 import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
@@ -469,12 +469,19 @@ export default function NegotiationChatWidget() {
   }
 
   async function fetchProposals(convId) {
-    const { data } = await supabase
-      .from("proposal_forms")
-      .select("*")
-      .eq("conversation_id", convId)
-      .order("submitted_at", { ascending: true });
-    setProposals(data ?? []);
+    const [proposalResult, conversationResult] = await Promise.all([
+      supabase.from("proposal_forms").select("*").eq("conversation_id", convId)
+        .order("submitted_at", { ascending: true }),
+      supabase.from("conversations").select("*").eq("conversation_id", convId).single(),
+    ]);
+    if (proposalResult.error || conversationResult.error) {
+      console.error("Failed to refresh negotiation:", proposalResult.error ?? conversationResult.error);
+      setProposals([]);
+      alert("Unable to refresh negotiation. Please reload before responding to an offer.");
+      return;
+    }
+    setProposals(proposalResult.data ?? []);
+    setConversation(previous => ({ ...previous, ...conversationResult.data }));
   }
 
   async function handleSendMessage(e) {
@@ -557,15 +564,7 @@ export default function NegotiationChatWidget() {
     // succeeded (the duplicate-contract error can arrive for the call that
     // lost the race, even though a contract now genuinely exists).
     async function revertToTrueState() {
-      const { data } = await supabase
-        .from("proposal_forms")
-        .select("proposal_status")
-        .eq("proposal_id", proposal.proposal_id)
-        .single();
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id
-          ? { ...p, proposal_status: data?.proposal_status ?? "Pending" }
-          : p));
+      if (conversationId) await fetchProposals(conversationId);
     }
 
     try {
@@ -585,7 +584,6 @@ export default function NegotiationChatWidget() {
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
         proposalActingRef.current = false;
         setProposalActing(false);
-        if (conversationId) await fetchProposals(conversationId);
         return;
       }
 
@@ -670,9 +668,7 @@ export default function NegotiationChatWidget() {
 
   // ── Latest-proposal logic (matches SupplierChatLayout exactly) ───────────
   // Only the most-recent non-resolved proposal triggers action buttons.
-  const latestProposalIndex = [...proposals]
-    .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposalIndex = actionableProposalIndex(proposals, conversation?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // submitted_by (migration 025+) is authoritative; fall back to index parity for legacy rows.
   const latestSubmittedBySupplier = latestProposal

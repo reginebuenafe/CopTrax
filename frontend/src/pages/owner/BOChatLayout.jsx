@@ -13,7 +13,7 @@ import ContractDocumentModal from "../../components/ContractDocumentModal";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import MoistureContentTable from "../../components/MoistureContentTable";
-import { uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -419,9 +419,7 @@ export default function BOChatLayout() {
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Latest pending proposal logic ─────────────────────────────────────────
-  const latestProposalIndex = [...proposals]
-    .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
   const latestSubmittedByBO = latestProposal

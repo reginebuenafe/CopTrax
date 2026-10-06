@@ -10,6 +10,7 @@ export function uniqueContractCardMessages(messages) {
     if (message.message_type !== "Contract Form" || !message.message_text?.startsWith("CONTRACT_CARD:")) {
       return true;
     }
+
     let card;
     try {
       card = JSON.parse(message.message_text.slice("CONTRACT_CARD:".length));
@@ -23,4 +24,17 @@ export function uniqueContractCardMessages(messages) {
     seen.add(key);
     return true;
   });
+}
+
+export function actionableProposalIndex(proposals, conversationStatus) {
+  if (conversationStatus !== "Open" || proposals.length === 0) return -1;
+  let latestIndex = 0;
+  proposals.forEach((proposal, index) => {
+    const latest = proposals[latestIndex];
+    const timeDifference = new Date(proposal.submitted_at) - new Date(latest.submitted_at);
+    if (timeDifference > 0 || (timeDifference === 0 && proposal.proposal_id > latest.proposal_id)) {
+      latestIndex = index;
+    }
+  });
+  return proposals[latestIndex].proposal_status === "Pending" ? latestIndex : -1;
 }
