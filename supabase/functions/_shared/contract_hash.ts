@@ -45,7 +45,22 @@ export async function sha256Hex(str: string): Promise<string> {
     .join("");
 }
 
-/** Compute the canonical SHA-256 hash for a ContractTerms object. */
+/**
+ * Compute the canonical SHA-256 hash for a ContractTerms object.
+ *
+ * IMPORTANT for future changes to this file: callers (sign-contract,
+ * approve-contract) must always pass the contract's own stored
+ * `contract_terms_snapshot` object exactly as read from the database —
+ * never a freshly reconstructed object built from the current
+ * ContractTerms interface. Because canonicalJSON() sorts and hashes
+ * whatever keys the passed-in object actually has, this already makes
+ * verification robust to the ContractTerms shape gaining/losing fields
+ * over time: an old contract's snapshot keeps the keys it was generated
+ * with, and recomputing from that same snapshot always reproduces the
+ * same hash. What would NOT be safe is changing canonicalJSON()'s or
+ * sha256Hex()'s own serialization/hashing behavior, since that changes
+ * the output for every previously-generated contract's stored hash.
+ */
 export async function computeContractHash(terms: ContractTerms): Promise<string> {
   return sha256Hex(canonicalJSON(terms as unknown as Record<string, unknown>));
 }

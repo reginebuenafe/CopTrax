@@ -14,6 +14,7 @@ import { usePersistentProposalModal } from "../../hooks/usePersistentProposalMod
 import { formatMessageText } from "../../utils/formatMessageText";
 import MoistureContentTable from "../../components/MoistureContentTable";
 import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import { SUPPLIER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -293,7 +294,7 @@ export default function BOChatLayout() {
   }, [fetchConversations, user.id]);
 
   useEffect(() => {
-    const channel = supabase.channel("online-suppliers");
+    const channel = supabase.channel(SUPPLIER_PRESENCE_CHANNEL);
     const syncPresence = () => {
       setOnlineSupplierIds(new Set(Object.keys(channel.presenceState())));
     };

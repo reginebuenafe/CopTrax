@@ -251,11 +251,14 @@ export default function ContractualDeliveryForm() {
             <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Tare Weight (kg) <span className="text-red-500">*</span></label><input type="number" step="0.001" min="0" required value={form.tareWeight} onChange={set("tareWeight")} placeholder="0.000" className={inputClass} /></div>
             <div className="min-w-0"><label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label><div className={`${inputClass} bg-green-pale border-green-mid/30 font-bold text-green-dark`}>{net > 0 ? net.toFixed(2) : "—"}</div></div>
           </div>
+          {form.tareWeight !== "" && form.grossWeight !== "" && tare >= gross && (
+            <p className="mt-3 text-xs font-medium text-red-600 flex items-center gap-1.5"><LuCircleAlert className="w-3.5 h-3.5 shrink-0" /> Tare weight must be less than gross weight.</p>
+          )}
         </div>
 
         <div className="flex gap-3">
           <button type="button" onClick={() => navigate("/dashboard/weigher")} className="flex-1 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">Cancel</button>
-          <button type="submit" disabled={!selectedSupplier} className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60">Review Delivery</button>
+          <button type="submit" disabled={!selectedSupplier || net <= 0} className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60">Review Delivery</button>
         </div>
       </form>
 

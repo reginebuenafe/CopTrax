@@ -10,6 +10,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import NotificationBell from "../../components/NotificationBell";
 import BrandLogo from "../../components/BrandLogo";
 import { supabase } from "../../lib/supabase";
+import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
 
 const NAV_ITEMS = [
   { to: "/dashboard/owner", label: "Overview", icon: LuLayoutDashboard, end: true },
@@ -131,7 +132,7 @@ export default function OwnerLayout() {
 
   useEffect(() => {
     if (!user?.id) return undefined;
-    const channel = supabase.channel("online-business-owners", {
+    const channel = supabase.channel(BUSINESS_OWNER_PRESENCE_CHANNEL, {
       config: { presence: { key: user.id } },
     });
     channel.subscribe((status) => {

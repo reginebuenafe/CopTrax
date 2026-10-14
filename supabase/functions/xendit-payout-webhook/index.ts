@@ -78,7 +78,12 @@ Deno.serve(async (req) => {
   }
 
   // Final fallback: reference_id is generated as "coptrax-<payment_id>-<timestamp>"
-  // so we can still resolve even if xendit_payout_id was not stored.
+  // so we can still resolve even if xendit_payout_id was not stored. Only
+  // trust this parsed match when the payment's own xendit_payout_id is
+  // still NULL — i.e. it genuinely never got linked (the documented
+  // payoutRefErr case in process-payment). If a payout_id/reference_id is
+  // already stored and didn't match above, this reference_id belongs to a
+  // different payout — never misattribute by guessing from a parsed UUID.
   if (!payment) {
     const paymentIdFromRef = extractPaymentIdFromReference(referenceId);
     if (paymentIdFromRef) {
@@ -86,6 +91,7 @@ Deno.serve(async (req) => {
         .from("payments")
         .select("payment_id, total_amount, payment_status, supplier:supplier_id(user_id)")
         .eq("payment_id", paymentIdFromRef)
+        .is("xendit_payout_id", null)
         .maybeSingle();
       payment = data;
     }

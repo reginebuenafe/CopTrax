@@ -15,6 +15,7 @@ import { usePersistentProposalModal } from "../../hooks/usePersistentProposalMod
 import { formatMessageText } from "../../utils/formatMessageText";
 import { invokeAiFaq } from "../../utils/aiFaq";
 import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -313,7 +314,7 @@ export default function SupplierChatLayout() {
   }, [conversationId, navigate, user?.id]);
 
   useEffect(() => {
-    const channel = supabase.channel("online-business-owners");
+    const channel = supabase.channel(BUSINESS_OWNER_PRESENCE_CHANNEL);
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
