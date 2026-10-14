@@ -276,9 +276,10 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+[auth.hook.before_user_created]
+enabled = true
+uri = "http://host.docker.internal:54321/functions/v1/supplier-signup"
+secrets = "env(SUPPLIER_SIGNUP_HOOK_SECRET)"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]
@@ -417,3 +418,7 @@ enabled = true
 # ── Scheduled Edge Functions ─────────────────────────────────────────────────
 # Note: auto-release-payments is scheduled via pg_cron in migrations,
 # not via config.toml (schedule key removed — no longer supported by Supabase CLI).
+
+[functions.supplier-signup]
+# Signup has no user JWT yet; Auth hook requests carry signed webhook headers.
+verify_jwt = false
