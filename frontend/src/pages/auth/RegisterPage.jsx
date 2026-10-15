@@ -8,6 +8,7 @@ import {
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
+import CameraModal from "../../components/CameraModal";
 import jsQR from "jsqr";
 import TermsConfirmModal from "../../components/TermsConfirmModal";
 import {
@@ -167,122 +168,6 @@ const GOV_ID_TYPES = [
   "PWD ID",
   "Other Government ID",
 ];
-
-// ── Camera capture modal ──────────────────────────────────────────────────────
-function CameraModal({ onCapture, onClose, facing = "user", title, instructions }) {
-  const videoRef   = useRef(null);
-  const canvasRef  = useRef(null);
-  const streamRef  = useRef(null);
-  const [ready,    setReady]    = useState(false);
-  const [captured, setCaptured] = useState(null);
-  const [camErr,   setCamErr]   = useState("");
-
-  useEffect(() => {
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-          setReady(true);
-        }
-      } catch {
-        setCamErr("Could not access camera. Please allow camera access or use the upload option.");
-      }
-    }
-    startCamera();
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
-  }, [facing]);
-
-  function capture() {
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setCaptured(dataUrl);
-  }
-
-  function retake() { setCaptured(null); }
-
-  function confirm() {
-    const arr  = captured.split(",");
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    const file = new File([u8arr], `capture-${Date.now()}.jpg`, { type: mime });
-    onCapture({ file, dataUrl: captured });
-    onClose();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-white rounded-3xl shadow-card w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-beige-dark/20">
-          <div className="flex items-center gap-2">
-            <LuCamera className="w-4 h-4 text-green-dark" />
-            <h3 className="font-bold text-brown-dark text-sm">{title}</h3>
-          </div>
-          <button onClick={onClose} className="text-brown-light hover:text-brown-dark transition-colors">
-            <LuX className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-5">
-          {instructions && (
-            <div className="bg-beige rounded-xl px-4 py-3 text-xs text-brown-mid mb-4">{instructions}</div>
-          )}
-          {camErr ? (
-            <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
-              <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" />{camErr}
-            </div>
-          ) : (
-            <>
-              <div className="relative bg-black rounded-2xl overflow-hidden mb-4" style={{ aspectRatio: "16/9" }}>
-                {!captured
-                  ? <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                  : <img src={captured} alt="Captured" className="w-full h-full object-cover" />}
-                {!ready && !captured && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
-              <canvas ref={canvasRef} className="hidden" />
-            </>
-          )}
-          {!camErr && (
-            <div className="flex gap-3">
-              {!captured ? (
-                <button onClick={capture} disabled={!ready}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm disabled:opacity-50 hover:shadow-glow-green transition-all">
-                  <LuCamera className="w-4 h-4" /> Capture Photo
-                </button>
-              ) : (
-                <>
-                  <button onClick={retake}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
-                    <LuRefreshCw className="w-4 h-4" /> Retake
-                  </button>
-                  <button onClick={confirm}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
-                    <LuCheck className="w-4 h-4" /> Use Photo
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Image upload / camera card ────────────────────────────────────────────────
 function ImageField({ label, required, hint, preview, onFile, onSelect, onCamera, error, accept = "image/*", formatHint = "JPEG, PNG or HEIC · max 10 MB" }) {
@@ -676,10 +561,16 @@ export default function RegisterPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function editStep(step) {
+    setError("");
+    setCurrentStep(step);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (loading || submissionPendingRef.current) return;
-    if (currentStep < STEPS.length - 1) { await goNext(); return; }
+    if (currentStep < STEPS.length) { await goNext(); return; }
     submissionPendingRef.current = true;
     try {
     for (let step = 0; step < STEPS.length; step += 1) {
@@ -816,9 +707,13 @@ export default function RegisterPage() {
     const steps = ["Creating account…", "Preparing documents…", "Uploading documents…"];
     const stepIndex = steps.indexOf(uploadProgress);
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4">
+      <div className="min-h-screen-safe relative flex items-center justify-center px-4">
+        {/* Background: fixed to the viewport so it always covers the full screen,
+            regardless of actual content/page height (a min-height flex wrapper can
+            fall short of the real page height, exposing the plain body color below it). */}
+        <div className="fixed inset-0 -z-10 bg-gradient-to-br from-green-pale via-cream to-beige" />
         {/* Background blobs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-24 -left-24 w-80 h-80 bg-green-light/15 rounded-full blur-3xl" />
           <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-green-mid/10 rounded-full blur-3xl" />
         </div>
@@ -1132,6 +1027,66 @@ export default function RegisterPage() {
         </div>
       );
 
+      // REVIEW — let the supplier correct any detail before account creation.
+      case 5: return (
+        <div className="space-y-4">
+          <p className="text-sm text-brown-mid">
+            Check your details and uploaded documents. You can go back to any section to make corrections before submitting.
+          </p>
+
+          <section className="rounded-2xl border border-beige-dark bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-bold text-brown-dark">Government ID</h3>
+              <button type="button" onClick={() => editStep(0)} className="text-xs font-semibold text-green-dark hover:underline">Edit</button>
+            </div>
+            <p className="text-sm text-brown-mid mb-3">{form.govIdType}</p>
+            <img src={govIdPhoto?.dataUrl} alt="Uploaded government ID" className="w-full max-h-48 rounded-xl border border-beige-dark bg-beige object-contain" />
+          </section>
+
+          <section className="rounded-2xl border border-beige-dark bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-bold text-brown-dark">Personal Information</h3>
+              <button type="button" onClick={() => editStep(1)} className="text-xs font-semibold text-green-dark hover:underline">Edit</button>
+            </div>
+            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+              <dt className="text-brown-light">Name</dt><dd className="font-medium text-brown-dark break-words">{form.firstName} {form.lastName}</dd>
+              <dt className="text-brown-light">Email</dt><dd className="font-medium text-brown-dark break-all">{form.email}</dd>
+              <dt className="text-brown-light">Phone</dt><dd className="font-medium text-brown-dark">{form.phone || "Not provided"}</dd>
+              <dt className="text-brown-light">Address</dt><dd className="font-medium text-brown-dark break-words">{form.address || "Not provided"}</dd>
+            </dl>
+            <p className="text-xs text-brown-light mt-3">Your password is not displayed. You can change it by editing this section.</p>
+          </section>
+
+          <section className="rounded-2xl border border-beige-dark bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-bold text-brown-dark">Selfie with ID</h3>
+              <button type="button" onClick={() => editStep(2)} className="text-xs font-semibold text-green-dark hover:underline">Edit</button>
+            </div>
+            <img src={selfiePhoto?.dataUrl} alt="Uploaded selfie holding government ID" className="w-full max-h-48 rounded-xl border border-beige-dark bg-beige object-contain" />
+          </section>
+
+          <section className="rounded-2xl border border-beige-dark bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-bold text-brown-dark">Signature</h3>
+              <button type="button" onClick={() => editStep(3)} className="text-xs font-semibold text-green-dark hover:underline">Edit</button>
+            </div>
+            <img src={signaturePhoto?.dataUrl} alt="Uploaded handwritten signature" className="w-full max-h-36 rounded-xl border border-beige-dark bg-white object-contain" />
+          </section>
+
+          <section className="rounded-2xl border border-beige-dark bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-bold text-brown-dark">Bank Account</h3>
+              <button type="button" onClick={() => editStep(4)} className="text-xs font-semibold text-green-dark hover:underline">Edit</button>
+            </div>
+            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+              <dt className="text-brown-light">Bank</dt><dd className="font-medium text-brown-dark break-words">{form.bankName}</dd>
+              <dt className="text-brown-light">Account name</dt><dd className="font-medium text-brown-dark break-words">{form.accountName}</dd>
+              <dt className="text-brown-light">Account number</dt><dd className="font-medium text-brown-dark break-all">{form.accountNumber}</dd>
+            </dl>
+          </section>
+        </div>
+      );
+
       default: return null;
     }
   }
@@ -1142,6 +1097,7 @@ export default function RegisterPage() {
     "Selfie with ID",
     "E-Signature",
     "Bank Account",
+    "Review your information",
   ];
   const stepSubtitles = [
     "Upload your ID, we'll read and fill in your details automatically",
@@ -1149,6 +1105,7 @@ export default function RegisterPage() {
     "Take a selfie holding your government ID",
     "Provide a photo of your handwritten signature",
     "Where you'll receive your payments",
+    "Confirm these details before creating your account",
   ];
 
   return (
@@ -1172,12 +1129,16 @@ export default function RegisterPage() {
         />
       )}
 
-      <div className="min-h-screen bg-gradient-to-br from-green-pale via-cream to-beige flex items-center justify-center px-4 py-12">
+      <div className="min-h-screen-safe relative flex items-center justify-center px-4 py-12">
+        {/* Background: fixed to the viewport so it always covers the full screen,
+            regardless of actual content/page height (a min-height flex wrapper can
+            fall short of the real page height, exposing the plain body color below it). */}
+        <div className="fixed inset-0 -z-10 bg-gradient-to-br from-green-pale via-cream to-beige" />
         <Link to="/" aria-label="Back to homepage"
           className="fixed top-5 left-5 z-20 flex items-center gap-2 rounded-xl border border-beige-dark bg-white/85 px-3.5 py-2 text-sm font-semibold text-brown-mid shadow-sm backdrop-blur hover:bg-white hover:text-green-dark transition-all">
           <LuArrowLeft className="w-4 h-4 text-green-dark" />
         </Link>
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-green-light/10 rounded-full blur-3xl" />
           <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-green-mid/10 rounded-full blur-3xl" />
         </div>
@@ -1202,7 +1163,7 @@ export default function RegisterPage() {
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-bold text-brown-light uppercase tracking-widest">
-                  Step {currentStep + 1} of {STEPS.length}
+                  {currentStep < STEPS.length ? `Step ${currentStep + 1} of ${STEPS.length}` : "Review before submitting"}
                 </span>
               </div>
               <h2 className="text-xl font-bold text-brown-dark">{stepTitles[currentStep]}</h2>
@@ -1234,15 +1195,19 @@ export default function RegisterPage() {
                     <LuChevronLeft className="w-4 h-4" /> Back
                   </button>
                 )}
-                {currentStep < STEPS.length - 1 ? (
-                  <button type="button" onClick={goNext} disabled={nextBlocked}
+                {currentStep < STEPS.length ? (
+                  <button key="go-next-button" type="button" onClick={goNext} disabled={nextBlocked}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green disabled:opacity-60 disabled:cursor-wait transition-all">
-                    {currentStep === 0 && idExtracting ? "Scanning ID…" : <>Next <LuChevronRight className="w-4 h-4" /></>}
+                    {currentStep === 0 && idExtracting
+                      ? "Scanning ID…"
+                      : currentStep === STEPS.length - 1
+                        ? <>Review details <LuChevronRight className="w-4 h-4" /></>
+                        : <>Next <LuChevronRight className="w-4 h-4" /></>}
                   </button>
                 ) : (
-                  <button type="submit" disabled={uploadsInvalid || credentialInvalid}
+                  <button key="submit-registration-button" type="submit" disabled={uploadsInvalid || credentialInvalid}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
-                    <LuCheck className="w-4 h-4" /> Create Account
+                    <LuCheck className="w-4 h-4" /> Submit Registration
                   </button>
                 )}
               </div>
@@ -1260,4 +1225,3 @@ export default function RegisterPage() {
     </>
   );
 }
-

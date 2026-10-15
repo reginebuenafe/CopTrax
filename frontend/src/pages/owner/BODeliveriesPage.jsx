@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  LuTruck, LuFlaskConical, LuCheck, LuX, LuClock,
+  LuTruck, LuCheck, LuX, LuClock,
   LuChevronDown, LuChevronUp, LuSearch, LuArrowUpDown,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
@@ -26,12 +26,18 @@ function contractLabel(d) {
 
 const STATUS_META = {
   Pending:   { color: "bg-beige text-brown-mid",          label: "Pending",   icon: LuClock },
-  Weighed:   { color: "bg-blue-50 text-blue-600",          label: "Weighed",   icon: LuTruck },
-  Inspected: { color: "bg-purple-50 text-purple-600",      label: "Inspected", icon: LuFlaskConical },
   Accepted:  { color: "bg-green-dark text-white",         label: "Accepted",  icon: LuCheck },
   Rejected:  { color: "bg-red-50 text-red-600",            label: "Rejected",  icon: LuX },
 };
-const FILTERS = ["All", "Pending", "Weighed", "Inspected", "Accepted", "Rejected"];
+const FILTERS = ["All", "Pending", "Accepted", "Rejected"];
+
+// Weighing and moisture assessment are both pre-decision steps — a delivery
+// only ever resolves to Accepted or Rejected once assessed, so any other
+// raw delivery_status (Pending, Weighed, or the rarely-used Inspected)
+// displays/filters as Pending.
+function boDeliveryStatusKey(status) {
+  return status === "Accepted" || status === "Rejected" ? status : "Pending";
+}
 
 export default function BODeliveriesPage() {
   const [searchParams] = useSearchParams();
@@ -42,7 +48,16 @@ export default function BODeliveriesPage() {
   const [sort, setSort] = useState("newest");
   const [deliveryType, setDeliveryType] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [spotPrice, setSpotPrice] = useState(null);
   const linkedDeliveryId = searchParams.get("deliveryId");
+
+  useEffect(() => {
+    async function fetchSpotPrice() {
+      const { data } = await supabase.from("spot_price").select("price_per_kg").limit(1).maybeSingle();
+      setSpotPrice(data?.price_per_kg ?? null);
+    }
+    fetchSpotPrice();
+  }, []);
 
   useEffect(() => {
     async function fetchAll() {
@@ -83,7 +98,9 @@ export default function BODeliveriesPage() {
   const filtered = deliveries.filter(d => {
     if (d.delivery_source !== activeDeliveryType) return false;
     if (linkedDeliveryId) return d.delivery_id === linkedDeliveryId;
-    if (filter !== "All" && d.delivery_status !== filter) return false;
+    // Status filtering only applies to Contractual deliveries — Walk-in
+    // deliveries are shown in full regardless of the (hidden) filter state.
+    if (activeDeliveryType === "Contract-based" && filter !== "All" && boDeliveryStatusKey(d.delivery_status) !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
       return getSupplierName(d).toLowerCase().includes(q) ||
@@ -150,22 +167,30 @@ export default function BODeliveriesPage() {
           </div>
         </div>
       </div>
-      {/* Mobile: compact status select */}
-        <select value={filter} onChange={e => setFilter(e.target.value)}
-          aria-label="Filter delivery status"
-          className="mb-4 min-h-11 w-full sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
-          {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
-        </select>
-      {/* Desktop: underline tabs */}
-      <div className="hidden sm:flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
-        {FILTERS.map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
-              ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
-            {f}
-          </button>
-        ))}
-      </div>
+      {/* Status filters only apply to Contractual deliveries — Walk-in
+          deliveries never go through the Weighed/Inspected/Accepted/
+          Rejected lab pipeline, so the filter tabs are hidden entirely and
+          every Walk-in delivery is shown directly (see `filtered` above). */}
+      {activeDeliveryType === "Contract-based" && (
+        <>
+          {/* Mobile: compact status select */}
+          <select value={filter} onChange={e => setFilter(e.target.value)}
+            aria-label="Filter delivery status"
+            className="mb-4 min-h-11 w-full sm:hidden px-3 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark focus:outline-none focus:ring-2 focus:ring-green-mid/30">
+            {FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          {/* Desktop: underline tabs */}
+          <div className="hidden sm:flex flex-wrap gap-x-6 gap-y-2 border-b border-beige-dark/40 mb-6">
+            {FILTERS.map(f => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={`min-h-11 pb-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px
+                  ${filter === f ? "border-green-dark text-green-dark" : "border-transparent text-brown-light hover:text-brown-mid"}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -182,7 +207,7 @@ export default function BODeliveriesPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map(d => {
-            const meta = STATUS_META[d.delivery_status] ?? STATUS_META.Pending;
+            const meta = STATUS_META[boDeliveryStatusKey(d.delivery_status)];
             const StatusIcon = meta.icon;
             const isOpen = expanded === d.delivery_id;
             const wr = d.weighing_records?.[0];
@@ -255,39 +280,31 @@ export default function BODeliveriesPage() {
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-4 py-5 sm:px-5 md:py-4">
                     <DeliveryDetailTable delivery={d} weighing={wr} inspection={li} discountPct={discountPct} finalKg={finalKg} />
-                    {/* Allocation breakdown — shown only for contractual deliveries with allocation data */}
-                    {d.delivery_source === "Contract-based" && allocs.length > 0 && (
-                      <div className="mt-3 bg-beige rounded-xl px-4 py-3">
-                        <p className="text-xs font-semibold text-brown-light uppercase tracking-wide mb-2">
+                    {/* Allocation breakdown — shown only for contractual deliveries with allocation data, hidden entirely for rejected deliveries */}
+                    {d.delivery_status !== "Rejected" && d.delivery_source === "Contract-based" && allocs.length > 0 && (
+                      <div className="mt-3 rounded-xl bg-beige px-4 py-1">
+                        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-brown-light">
                           Allocation Breakdown
                         </p>
-                        <div className="space-y-1.5">
+                        <div className="divide-y divide-beige-dark/40">
                           {allocs.map((a, i) => {
-                            const priceType = a.price_type ?? (a.contract_id ? "Negotiated" : "Spot");
+                            const isSpot = !a.contract_id;
+                            const price = isSpot ? spotPrice : a.contract?.negotiated_price_per_kg;
                             return (
-                            <div key={a.allocation_id ?? i} className="flex min-w-0 flex-nowrap items-center justify-between gap-1 text-[9px] max-[359px]:text-[8px] min-[480px]:text-[10px] md:gap-2 md:text-xs">
-                              <div className="flex shrink-0 flex-nowrap items-center gap-1 md:min-w-0 md:shrink md:flex-wrap md:gap-2">
-                                <span className={`whitespace-nowrap px-1 py-0.5 rounded-full font-semibold md:px-1.5 ${
-                                  priceType === "Spot"
-                                    ? "bg-amber-50 text-amber-700"
-                                    : "bg-green-pale text-green-dark"
-                                }`}>
-                                  {priceType}
-                                </span>
-                                <span className="whitespace-nowrap font-semibold text-brown-dark">
-                                  {a.contract_id
-                                    ? (a.contract?.contract_number ?? "Contract")
-                                    : "Spot Price"
-                                  }
-                                </span>
+                              <div key={a.allocation_id ?? i} className="flex items-center justify-between gap-3 py-2.5">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${isSpot ? "bg-amber-500" : "bg-green-dark"}`} aria-hidden="true" />
+                                  <span className="truncate text-xs font-semibold text-brown-dark md:text-sm">
+                                    {isSpot ? "Spot Price" : (a.contract?.contract_number ?? "Contract")}
+                                  </span>
+                                </div>
+                                <div className="flex shrink-0 items-baseline gap-1.5">
+                                  <span className="whitespace-nowrap text-xs font-bold text-brown-dark md:text-sm">{fmt3(a.allocated_weight_kg)} kg</span>
+                                  {price !== null && price !== undefined && (
+                                    <span className="whitespace-nowrap text-[11px] text-brown-light">{peso(price)}/kg</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-1 text-right text-brown-mid md:flex-none md:shrink-0 md:flex-wrap md:gap-3">
-                                <span className="shrink-0 whitespace-nowrap font-semibold">{fmt3(a.allocated_weight_kg)} kg</span>
-                                {a.contract_id && a.contract?.negotiated_price_per_kg !== null && a.contract?.negotiated_price_per_kg !== undefined && (
-                                  <span title={`${peso(a.contract.negotiated_price_per_kg)}/kg`} className="min-w-0 truncate text-brown-light md:overflow-visible md:whitespace-normal md:text-clip">{peso(a.contract.negotiated_price_per_kg)}/kg</span>
-                                )}
-                              </div>
-                            </div>
                             );
                           })}
                         </div>
@@ -305,15 +322,15 @@ export default function BODeliveriesPage() {
 }
 
 const DETAIL_COLUMNS = [
-  { label: "Truck Number", short: "Truck", width: 10 },
-  { label: "Gross Weight", short: "Gross", width: 10, numeric: true },
-  { label: "Tare Weight", short: "Tare", width: 10, numeric: true },
-  { label: "Net Weight", short: "Net", width: 10, numeric: true, prominent: true },
-  { label: "Weighing Staff", short: "Weigher", width: 13 },
-  { label: "Moisture", short: "Moisture", width: 9, numeric: true },
-  { label: "PCA Deduction", short: "PCA Ded.", width: 11, numeric: true },
-  { label: "Final Weight", short: "Final", width: 11, numeric: true, prominent: true },
-  { label: "Lab Staff", short: "Lab Staff", width: 16 },
+  { label: "Truck Number", short: "Truck" },
+  { label: "Gross Weight", short: "Gross", numeric: true },
+  { label: "Tare Weight", short: "Tare", numeric: true },
+  { label: "Net Weight", short: "Net", numeric: true, prominent: true },
+  { label: "Weighing Staff", short: "Weigher" },
+  { label: "Moisture", short: "Moisture", numeric: true },
+  { label: "PCA Deduction", short: "PCA Ded.", numeric: true },
+  { label: "Final Weight", short: "Final", numeric: true, prominent: true },
+  { label: "Lab Staff", short: "Lab Staff" },
 ];
 
 function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discountPct, finalKg }) {
@@ -350,15 +367,14 @@ function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discou
   ].join(" ");
   return (
     <>
-      <div className="hidden overflow-hidden rounded-xl border border-beige-dark/50 md:block">
-        <table className="w-full table-fixed border-collapse text-xs text-brown-mid">
+      <div className="hidden overflow-x-auto rounded-xl border border-beige-dark/50 md:block">
+        <table className="w-full table-auto border-collapse text-sm text-brown-mid">
           <caption className="sr-only">Delivery weighing and laboratory details</caption>
-          <colgroup>{DETAIL_COLUMNS.map(col => <col key={col.label} style={{ width: `${col.width}%` }} />)}</colgroup>
           <thead className="bg-beige">
             <tr>
               {DETAIL_COLUMNS.map(col => (
                 <th key={col.label} scope="col" title={col.label}
-                  className={`whitespace-nowrap px-2 py-3 text-[10px] font-bold uppercase tracking-tight text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>
+                  className={`whitespace-nowrap px-3 py-3 text-[11px] font-bold uppercase tracking-tight text-brown-light ${col.numeric ? "text-right" : "text-left"}`}>
                   <span className="xl:hidden">{col.short}</span>
                   <span className="hidden xl:inline">{col.label}</span>
                 </th>
@@ -368,7 +384,7 @@ function DeliveryDetailTable({ delivery: d, weighing: wr, inspection: li, discou
           <tbody>
             <tr className="border-t border-beige-dark/30 transition-colors hover:bg-beige/30">
               {values.map((field, i) => (
-                <td key={DETAIL_COLUMNS[i].label} className={`break-words px-2 py-4 align-middle ${textClass(field, DETAIL_COLUMNS[i])}`}>
+                <td key={DETAIL_COLUMNS[i].label} className={`whitespace-nowrap px-3 py-4 align-middle ${textClass(field, DETAIL_COLUMNS[i])}`}>
                   {field.value}
                 </td>
               ))}

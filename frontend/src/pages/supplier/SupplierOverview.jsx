@@ -36,7 +36,7 @@ export default function SupplierOverview() {
 
   useEffect(() => {
     async function load() {
-      const [contractRes, deliveryRes, paymentRes, ratingRes, spotRes] = await Promise.all([
+      const [contractRes, deliveryRes, pendingDeliveryRes, paymentRes, ratingRes, spotRes] = await Promise.all([
         supabase.from("contracts")
           .select("contract_id, status")
           .eq("supplier_id", user.id),
@@ -52,6 +52,12 @@ export default function SupplierOverview() {
           )
           .order("delivery_date", { ascending: false })
           .limit(5),
+
+        supabase.from("deliveries")
+          .select("delivery_id, contract:contract_id!inner(supplier_id)", { count: "exact", head: true })
+          .eq("delivery_source", "Contract-based")
+          .eq("contract.supplier_id", user.id)
+          .in("delivery_status", ["Pending", "Weighed", "Inspected"]),
 
         supabase.from("payments")
           .select("total_amount, payment_status")
@@ -73,7 +79,7 @@ export default function SupplierOverview() {
       setStats({
         activeContracts: contracts.filter(c => c.status === "Active").length,
         totalContracts: contracts.length,
-        pendingDeliveries: (deliveryRes.data ?? []).filter(d => ["Pending", "Weighed", "Inspected"].includes(d.delivery_status)).length,
+        pendingDeliveries: pendingDeliveryRes.count ?? 0,
         totalEarned: payments.filter(p => p.payment_status === "Released").reduce((s, p) => s + Number(p.total_amount), 0),
         pendingPayment: payments.filter(p => p.payment_status === "Pending").reduce((s, p) => s + Number(p.total_amount), 0),
         overallRating: ratingRes.data?.overall_supplier_rating ?? null,
@@ -178,7 +184,7 @@ export default function SupplierOverview() {
               value={stats.overallRating !== null
                 ? <span className="inline-flex items-center gap-1.5">
                     <LuStar className="w-5 h-5 text-amber-400 fill-amber-400 shrink-0" />
-                    {Number(stats.overallRating).toFixed(1)} / 5
+                    {Number(stats.overallRating).toFixed(1)} / 5.0
                   </span>
                 : "—"}
               sub={stats.overallRating !== null ? "Overall Performance" : "No Rated Contracts Yet"}

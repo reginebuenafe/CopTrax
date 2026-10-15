@@ -10,6 +10,7 @@ import { supabase } from "../../lib/supabase";
 import NotificationBell from "../../components/NotificationBell";
 import BrandLogo from "../../components/BrandLogo";
 import NegotiationChatWidget from "../../components/NegotiationChatWidget";
+import { SUPPLIER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
 
 const NAV_ITEMS = [
   { to: "/dashboard/supplier", label: "Overview", icon: LuLayoutDashboard, end: true },
@@ -40,7 +41,7 @@ export default function SupplierLayout() {
   useEffect(() => {
     if (!user?.id) return undefined;
 
-    const channel = supabase.channel("online-suppliers", {
+    const channel = supabase.channel(SUPPLIER_PRESENCE_CHANNEL, {
       config: { presence: { key: user.id } },
     });
     channel.subscribe(status => {

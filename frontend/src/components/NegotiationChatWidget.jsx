@@ -11,9 +11,15 @@ import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import MoistureContentTable from "./MoistureContentTable";
-import { isProposalSubmissionMessage } from "../utils/negotiationMessages";
+import { actionableProposalIndex, isProposalSubmissionMessage, uniqueContractCardMessages } from "../utils/negotiationMessages";
+import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
+import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../utils/presenceChannels";
+
+// Hard cap on a single chat message's length — matches the DB check
+// constraint added for defense-in-depth (see migration 20260917000064).
+const MAX_MESSAGE_LENGTH = 2000;
 
 function getDateLabel(dateInput) {
   if (!dateInput) return "";
@@ -147,6 +153,9 @@ export default function NegotiationChatWidget() {
   const messagesEndRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const knownMessageIdsRef = useRef(new Set());
+  // Synchronous guard so a fast double-click can't fire two accept/decline
+  // calls before React commits the state update from the first click.
+  const proposalActingRef = useRef(false);
   const {
     modalState: proposalModalState,
     openPropose,
@@ -181,7 +190,7 @@ export default function NegotiationChatWidget() {
   }, [user?.id]);
 
   useEffect(() => {
-    const channel = supabase.channel("online-business-owners");
+    const channel = supabase.channel(BUSINESS_OWNER_PRESENCE_CHANNEL);
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
@@ -461,17 +470,25 @@ export default function NegotiationChatWidget() {
   }
 
   async function fetchProposals(convId) {
-    const { data } = await supabase
-      .from("proposal_forms")
-      .select("*")
-      .eq("conversation_id", convId)
-      .order("submitted_at", { ascending: true });
-    setProposals(data ?? []);
+    const [proposalResult, conversationResult] = await Promise.all([
+      supabase.from("proposal_forms").select("*").eq("conversation_id", convId)
+        .order("submitted_at", { ascending: true }),
+      supabase.from("conversations").select("*").eq("conversation_id", convId).single(),
+    ]);
+    if (proposalResult.error || conversationResult.error) {
+      console.error("Failed to refresh negotiation:", proposalResult.error ?? conversationResult.error);
+      setProposals([]);
+      alert("Unable to refresh negotiation. Please reload before responding to an offer.");
+      return;
+    }
+    setProposals(proposalResult.data ?? []);
+    setConversation(previous => ({ ...previous, ...conversationResult.data }));
   }
 
   async function handleSendMessage(e) {
     if (e) e.preventDefault();
-    if (!inputText.trim() || sending) return;
+    const trimmed = inputText.trim();
+    if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
 
     setSending(true);
 
@@ -483,7 +500,7 @@ export default function NegotiationChatWidget() {
       return;
     }
 
-    const textToSend = inputText.trim();
+    const textToSend = trimmed;
     setInputText("");
 
     const { error } = await supabase.from("messages").insert({
@@ -496,8 +513,9 @@ export default function NegotiationChatWidget() {
     setSending(false);
     if (!error) {
       fetchMessages(conv.conversation_id);
-      // Fire-and-forget: let AI FAQ respond if enabled globally
-      supabase.functions.invoke("ai-faq", { body: { conversation_id: conv.conversation_id, message_text: textToSend } });
+      // Fire-and-forget: let AI FAQ respond if enabled globally. Bounded,
+      // deduped, and error-logged — see utils/aiFaq.js.
+      invokeAiFaq(conv.conversation_id, textToSend);
     } else {
       // Restore the unsent text so the user can try again
       setInputText(textToSend);
@@ -533,13 +551,22 @@ export default function NegotiationChatWidget() {
   // by generate-contract using the service role, because the Supplier's JWT
   // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
   async function acceptCounter(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     const conversationId = conversation?.conversation_id;
 
     // Optimistically hide the card immediately
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
+
+    // On failure, don't assume nothing happened — re-fetch this proposal's
+    // true status, since a concurrent accept attempt may have already
+    // succeeded (the duplicate-contract error can arrive for the call that
+    // lost the race, even though a contract now genuinely exists).
+    async function revertToTrueState() {
+      if (conversationId) await fetchProposals(conversationId);
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -553,10 +580,10 @@ export default function NegotiationChatWidget() {
 
       const genData = await genRes.json();
       if (!genRes.ok) {
-        setProposals(prev => prev.map(p =>
-          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        await revertToTrueState();
         console.error("acceptCounter: generate-contract failed:", genData);
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        proposalActingRef.current = false;
         setProposalActing(false);
         return;
       }
@@ -569,10 +596,10 @@ export default function NegotiationChatWidget() {
         related_entity_id: conversationId,
       });
     } catch (err) {
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      await revertToTrueState();
       console.error("acceptCounter error:", err);
       alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
@@ -581,23 +608,33 @@ export default function NegotiationChatWidget() {
       await fetchMessages(conversationId);
       await fetchProposals(conversationId);
     }
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 
   // ── Supplier declines BO's counteroffer ───────────────────────────────────
   // Mirrors SupplierChatLayout.rejectProposal exactly.
   async function rejectCounteroffer(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     const conversationId = conversation?.conversation_id;
 
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    await supabase.from("proposal_forms")
-      .update({ proposal_status: "Rejected" })
-      .eq("proposal_id", proposal.proposal_id);
+    const { error: declineErr } = await supabase.rpc("decline_current_proposal", {
+      p_proposal_id: proposal.proposal_id,
+    });
+
+    if (declineErr) {
+      console.error("rejectCounteroffer:", declineErr);
+      alert(`Failed to decline counteroffer: ${declineErr.message}`);
+      if (conversationId) await fetchProposals(conversationId);
+      proposalActingRef.current = false;
+      setProposalActing(false);
+      return;
+    }
     if (conversationId) {
-      await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
       await supabase.from("messages").insert({
         conversation_id: conversationId,
         sender_id: user.id,
@@ -607,6 +644,7 @@ export default function NegotiationChatWidget() {
       await fetchMessages(conversationId);
       await fetchProposals(conversationId);
     }
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 
@@ -627,13 +665,11 @@ export default function NegotiationChatWidget() {
 
   const boName = conversation?.business_owner
     ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
-    : "Edison Buenafe";
+    : "NERC Copra Trading";
 
   // ── Latest-proposal logic (matches SupplierChatLayout exactly) ───────────
   // Only the most-recent non-resolved proposal triggers action buttons.
-  const latestProposalIndex = [...proposals]
-    .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposalIndex = actionableProposalIndex(proposals, conversation?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // submitted_by (migration 025+) is authoritative; fall back to index parity for legacy rows.
   const latestSubmittedBySupplier = latestProposal
@@ -644,12 +680,19 @@ export default function NegotiationChatWidget() {
 
   // ── Propose eligibility (matches SupplierChatLayout: max 3 Active contracts) ─
   const canPropose = activeContracts.length < 3;
-  // Merge messages and proposal cards chronologically for chat feed display
+  // Merge messages and proposal cards chronologically for chat feed display.
+  // Only the single authoritative "latest actionable" proposal (computed
+  // above) is ever pushed here — guarding by proposal_id (not just status)
+  // guarantees exactly one card can ever render, even if two rows are
+  // transiently both "Pending" in the DB for a moment (e.g. right after a
+  // counteroffer is inserted but before the superseded row's status update
+  // lands) — preventing any duplicate card rendering.
   const combinedItems = [];
-  messages.forEach((m) => {
+  uniqueContractCardMessages(messages).forEach((m) => {
     combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
   });
   proposals.forEach((p, proposalIndex) => {
+    if (!latestProposal || p.proposal_id !== latestProposal.proposal_id) return;
     if (p.proposal_status !== "Pending") return;
     combinedItems.push({
       type: "proposal",
@@ -919,9 +962,20 @@ export default function NegotiationChatWidget() {
                   const isMine = p.submitted_by
                     ? p.submitted_by === user?.id
                     : item.proposalIndex % 2 === 0;
+                  // Offer-history label — states exactly who made THIS offer,
+                  // the action (proposed vs. counteroffered), and its actual
+                  // price/volume, replacing the old vague "edited your
+                  // proposal form" note. Display-only; does not affect who
+                  // may act on the card or any negotiation state.
+                  const offerHistoryText = `${isMine ? "You" : boName} ${
+                    p.supersedes_proposal_id ? "counteroffered" : "proposed"
+                  }: ₱${Number(p.proposed_price_per_kg).toFixed(2)}/kg for ${p.proposed_volume_tons} tons`;
 
                   return (
                     <div key={p.proposal_id || idx} className="my-2 flex flex-col items-center px-1">
+                      <p className="text-[11px] italic text-[#2E7D32] text-center mb-1.5 font-medium">
+                        {offerHistoryText}
+                      </p>
                       <div className="w-[92%] overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
                         {/* Card Header */}
                         <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
@@ -995,13 +1049,6 @@ export default function NegotiationChatWidget() {
                           </div>
                         )}
                       </div>
-
-                      {/* Editor note under card if counter/edited */}
-                      {p.supersedes_proposal_id && (
-                        <p className="text-[11px] italic text-[#2E7D32] text-center my-1 font-medium">
-                          {boName} edited your proposal form.
-                        </p>
-                      )}
                     </div>
                   );
                 }
@@ -1060,6 +1107,7 @@ export default function NegotiationChatWidget() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Type your message here..."
+              maxLength={MAX_MESSAGE_LENGTH}
               className="flex-1 bg-transparent text-xs text-brown-dark placeholder-[#8D6E63] focus:outline-none"
             />
             <button

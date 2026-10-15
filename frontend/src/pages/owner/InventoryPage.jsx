@@ -1,10 +1,17 @@
 import { useEffect, useState, useCallback, createElement } from "react";
 import {
-  LuLeaf, LuTruck, LuCheck, LuCircleAlert, LuArrowRightLeft,
+  LuCheck, LuCircleAlert, LuLeaf, LuTruck, LuHandCoins, LuX, LuLoader, LuArrowLeft,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 
-const TABS = ["Resecada Pool", "Walk-in Holding"];
+const TABS = ["Bodega Stock", "Walk-in Holding"];
+
+// Real, already-agreed bodega capacity (500 tons) — matches the capacity
+// used by the `warn_inventory_capacity()` DB trigger (see migration
+// 20260923000071). Keep these two in sync if the physical capacity ever
+// changes.
+const BODEGA_CAPACITY_KG = 500000;
+const BODEGA_ALMOST_FULL_KG = BODEGA_CAPACITY_KG * 0.8;
 
 function fmt3(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function fmtTons(n) { return (Number(n ?? 0) / 1000).toFixed(2); }
@@ -16,18 +23,33 @@ function daysUntil(dateStr) {
   const diff = new Date(dateStr) - new Date();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
+// Net Weight = the delivery's own weighing-time Gross − Tare figure,
+// stored unchanged on weighing_records — this is what Bodega Stock is
+// summed from (NOT the post-PCA-deduction weight_kg stored on
+// inventory_batches, which is shown separately as "After Deduction").
+function getNetWeightKg(delivery) {
+  const wr = Array.isArray(delivery?.weighing_records) ? delivery.weighing_records[0] : delivery?.weighing_records;
+  return Number(wr?.net_weight_kg ?? 0);
+}
 
 export default function InventoryPage() {
   const [tab, setTab] = useState(0);
   const [resecada, setResecada] = useState([]);
   const [walkin, setWalkin] = useState([]);
+  const [totalSoldKg, setTotalSoldKg] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [toast] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [saleModalOpen, setSaleModalOpen] = useState(false);
+
+  function showToast(msg, type = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [resRes, wRes] = await Promise.all([
+    const [resRes, wRes, salesRes] = await Promise.all([
       supabase.from("inventory_batches")
         .select(`
           inventory_batch_id, weight_kg, recorded_date, merged_at,
@@ -35,7 +57,8 @@ export default function InventoryPage() {
             delivery_date, delivery_source,
             supplier:supplier_id(first_name, last_name),
             contract:contract_id(contract_number),
-            walkin_supplier:walkin_supplier_id(first_name, last_name)
+            walkin_supplier:walkin_supplier_id(first_name, last_name),
+            weighing_records(net_weight_kg)
           )
         `)
         .eq("batch_status", "Resecada")
@@ -51,18 +74,41 @@ export default function InventoryPage() {
         `)
         .eq("batch_status", "Walk-in Holding")
         .order("recorded_date", { ascending: false }),
+
+      // Every recorded copra sale's net_weight_kg — summed client-side (same
+      // reduce-over-fetched-rows pattern already used for resecada/walkin
+      // above) to get the running total ever sold out of Bodega Stock.
+      supabase.from("copra_sales").select("net_weight_kg"),
     ]);
 
     setResecada(resRes.data ?? []);
     setWalkin(wRes.data ?? []);
+    setTotalSoldKg((salesRes.data ?? []).reduce((s, r) => s + Number(r.net_weight_kg ?? 0), 0));
     setLoading(false);
   }, []);
 
   useEffect(() => { (async () => { await fetchData(); })(); }, [fetchData]);
 
   // ── Summary stats ─────────────────────────────────────────────────────────
-  const resecadaTotal = resecada.reduce((s, b) => s + Number(b.weight_kg), 0);
+  // Bodega Stock = SUM of each Resecada batch's own delivery Net Weight
+  // (pre-deduction), not the After Deduction weight_kg — matches the DB
+  // capacity-warning trigger (migration 20260923000071) exactly. Rejected
+  // deliveries never produce inventory_batches rows (see
+  // InspectionQueuePage.jsx), and each delivery contributes exactly one
+  // inventory_batches row regardless of how many contracts it was split
+  // across, so this sum can never double-count a multi-contract batch.
+  //
+  // Current Bodega Stock = Total eligible copra ever added to Bodega minus
+  // every recorded copra sale (copra_sales never mutates inventory_batches/
+  // weighing_records/deliveries, so this subtraction is the only place the
+  // sold weight is ever reflected).
+  const bodegaStockBeforeSalesKg = resecada.reduce((s, b) => s + getNetWeightKg(b.delivery), 0);
+  const bodegaStockKg = Math.max(0, bodegaStockBeforeSalesKg - totalSoldKg);
   const walkinTotal = walkin.reduce((s, b) => s + Number(b.weight_kg), 0);
+  const bodegaCapacityPercent = Math.min(100, (bodegaStockKg / BODEGA_CAPACITY_KG) * 100);
+  const bodegaRemainingKg = Math.max(0, BODEGA_CAPACITY_KG - bodegaStockKg);
+  const bodegaIsFull = bodegaStockKg >= BODEGA_CAPACITY_KG;
+  const bodegaIsAlmostFull = !bodegaIsFull && bodegaStockKg >= BODEGA_ALMOST_FULL_KG;
 
   return (
     <div className="pt-6">
@@ -79,28 +125,48 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-black text-brown-dark">Inventory</h1>
-          <p className="text-brown-light text-sm mt-0.5">Resecada pool · Walk-in Holding</p>
+          <p className="text-brown-light text-sm mt-0.5">Bodega Stock · Walk-in Holding</p>
         </div>
         <span className="text-xs text-brown-light">{resecada.length + walkin.length} total</span>
       </div>
 
+      {/* Bodega Stock capacity warning — mirrors the BO notification-bell
+          entry created by the same 80%/100% thresholds in the DB trigger. */}
+      {(bodegaIsFull || bodegaIsAlmostFull) && (
+        <div className={`mb-6 flex items-center gap-3 rounded-xl border px-4 py-3 ${
+          bodegaIsFull ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700"
+        }`}>
+          <LuCircleAlert className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-semibold">
+            {bodegaIsFull
+              ? `Bodega Stock is Full: ${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t. No additional capacity remains. Sell or merge before accepting more.`
+              : `Bodega Stock is Almost Full: ${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t. Consider selling soon.`}
+          </p>
+        </div>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <SummaryCard
-          label="Resecada Pool"
-          value={`${fmtTons(resecadaTotal)} t`}
+          label="Bodega Stock"
+          value={`${fmtTons(bodegaStockKg)} t`}
           count={resecada.length}
-          color="bg-green-pale"
           textColor="text-green-dark"
-          icon={LuLeaf}
+          capacityPercent={bodegaCapacityPercent}
+          capacityLabel={`${fmtTons(bodegaStockKg)} t / ${fmtTons(BODEGA_CAPACITY_KG)} t used · ${fmtTons(bodegaRemainingKg)} t remaining`}
+          barColor={bodegaIsFull ? "bg-red-500" : bodegaIsAlmostFull ? "bg-amber-500" : "bg-green-dark"}
+          action={
+            <button onClick={() => setSaleModalOpen(true)} disabled={bodegaStockKg <= 0}
+              className="mt-4 w-full flex items-center justify-center gap-2 bg-green-dark text-white font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-green-dark/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+              <LuHandCoins className="w-4 h-4" /> Record Copra Sale
+            </button>
+          }
         />
         <SummaryCard
           label="Walk-in Holding"
           value={`${fmt3(walkinTotal)} kg`}
           count={walkin.length}
-          color="bg-orange-50"
           textColor="text-orange-600"
-          icon={LuTruck}
         />
       </div>
 
@@ -120,33 +186,58 @@ export default function InventoryPage() {
           <div className="w-7 h-7 border-3 border-green-dark border-t-transparent rounded-full animate-spin" />
         </div>
       ) : tab === 0 ? (
-        <ResecadaTab batches={resecada} total={resecadaTotal} />
+        <BodegaStockTab batches={resecada} total={bodegaStockKg} />
       ) : (
         <WalkinHoldingTab batches={walkin} total={walkinTotal} />
+      )}
+
+      {/* Record Copra Sale modal — form → review → confirm */}
+      {saleModalOpen && (
+        <RecordSaleModal
+          currentStockKg={bodegaStockKg}
+          onClose={() => setSaleModalOpen(false)}
+          onRecorded={() => {
+            setSaleModalOpen(false);
+            showToast("Copra sale recorded successfully. Bodega inventory has been updated.");
+            fetchData();
+          }}
+        />
       )}
     </div>
   );
 }
 
 // ── Summary card ──────────────────────────────────────────────────────────────
-function SummaryCard({ label, value, count, color, textColor, icon: Icon, badge }) {
+function SummaryCard({ label, value, count, textColor, badge, capacityPercent, capacityLabel, barColor, action }) {
   return (
-    <div className={`bg-white rounded-xl border border-beige-dark/40 p-4 relative ${badge ? "ring-2 ring-amber-300" : ""}`}>
+    <div className={`bg-white rounded-xl border border-beige-dark/40 p-5 relative ${badge ? "ring-2 ring-amber-300" : ""}`}>
       {badge && (
         <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-400 rounded-full border-2 border-white" />
       )}
-      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center mb-3`}>
-        {createElement(Icon, { className: `w-5 h-5 ${textColor}` })}
-      </div>
-      <p className={`break-words text-xl font-extrabold ${textColor}`}>{value}</p>
-      <p className="text-brown-light text-xs mt-0.5">{label}</p>
-      <p className="text-brown-light text-xs">{count} batch{count !== 1 ? "es" : ""}</p>
+      <p className={`break-words text-3xl font-extrabold ${textColor}`}>{value}</p>
+      <p className="text-brown-light text-sm mt-1">{label}</p>
+      <p className="text-brown-light text-sm">{count} batch{count !== 1 ? "es" : ""}</p>
+      {capacityPercent !== undefined && (
+        <div className="mt-3">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-beige">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${barColor ?? "bg-green-dark"}`}
+              style={{ width: `${capacityPercent}%` }}
+            />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-brown-light">{capacityLabel}</span>
+            <span className="shrink-0 text-[11px] font-bold text-brown-dark">{capacityPercent.toFixed(1)}%</span>
+          </div>
+        </div>
+      )}
+      {action}
     </div>
   );
 }
 
-// ── Resecada Pool Tab ─────────────────────────────────────────────────────────
-function ResecadaTab({ batches, total }) {
+// ── Bodega Stock Tab ──────────────────────────────────────────────────────────
+function BodegaStockTab({ batches, total }) {
   function getSupplierName(delivery) {
     if (!delivery) return "—";
     return delivery.delivery_source === "Walkin"
@@ -156,23 +247,23 @@ function ResecadaTab({ batches, total }) {
 
   if (batches.length === 0) {
     return (
-      <EmptyState icon={LuLeaf} title="Resecada pool is empty" subtitle="Accepted deliveries will appear here after lab inspection." />
+      <EmptyState icon={LuLeaf} title="Bodega Stock is empty" subtitle="Accepted deliveries will appear here after lab inspection." />
     );
   }
 
   return (
     <div>
       <div className="bg-green-pale rounded-xl px-4 py-3 mb-4 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-green-dark font-semibold">Total Resecada Stock</p>
+        <p className="text-sm text-green-dark font-semibold">Total Bodega Stock</p>
         <p className="text-xl font-extrabold text-green-dark">{fmtTons(total)} t</p>
       </div>
       <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
-                {["Supplier", "Source", "Delivery Date", "Recorded", "Weight (t)"].map(h => (
-                  <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
+                {["Supplier", "Source", "Delivery Date", "Recorded", "Net Weight (t)", "After Deduction (t)"].map(h => (
+                  <th key={h} className="px-5 py-3.5 text-left font-semibold">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -191,6 +282,7 @@ function ResecadaTab({ batches, total }) {
                   </td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.delivery?.delivery_date)}</td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.recorded_date)}</td>
+                  <td className="px-5 py-3.5 font-bold text-brown-dark">{fmtTons(getNetWeightKg(b.delivery))}</td>
                   <td className="px-5 py-3.5 font-bold text-green-dark">{fmtTons(b.weight_kg)}</td>
                 </tr>
               ))}
@@ -228,7 +320,11 @@ function ResecadaTab({ batches, total }) {
                   <span className="font-semibold text-brown-dark text-right">{fmtDate(b.recorded_date)}</span>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span className="text-brown-light">Weight (t)</span>
+                  <span className="text-brown-light">Net Weight (t)</span>
+                  <span className="font-semibold text-brown-dark text-right">{fmtTons(getNetWeightKg(b.delivery))}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-brown-light">After Deduction (t)</span>
                   <span className="font-semibold text-green-dark text-right">{fmtTons(b.weight_kg)}</span>
                 </div>
               </div>
@@ -254,11 +350,11 @@ function WalkinHoldingTab({ batches, total }) {
       </div>
       <div className="bg-white rounded-xl border border-beige-dark/40 overflow-hidden">
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead className="bg-beige text-brown-light text-xs uppercase tracking-wide">
               <tr>
                 {["Supplier", "Delivery Date", "Recorded", "Weight (kg)", "Ready to Sell", "Days Left"].map(h => (
-                  <th key={h} className="px-5 py-3 text-left font-semibold">{h}</th>
+                  <th key={h} className="px-5 py-3.5 text-left font-semibold">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -342,6 +438,164 @@ function EmptyState({ icon: Icon, title, subtitle }) {
       </div>
       <p className="text-brown-dark font-semibold">{title}</p>
       <p className="text-brown-light text-sm mt-1">{subtitle}</p>
+    </div>
+  );
+}
+
+// ── Record Copra Sale modal ────────────────────────────────────────────────
+// Two-step flow: "form" (Date Sold + Net Weight, no DB write yet) → "review"
+// (shows the exact deduction about to happen, Back lets the BO correct
+// anything). Only "Confirm Sale" on the review step actually calls the
+// record_copra_sale RPC, which re-validates everything server-side
+// (role, inputs, and — atomically, via an advisory lock — that the sale
+// does not exceed the available Bodega Stock) before inserting.
+function RecordSaleModal({ currentStockKg, onClose, onRecorded }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [step, setStep] = useState("form"); // "form" | "review"
+  const [dateSold, setDateSold] = useState(todayStr);
+  const [weightInput, setWeightInput] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const weightKg = Number(weightInput);
+  const remainingAfterSaleKg = currentStockKg - weightKg;
+
+  function validateForm() {
+    if (!dateSold) return "Please select the date sold.";
+    if (weightInput === "" || isNaN(weightKg)) return "Please enter the net weight sold.";
+    if (weightKg <= 0) return "Net weight must be greater than 0.";
+    if (weightKg > currentStockKg) {
+      return `Sale weight exceeds available Bodega Stock (${fmt3(currentStockKg)} kg).`;
+    }
+    return "";
+  }
+
+  function handleContinue(e) {
+    e.preventDefault();
+    const v = validateForm();
+    if (v) { setError(v); return; }
+    setError("");
+    setStep("review");
+  }
+
+  async function handleConfirm() {
+    // Guard against duplicate submission from a double/rapid click on
+    // "Confirm Sale" — once a request is in flight, further clicks are
+    // ignored until it resolves (the button is also `disabled` below, but
+    // this early-return covers any click that lands before the re-render).
+    if (submitting) return;
+    setSubmitting(true);
+    setError("");
+
+    const { error: rpcError } = await supabase.rpc("record_copra_sale", {
+      p_date_sold: dateSold,
+      p_net_weight_kg: Math.round(weightKg * 100) / 100,
+    });
+
+    if (rpcError) {
+      setError(rpcError.message ?? "Failed to record copra sale. Please try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    setSubmitting(false);
+    onRecorded();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl border border-beige-dark/40 w-full max-w-md max-h-[92vh] overflow-y-auto p-6 relative">
+        <button onClick={onClose} disabled={submitting}
+          className="absolute top-4 right-4 text-brown-light hover:text-brown-dark transition-colors disabled:opacity-50">
+          <LuX className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-green-pale rounded-xl flex items-center justify-center shrink-0">
+            <LuHandCoins className="w-5 h-5 text-green-dark" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-brown-dark">
+              {step === "form" ? "Record Copra Sale" : "Review Copra Sale"}
+            </h2>
+            <p className="text-brown-light text-sm">
+              {step === "form" ? "Copra leaving the Bodega after being sold" : "Confirm the details before updating inventory"}
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">
+            <LuCircleAlert className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+          </div>
+        )}
+
+        {step === "form" ? (
+          <form onSubmit={handleContinue} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-brown-dark mb-1.5">
+                Date Sold <span className="text-red-500">*</span>
+              </label>
+              <input type="date" required value={dateSold} onChange={e => setDateSold(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
+                  focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brown-dark mb-1.5">
+                Net Weight (kg) <span className="text-red-500">*</span>
+              </label>
+              <input type="number" required min="0.01" step="0.01" placeholder="e.g. 1500.00"
+                value={weightInput} onChange={e => setWeightInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-beige-dark bg-white text-sm text-brown-dark
+                  focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all" />
+              <p className="text-xs text-brown-light mt-1.5">Available Bodega Stock: {fmt3(currentStockKg)} kg</p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all">
+                Cancel
+              </button>
+              <button type="submit"
+                className="flex-1 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all">
+                Continue
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-beige rounded-xl divide-y divide-beige-dark/30 text-sm">
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-brown-light">Date Sold</span>
+                <span className="font-semibold text-brown-dark">{fmtDate(dateSold)}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-brown-light">Net Weight</span>
+                <span className="font-semibold text-brown-dark">{fmt3(weightKg)} kg</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-brown-light">Current Bodega Stock</span>
+                <span className="font-semibold text-brown-dark">{fmt3(currentStockKg)} kg</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-brown-light">Remaining Bodega Stock</span>
+                <span className="font-bold text-green-dark">{fmt3(remainingAfterSaleKg)} kg</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button type="button" onClick={() => { setError(""); setStep("form"); }} disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-beige-dark text-brown-mid font-semibold text-sm hover:bg-beige transition-all disabled:opacity-50">
+                <LuArrowLeft className="w-4 h-4" /> Back
+              </button>
+              <button type="button" onClick={handleConfirm} disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-dark text-white font-bold text-sm hover:bg-green-dark/90 transition-all disabled:opacity-60">
+                {submitting && <LuLoader className="w-4 h-4 animate-spin" />}
+                Confirm Sale
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

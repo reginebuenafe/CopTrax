@@ -13,6 +13,13 @@ import ContractDocumentModal from "../../components/ContractDocumentModal";
 import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
+import { invokeAiFaq } from "../../utils/aiFaq";
+import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
+
+// Hard cap on a single chat message's length — matches the DB check
+// constraint added for defense-in-depth (see migration 20260917000064).
+const MAX_MESSAGE_LENGTH = 2000;
 
 const SUPPLIER_QUICK_SUGGESTIONS = [
   "I'll review the contract shortly.",
@@ -139,8 +146,18 @@ function ContractCard({ contractData, onReviewSign, onView, signed, pendingOwner
 
 // ── Proposal card ─────────────────────────────────────────────────────────────
 function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
+  // Offer-history label shown above the card — states exactly who made THIS
+  // offer, the action (proposed vs. counteroffered), and its actual
+  // price/volume. Display-only; does not affect any negotiation state.
+  const offerHistoryText = `${submittedByMe ? "You" : "NERC Copra Trading"} ${
+    proposal.supersedes_proposal_id ? "counteroffered" : "proposed"
+  }: ₱${Number(proposal.proposed_price_per_kg).toFixed(2)}/kg for ${proposal.proposed_volume_tons} tons`;
+
   return (
-    <div className="flex justify-center my-3 px-4">
+    <div className="flex flex-col items-center my-3 px-4">
+      <p className="text-[11px] italic text-[#2d5a27] text-center mb-1.5 font-medium">
+        {offerHistoryText}
+      </p>
       <div className="w-full max-w-xs rounded-2xl border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <LuCoins className="w-4 h-4 text-[#2d5a27]" />
@@ -217,6 +234,10 @@ export default function SupplierChatLayout() {
   const [onlineBusinessOwnerIds, setOnlineBusinessOwnerIds] = useState(() => new Set());
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
+  // Synchronous guard (in addition to the proposalActing state) so a fast
+  // double-click can't fire two accept/decline calls before React commits
+  // the state update from the first click.
+  const proposalActingRef = useRef(false);
 
   function isNearBottom() {
     const el = scrollContainerRef.current;
@@ -293,7 +314,7 @@ export default function SupplierChatLayout() {
   }, [conversationId, navigate, user?.id]);
 
   useEffect(() => {
-    const channel = supabase.channel("online-business-owners");
+    const channel = supabase.channel(BUSINESS_OWNER_PRESENCE_CHANNEL);
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
@@ -307,7 +328,7 @@ export default function SupplierChatLayout() {
     setChatLoading(true);
     setMessages([]); setProposals([]); setCurrentConv(null); setContracts([]);
 
-    const [{ data: conv }, { data: msgs }, { data: props }] = await Promise.all([
+    const [conversationResult, messageResult, proposalResult] = await Promise.all([
       supabase.from("conversations")
         .select("*, business_owner:business_owner_id(user_id, first_name, last_name, email)")
         .eq("conversation_id", convId).single(),
@@ -315,6 +336,16 @@ export default function SupplierChatLayout() {
       supabase.from("proposal_forms").select("*").eq("conversation_id", convId).order("submitted_at", { ascending: true }),
     ]);
 
+    const error = conversationResult.error ?? messageResult.error ?? proposalResult.error;
+    if (error) {
+      console.error("Failed to refresh negotiation:", error);
+      setChatLoading(false);
+      alert("Unable to refresh negotiation. Please reload before responding to an offer.");
+      return;
+    }
+    const conv = conversationResult.data;
+    const msgs = messageResult.data;
+    const props = proposalResult.data;
     setCurrentConv(conv);
     setMessages(msgs ?? []);
     setProposals(props ?? []);
@@ -399,9 +430,7 @@ export default function SupplierChatLayout() {
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Proposal logic ────────────────────────────────────────────────────────
-  const latestProposalIndex = [...proposals]
-    .map((p, i) => ({ p, i })).reverse()
-    .find(({ p }) => p.proposal_status !== "Rejected" && p.proposal_status !== "Modified" && p.proposal_status !== "Accepted")?.i ?? -1;
+  const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
   const latestSubmittedBySupplier = latestProposal
@@ -411,18 +440,28 @@ export default function SupplierChatLayout() {
     : false;
 
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
+  const visibleMessages = uniqueContractCardMessages(messages);
 
   // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
   // All DB writes (proposal status, contract row, PDF) are handled server-side
   // by generate-contract using the service role, because the Supplier's JWT
   // cannot INSERT into contracts (contracts_insert_bo RLS blocks it).
   async function acceptCounter(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
 
     // Optimistically hide the card immediately
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Accepted" } : p));
+
+    // On failure, don't assume nothing happened — re-fetch this proposal's
+    // true status, since a concurrent accept attempt may have already
+    // succeeded (the duplicate-contract error can arrive for the call that
+    // lost the race, even though a contract now genuinely exists).
+    async function revertToTrueState() {
+      await loadChat(conversationId);
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -436,11 +475,10 @@ export default function SupplierChatLayout() {
 
       const genData = await genRes.json();
       if (!genRes.ok) {
-        // Revert optimistic update so the card re-appears and the error is visible
-        setProposals(prev => prev.map(p =>
-          p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+        await revertToTrueState();
         console.error("acceptCounter: generate-contract failed:", genData);
         alert(`Failed to accept counteroffer: ${genData.error ?? "Unknown error. Check console."}`);
+        proposalActingRef.current = false;
         setProposalActing(false);
         return;
       }
@@ -451,41 +489,54 @@ export default function SupplierChatLayout() {
         related_entity_type: "conversations", related_entity_id: conversationId,
       });
     } catch (err) {
-      setProposals(prev => prev.map(p =>
-        p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Pending" } : p));
+      await revertToTrueState();
       console.error("acceptCounter error:", err);
       alert(`Failed to accept counteroffer: ${err.message ?? String(err)}`);
+      proposalActingRef.current = false;
       setProposalActing(false);
       return;
     }
 
     await loadChat(conversationId);
+    proposalActingRef.current = false;
     setProposalActing(false);
   }
 
   async function rejectProposal(proposal) {
-    if (proposalActing) return;
+    if (proposalActingRef.current) return;
+    proposalActingRef.current = true;
     setProposalActing(true);
     // Immediately hide the proposal card
     setProposals(prev => prev.map(p =>
       p.proposal_id === proposal.proposal_id ? { ...p, proposal_status: "Rejected" } : p));
-    await supabase.from("proposal_forms").update({ proposal_status: "Rejected" }).eq("proposal_id", proposal.proposal_id);
-    // Rejection ends the negotiation — mark conversation Terminated
-    await supabase.from("conversations").update({ status: "Terminated" }).eq("conversation_id", conversationId);
+    const { error: declineErr } = await supabase.rpc("decline_current_proposal", {
+      p_proposal_id: proposal.proposal_id,
+    });
+
+    if (declineErr) {
+      console.error("rejectProposal:", declineErr);
+      alert(`Failed to decline counteroffer: ${declineErr.message}`);
+      await loadChat(conversationId);
+      proposalActingRef.current = false;
+      setProposalActing(false);
+      return;
+    }
     await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text",
       message_text: `❌ Counteroffer declined.`,
     });
     await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+    proposalActingRef.current = false;
     setProposalActing(false); // was missing — buttons stayed permanently disabled after rejection
   }
 
   async function sendMessage(e) {
     e.preventDefault();
-    if (!text.trim() || sending) return;
+    const trimmed = text.trim();
+    if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
-      conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: text.trim(),
+      conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: trimmed,
     }).select().single();
     if (newMsg) {
       // Show immediately for the sender; realtime will echo it but dedup prevents duplicate
@@ -494,9 +545,10 @@ export default function SupplierChatLayout() {
     }
     setText("");
     setSending(false);
-    // Fire-and-forget: let AI FAQ respond if enabled globally
+    // Fire-and-forget: let AI FAQ respond if enabled globally. Bounded,
+    // deduped, and error-logged — see utils/aiFaq.js.
     if (newMsg?.message_text) {
-      supabase.functions.invoke("ai-faq", { body: { conversation_id: conversationId, message_text: newMsg.message_text } });
+      invokeAiFaq(conversationId, newMsg.message_text);
     }
   }
 
@@ -598,9 +650,9 @@ export default function SupplierChatLayout() {
                   </div>
                 </div>
               )}
-              {messages.map((msg, index) => {
+              {visibleMessages.map((msg, index) => {
                 const isMine = msg.sender_id === user.id;
-                const prevMsg = messages[index - 1];
+                const prevMsg = visibleMessages[index - 1];
                 const showDateSep = !prevMsg ||
                   new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
 
@@ -736,6 +788,7 @@ export default function SupplierChatLayout() {
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
                 <input type="text" value={text} onChange={e => setText(e.target.value)}
                   placeholder="Message NERC Copra Trading…"
+                  maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none" />
                 <button type="submit" disabled={!text.trim() || sending}
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-[#17682D] text-white transition-all hover:bg-[#105523] disabled:opacity-50">
@@ -868,10 +921,6 @@ export default function SupplierChatLayout() {
           onClose={clearProposalModal}
           onSubmitted={async (msg) => {
             clearProposalModal();
-            // If conversation was Terminated, re-open it for the new negotiation round
-            if (currentConv.status === "Terminated") {
-              await supabase.from("conversations").update({ status: "Open" }).eq("conversation_id", conversationId);
-            }
             await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, message_type: "Contract Form", message_text: msg });
             // Notify BO
             await supabase.from("notifications").insert({
@@ -879,7 +928,7 @@ export default function SupplierChatLayout() {
               message: `${profile?.first_name ?? "Supplier"} submitted a new price proposal.`,
               related_entity_type: "conversations", related_entity_id: conversationId,
             });
-            await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
+            await loadChat(conversationId);
           }}
         />
       )}

@@ -36,6 +36,15 @@ export default function ContractApprovalModal({ contract, onClose, onApproved })
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState(null);
 
+  // Once "Confirm & Sign" succeeds, the contract is Active and fully signed
+  // (both Supplier + Business Owner) server-side. Rather than closing the
+  // modal immediately, we swap the preview to the finalized signed PDF that
+  // `approve-contract` just produced (`data.contract_document_path`) so the
+  // BO can see the completed, both-signatures document before dismissing.
+  const [approvedResult, setApprovedResult]     = useState(null);
+  const [finalizedPreviewUrl, setFinalizedPreviewUrl] = useState(null);
+  const [finalizedLoading, setFinalizedLoading] = useState(false);
+
   // Mark this specific contract as opened-for-review (once) as soon as the
   // modal mounts. The "Approve & Sign Contract" button only ever becomes
   // available after this succeeds, and the backend independently requires
@@ -144,14 +153,33 @@ export default function ContractApprovalModal({ contract, onClose, onApproved })
 
     setLoading(false);
     setConfirmOpen(false);
-    onApproved?.(data);
+
+    // Show the finalized, both-signatures signed contract instead of closing
+    // right away. `onApproved` (which closes this modal and refreshes the
+    // contracts list) is only called once the BO dismisses this final view.
+    setApprovedResult(data);
+
+    if (data?.contract_document_path) {
+      setFinalizedLoading(true);
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from("contracts")
+        .createSignedUrl(data.contract_document_path, 60 * 15);
+      setFinalizedLoading(false);
+      if (!urlError) setFinalizedPreviewUrl(urlData?.signedUrl ?? null);
+    }
+  }
+
+  const isFinalized = !!approvedResult;
+
+  function handleDone() {
+    onApproved?.(approvedResult);
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-card w-full max-w-3xl relative max-h-[92vh] flex flex-col">
         <button
-          onClick={onClose}
+          onClick={isFinalized ? handleDone : onClose}
           className="absolute top-4 right-4 text-brown-light hover:text-brown-dark transition-colors z-10"
         >
           <LuX className="w-5 h-5" />
@@ -160,14 +188,69 @@ export default function ContractApprovalModal({ contract, onClose, onApproved })
         {/* Header */}
         <div className="flex items-center gap-3 p-6 pb-4 border-b border-beige-dark/30">
           <div className="w-10 h-10 bg-green-dark/10 rounded-xl flex items-center justify-center">
-            <LuFileText className="w-5 h-5 text-green-dark" />
+            {isFinalized
+              ? <LuShieldCheck className="w-5 h-5 text-green-dark" />
+              : <LuFileText className="w-5 h-5 text-green-dark" />}
           </div>
           <div>
-            <h2 className="text-lg font-bold text-brown-dark">Review & Approve Contract</h2>
+            <h2 className="text-lg font-bold text-brown-dark">
+              {isFinalized ? "Contract Signed & Active" : "Review & Approve Contract"}
+            </h2>
             <p className="text-brown-light text-sm">{contract.contract_number}</p>
           </div>
         </div>
 
+        {isFinalized ? (
+          <>
+            {/* Scrollable body — finalized, fully-signed contract preview */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="bg-green-dark/10 border border-green-dark/20 rounded-2xl px-4 py-3 text-sm text-green-dark leading-relaxed flex gap-2.5 items-start">
+                <LuShieldCheck className="w-5 h-5 shrink-0 mt-0.5" />
+                <p>
+                  This contract is now <strong>Active</strong>. Below is the finalized document,
+                  signed by both the Supplier and NERC Copra Trading.
+                </p>
+              </div>
+
+              {/* Document preview — final signed PDF (both signatures) */}
+              {finalizedPreviewUrl ? (
+                <div className="rounded-2xl overflow-hidden border border-beige-dark/40">
+                  <iframe
+                    src={finalizedPreviewUrl}
+                    title="Finalized signed contract"
+                    className="w-full h-[420px] bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-beige p-6 text-center text-brown-light text-sm">
+                  {finalizedLoading ? "Loading finalized contract…" : "Finalized contract preview unavailable."}
+                </div>
+              )}
+
+              {/* Cryptographic hash of the finalized contract */}
+              {approvedResult?.contract_hash && (
+                <div className="bg-beige rounded-2xl p-3 flex gap-2 items-center">
+                  <LuFingerprint className="w-4 h-4 text-green-dark shrink-0" />
+                  <div className="text-[10px] text-brown-light leading-tight break-all font-mono">
+                    <span className="uppercase tracking-wider text-brown-dark font-semibold">Contract hash · </span>
+                    {approvedResult.contract_hash}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 p-6 pt-4 border-t border-beige-dark/30">
+              <button
+                onClick={handleDone}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-md transition-all flex items-center justify-center gap-2"
+              >
+                <LuCheck className="w-4 h-4" /> Done
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-800 leading-relaxed flex gap-2.5 items-start">
@@ -249,11 +332,13 @@ export default function ContractApprovalModal({ contract, onClose, onApproved })
             <LuCheck className="w-4 h-4" /> Approve & Sign Contract
           </button>
         </div>
+          </>
+        )}
       </div>
 
       {/* Explicit confirmation dialog — required before the BO's signature
           is ever applied. */}
-      {confirmOpen && (
+      {!isFinalized && confirmOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-card w-full max-w-md p-6 relative">
             <div className="flex items-center gap-3 mb-4">

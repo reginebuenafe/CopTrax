@@ -47,6 +47,14 @@ function deadlineTimingLabel(days) {
   if (days === 0) return "Due today";
   return `${days} day${days === 1 ? "" : "s"} left`;
 }
+// Truncates (never rounds up) to 1 decimal place so a near-100% but not
+// actually fully-delivered contract can never display as a misleading
+// "100.0%" — the DB's exact >= comparison is what decides Completed
+// status, and the display must always agree with it.
+function fmtProgressPct(value) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
+  return (Math.floor(safeValue * 10) / 10).toFixed(1);
+}
 
 function tons(value) {
   return `${Number(value ?? 0).toLocaleString("en-PH", {
@@ -127,7 +135,12 @@ export default function MyContractsPage() {
       if (cv.contract_id) convMap[cv.contract_id] = cv.conversation_id;
     }
 
-    // Auto-breach any overdue Active contracts before rendering
+    // Auto-complete contracts fully delivered (safety net for any delivery
+    // that reached 100% without a live UPDATE→'Accepted' trigger firing),
+    // then auto-breach any still-Active, overdue contracts before rendering.
+    // Completion is checked first so a fully-delivered contract is never
+    // wrongly left/marked Active or Breached past its deadline.
+    await supabase.rpc("auto_complete_fulfilled_contracts");
     await supabase.rpc("auto_breach_overdue_contracts");
 
     // Re-fetch statuses after potential breach updates
@@ -184,7 +197,11 @@ export default function MyContractsPage() {
 
   const filtered = contracts
     .filter(c => contractMatchesSearch(c, searchQuery))
-    .filter(c => statusFilter === "All" || c.status === statusFilter)
+    .filter(c => (
+      statusFilter === "All"
+      || (statusFilter === "Pending" && ["Pending", "Pending Owner Review"].includes(c.status))
+      || c.status === statusFilter
+    ))
     .sort((a, b) => sortOrder === "newest"
       ? new Date(b.created_at) - new Date(a.created_at)
       : new Date(a.created_at) - new Date(b.created_at));
@@ -197,11 +214,16 @@ export default function MyContractsPage() {
         <p className="text-brown-light text-sm mt-0.5">All negotiated contracts with NERC Copra Trading</p>
       </div>
 
-      <div className="mt-6 flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <nav aria-label="Contract status filters" className="min-w-0 overflow-x-auto border-b border-beige-dark/70">
-          <div className="flex w-max min-w-full items-end gap-1 sm:gap-3">
+      <div className="mt-6 flex min-w-0 flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
+        <nav aria-label="Contract status filters" className="min-w-0 border-b border-beige-dark/70">
+          <div className="flex min-w-full flex-wrap items-end gap-x-1 gap-y-1 sm:gap-x-3">
             {CONTRACT_TABS.map(status => {
               const selected = statusFilter === status;
+              const tabCount = status === "All"
+                ? contracts.length
+                : contracts.filter(c => status === "Pending"
+                  ? ["Pending", "Pending Owner Review"].includes(c.status)
+                  : c.status === status).length;
               return (
                 <button
                   key={status}
@@ -210,7 +232,7 @@ export default function MyContractsPage() {
                   onClick={() => { setStatusFilter(status); setSelectedContractId(null); }}
                   className={`relative min-h-11 shrink-0 px-3 pb-3 pt-2 text-sm font-semibold transition-colors sm:px-4 ${selected ? "text-green-dark" : "text-brown-light hover:text-brown-dark"}`}
                 >
-                  {status}{status === "All" ? ` (${contracts.length})` : ""}
+                  {status}{(status === "All" || tabCount > 0) ? ` (${tabCount})` : ""}
                   {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-green-dark" />}
                 </button>
               );
@@ -329,7 +351,10 @@ function contractDisplayValues(c) {
   return {
     deliveredKg,
     remainingKg,
-    fulfillment: contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0,
+    // Completed contracts always display 100% regardless of the exact
+    // computed fraction (display-only; does not change deliveredKg or
+    // the Active/Breached completion logic itself).
+    fulfillment: c.status === "Completed" ? 100 : (contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0),
     days: daysLeft(c.due_date),
   };
 }
@@ -379,9 +404,12 @@ function ContractActions({ contract: c, onViewContract, onViewBatches, revealOnR
   );
 }
 
-function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches }) {
+function ContractTableRow({ contract: c, isLast, onSelect, onViewContract, onViewBatches }) {
   const { deliveredKg, remainingKg, fulfillment, days } = contractDisplayValues(c);
-  const timing = deadlineTimingLabel(days);
+  // Countdown ("N days left"/"overdue") only makes sense while a contract
+  // is still Active — Completed/Breached contracts hide it (display-only).
+  const timing = c.status === "Active" ? deadlineTimingLabel(days) : null;
+  const rowBorder = isLast ? "" : "border-b border-beige-dark/40";
 
   return (
     <tr
@@ -394,19 +422,19 @@ function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches
           onSelect(c.contract_id);
         }
       }}
-      className="group cursor-pointer border-b border-beige-dark/40 bg-white outline-none transition-colors duration-150 ease-out last:border-0 hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25"
+      className="group cursor-pointer bg-white outline-none transition-colors duration-150 ease-out hover:bg-beige/60 focus-within:bg-beige/60 focus-visible:bg-green-pale/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-green-dark/25"
     >
-      <td className="border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark">
+      <td className={`border-l-[5px] border-l-transparent px-2 py-4 text-left align-middle transition-colors duration-150 ease-out group-hover:border-l-brown-dark group-focus-within:border-l-brown-dark ${rowBorder}`}>
         <p className="font-extrabold tracking-wide text-brown-dark">{c.contract_number}</p>
         <p className="mt-1 whitespace-nowrap text-[10px] text-brown-light">Created {fmtDate(c.created_at)}</p>
       </td>
-      <td className="px-2 py-4 text-center align-middle"><ContractStatusBadge status={c.status} compact /></td>
-      <td className="whitespace-nowrap px-2 py-4 text-right text-xs font-bold tabular-nums text-brown-dark">{peso(c.negotiated_price_per_kg)}</td>
-      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(c.contracted_tons)}</td>
-      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(deliveredKg / 1000)}</td>
-      <td className="px-2 py-4 text-right text-xs tabular-nums text-brown-mid">{tons(remainingKg / 1000)}</td>
-      <td className="px-2 py-4 text-left text-xs text-brown-mid">{fmtDate(c.activation_date)}</td>
-      <td className="px-2 py-4 text-left text-xs text-brown-mid">
+      <td className={`px-2 py-4 text-center align-middle ${rowBorder}`}><ContractStatusBadge status={c.status} compact /></td>
+      <td className={`whitespace-nowrap px-2 py-4 text-right text-xs font-bold tabular-nums text-brown-dark ${rowBorder}`}>{peso(c.negotiated_price_per_kg)}</td>
+      <td className={`px-2 py-4 text-right text-xs tabular-nums text-brown-mid ${rowBorder}`}>{tons(c.contracted_tons)}</td>
+      <td className={`px-2 py-4 text-right text-xs tabular-nums text-brown-mid ${rowBorder}`}>{tons(deliveredKg / 1000)}</td>
+      <td className={`px-2 py-4 text-right text-xs tabular-nums text-brown-mid ${rowBorder}`}>{tons(remainingKg / 1000)}</td>
+      <td className={`px-2 py-4 text-left text-xs text-brown-mid ${rowBorder}`}>{fmtDate(c.activation_date)}</td>
+      <td className={`px-2 py-4 text-left text-xs text-brown-mid ${rowBorder}`}>
         <p>{fmtDate(c.due_date)}</p>
         {timing && (
           <p className={`mt-1 text-[11px] font-semibold ${days < 0 ? "text-red-500" : days === 0 ? "text-amber-600" : "text-green-dark"}`}>
@@ -414,13 +442,13 @@ function ContractTableRow({ contract: c, onSelect, onViewContract, onViewBatches
           </p>
         )}
       </td>
-      <td className="px-2 py-4 text-left align-middle">
+      <td className={`px-2 py-4 text-left align-middle ${rowBorder}`}>
         <div className="flex items-center gap-1.5">
           <div className="min-w-0 flex-1"><ProgressBar value={fulfillment} status={c.status} /></div>
-          <span className="w-10 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">{fulfillment.toFixed(1)}%</span>
+          <span className="w-10 whitespace-nowrap text-right text-[11px] font-extrabold tabular-nums text-brown-dark">{fmtProgressPct(fulfillment)}%</span>
         </div>
       </td>
-      <td className="px-0 py-4 text-left align-middle">
+      <td className={`px-0 py-4 text-left align-middle ${rowBorder}`}>
         <ContractActions
           contract={c}
           onViewContract={onViewContract}
@@ -462,7 +490,7 @@ function ContractMobileCard({ contract: c, onSelect, onViewContract, onViewBatch
       <div className="py-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <span className="text-xs font-semibold text-brown-light">Progress</span>
-          <span className="whitespace-nowrap text-sm font-extrabold tabular-nums text-green-dark">{fulfillment.toFixed(1)}%</span>
+          <span className="whitespace-nowrap text-sm font-extrabold tabular-nums text-green-dark">{fmtProgressPct(fulfillment)}%</span>
         </div>
         <ProgressBar value={fulfillment} status={c.status} />
         <p className="mt-2 text-[11px] text-brown-light">Accepted allocated net weight only</p>
@@ -476,7 +504,7 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
   return (
     <section aria-label="Contracts">
       <div className="hidden overflow-hidden rounded-2xl border border-beige-dark/70 bg-white shadow-card xl:block">
-        <table className="w-full table-fixed border-collapse text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-base">
           <caption className="sr-only">Supplier contracts</caption>
           <colgroup>
             <col className="w-[13%]" />
@@ -491,24 +519,25 @@ function ContractList({ contracts, totalCount, onSelect, onViewContract, onViewB
             <col className="w-[10%]" />
           </colgroup>
           <thead className="bg-beige">
-            <tr className="border-b border-beige-dark/60 text-left">
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Status</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
-              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Agreed Qty</th>
-              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-right text-[10px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
-              <th scope="col" title="Activation Date" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
-              <th scope="col" title="Delivery Deadline" className="whitespace-nowrap px-2 py-3.5 text-left text-[10px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
-              <th scope="col" className="whitespace-nowrap px-2 py-3.5 text-center text-[10px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
-              <th scope="col" className="px-0 py-3.5"><span className="sr-only">Actions</span></th>
+            <tr className="text-left">
+              <th scope="col" className="whitespace-nowrap rounded-tl-2xl border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Contract #</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Price (₱/kg)</th>
+              <th scope="col" title="Agreed Quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Quantity</th>
+              <th scope="col" title="Accepted allocated quantity" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Accepted</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Remaining</th>
+              <th scope="col" title="Activation Date" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Activated</th>
+              <th scope="col" title="Delivery Deadline" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Deadline</th>
+              <th scope="col" className="whitespace-nowrap border-b border-beige-dark/60 px-2 py-3.5 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Progress</th>
+              <th scope="col" className="rounded-tr-2xl border-b border-beige-dark/60 px-0 py-3.5"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {contracts.map(c => (
+            {contracts.map((c, idx) => (
               <ContractTableRow
                 key={c.contract_id}
                 contract={c}
+                isLast={idx === contracts.length - 1}
                 onSelect={onSelect}
                 onViewContract={onViewContract}
                 onViewBatches={onViewBatches}
@@ -543,7 +572,10 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
   const contractedKg = Number(c.contracted_tons ?? 0) * 1000;
   const deliveredKg = c.delivered_kg ?? 0;
   const remainingKg = Math.max(0, contractedKg - deliveredKg);
-  const fulfillment = contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0;
+  // Completed contracts always display 100% regardless of the exact
+  // computed fraction (display-only; does not change deliveredKg or
+  // the Active/Breached completion logic itself).
+  const fulfillment = c.status === "Completed" ? 100 : (contractedKg > 0 ? Math.min(100, (deliveredKg / contractedKg) * 100) : 0);
 
   return (
     <div>
@@ -578,7 +610,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
           <div className="mt-7">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-xs font-medium text-brown-light">Fulfillment</span>
-              <span className="text-sm font-extrabold text-green-dark">{fulfillment.toFixed(1)}%</span>
+              <span className="text-sm font-extrabold text-green-dark">{fmtProgressPct(fulfillment)}%</span>
             </div>
             <ProgressBar value={fulfillment} status={c.status} />
             <p className="mt-2 text-[11px] text-brown-light">Rejected and pending allocations are excluded from fulfillment.</p>
@@ -587,7 +619,7 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
           <div className="mt-7 grid grid-cols-1 gap-3 rounded-2xl bg-beige p-4 sm:grid-cols-3">
             <MiniMetric label="Negotiated Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
             <MiniMetric label="Due Date" value={fmtDate(c.due_date)} />
-            <MiniMetric label="Days Remaining" value={daysLabel(days)} valueClass={days !== null && days < 0 ? "text-red-500" : "text-brown-dark"} />
+            <MiniMetric label="Days Remaining" value={c.status === "Active" ? daysLabel(days) : "—"} valueClass={c.status === "Active" && days !== null && days < 0 ? "text-red-500" : "text-brown-dark"} />
           </div>
         </section>
 
@@ -602,14 +634,14 @@ function ContractMasterDetail({ contract: c, onBack, onViewContract, onViewBatch
           <dl className="mt-5 divide-y divide-beige-dark/55">
             <DetailRow label="Created" value={fmtDate(c.created_at)} />
             <DetailRow label="Status" value={meta.label} valueClass="text-green-dark" />
-            <DetailRow label="Agreed Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
-            <DetailRow label="Agreed Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
+            <DetailRow label="Price" value={peso(c.negotiated_price_per_kg) + "/kg"} />
+            <DetailRow label="Quantity" value={`${Number(c.contracted_tons).toLocaleString()} tons`} />
             <DetailRow label="Accepted Qty" value={`${(deliveredKg / 1000).toFixed(2)} tons`} valueClass="text-green-dark" />
             <DetailRow label="Remaining Qty" value={`${(remainingKg / 1000).toFixed(2)} tons`} />
             <DetailRow label="Activation Date" value={fmtDate(c.activation_date)} />
             <DetailRow label="Delivery Deadline" value={fmtDate(c.due_date)} />
-            <DetailRow label="Days Left" value={daysLabel(days)} valueClass={days !== null && days < 0 ? "text-red-500" : "text-brown-dark"} />
-            <DetailRow label="Fulfillment" value={`${fulfillment.toFixed(1)}%`} valueClass="text-green-dark" />
+            <DetailRow label="Days Left" value={c.status === "Active" ? daysLabel(days) : "—"} valueClass={c.status === "Active" && days !== null && days < 0 ? "text-red-500" : "text-brown-dark"} />
+            <DetailRow label="Fulfillment" value={`${fmtProgressPct(fulfillment)}%`} valueClass="text-green-dark" />
           </dl>
 
           <div className="mt-6 flex flex-wrap gap-2 border-t border-beige-dark/55 pt-5">
@@ -723,7 +755,7 @@ function batchMoisture(value) {
   return `${Number(value).toLocaleString("en-PH", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 2,
-  })}%`;
+  })}cc`;
 }
 
 function BatchStatusBadge({ status }) {
@@ -880,17 +912,17 @@ function SupplierBatchesModal({ contract, userId, onClose }) {
           ) : (
             <>
               <div className="hidden max-h-[60vh] overflow-auto overscroll-contain rounded-xl border border-beige-dark/50 md:block">
-                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
+                <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-base">
                   <thead>
                     <tr>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Batch</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Date</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-brown-light">Truck</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wide text-brown-light">Moisture</th>
-                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-brown-light">Status</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Batch</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Date</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-brown-light">Truck</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Gross Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Tare Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Net Weight</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-brown-light">Moisture</th>
+                      <th scope="col" className="sticky top-0 z-20 border-b border-beige-dark/50 bg-beige px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-brown-light">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-beige-dark/30">

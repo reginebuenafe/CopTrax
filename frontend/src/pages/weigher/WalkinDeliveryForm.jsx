@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LuTruck, LuArrowLeft, LuUser,
-  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage, LuFlag, LuX,
+  LuCalendar, LuScale, LuCircleAlert, LuCheck, LuPackage, LuFlag,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import ReportCorrectionModal from "../../components/ReportCorrectionModal";
 
 function fmtKg(n) { return Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
@@ -24,23 +25,8 @@ export default function WalkinDeliveryForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
   const [reviewing, setReviewing] = useState(false);
-  const [spotPrice, setSpotPrice] = useState(null);
   const [reportingIssue, setReportingIssue] = useState(false);
-  const [issueNote, setIssueNote] = useState("");
-  const [issueError, setIssueError] = useState("");
   const [issueSaved, setIssueSaved] = useState(false);
-
-  useEffect(() => {
-    async function fetchSpotPrice() {
-      const { data } = await supabase
-        .from("spot_price")
-        .select("price_per_kg")
-        .limit(1)
-        .maybeSingle();
-      if (data?.price_per_kg != null) setSpotPrice(Number(data.price_per_kg));
-    }
-    fetchSpotPrice();
-  }, []);
 
   function set(field) {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
@@ -82,7 +68,6 @@ export default function WalkinDeliveryForm() {
       return;
     }
     const currentSpotPrice = Number(currentSpot.price_per_kg);
-    setSpotPrice(currentSpotPrice);
 
     // 1. Create walk-in supplier
     const { data: walkinSupplier, error: wsErr } = await supabase
@@ -171,23 +156,20 @@ export default function WalkinDeliveryForm() {
     });
   }
 
-  async function submitIssue() {
-    const note = issueNote.trim();
-    if (!note) { setIssueError("Describe the problem before submitting."); return; }
-
-    setIssueError("");
+  async function submitIssue({ note, photo1FileId, photo2FileId }) {
     const { error: reportError } = await supabase.from("delivery_issue_reports").insert({
       delivery_id: success.deliveryId,
       reported_by: user.id,
       issue_note: note,
+      issue_type: "Weight Correction",
+      evidence_photo_1_file_id: photo1FileId,
+      evidence_photo_2_file_id: photo2FileId,
     });
 
     if (reportError) {
-      setIssueError("Could not save the issue report. Please try again.");
-      return;
+      throw new Error("Could not save the issue report. Please try again.");
     }
 
-    setIssueNote("");
     setIssueSaved(true);
     setReportingIssue(false);
   }
@@ -219,14 +201,19 @@ export default function WalkinDeliveryForm() {
               <p className="text-brown-mid font-semibold">Final weight: <span className="font-bold text-green-dark">{fmtKg(success.finalWeight)} kg</span></p>
             </div>
           </div>
-          {issueSaved && <p className="text-sm text-green-dark mb-4">Issue report sent for staff review.</p>}
+          {issueSaved ? (
+            <p className="text-sm text-green-dark mb-4">Issue report sent for Business Owner review.</p>
+          ) : (
+            <button type="button" onClick={() => setReportingIssue(true)}
+              className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800">
+              <LuFlag className="w-4 h-4" /> Report Issue
+            </button>
+          )}
           <div className="flex gap-3">
             <button onClick={() => {
               setSuccess(null);
               setReviewing(false);
               setReportingIssue(false);
-              setIssueNote("");
-              setIssueError("");
               setIssueSaved(false);
               setForm({ supplierName: "", deliveryDate: new Date().toISOString().split("T")[0], weight: "", numSacks: "", condition: "Dry" });
             }}
@@ -238,40 +225,29 @@ export default function WalkinDeliveryForm() {
               View History
             </button>
           </div>
-          <button type="button" onClick={() => setReportingIssue(true)} disabled={issueSaved}
-            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:text-red-800 disabled:opacity-50">
-            <LuFlag className="w-4 h-4" /> Report Issue
-          </button>
         </div>
 
         {reportingIssue && (
-          <div className="fixed inset-0 z-30 flex items-center justify-center bg-brown-dark/40 p-4">
-            <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-brown-dark">Report Issue</h3>
-                <button type="button" onClick={() => setReportingIssue(false)} className="text-brown-light hover:text-brown-dark"><LuX /></button>
-              </div>
-              <p className="text-sm text-brown-light mb-3">Describe any problem with this delivery or weighing entry.</p>
-              <textarea value={issueNote} onChange={e => setIssueNote(e.target.value)} rows={4} maxLength={1000}
-                placeholder="Enter the issue or correction needed..."
-                className="w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid resize-none" />
-              {issueError && <p className="text-sm text-red-700 mt-2">{issueError}</p>}
-              <button type="button" onClick={submitIssue}
-                className="w-full mt-4 py-2.5 rounded-xl bg-red-700 text-white font-semibold text-sm hover:bg-red-800 transition-all">
-                Submit Issue Report
-              </button>
-            </div>
-          </div>
+          <ReportCorrectionModal
+            title="Report Issue — Weight Correction"
+            subtitle="This delivery reference is automatically linked. The recorded weight is not changed here — the Business Owner reviews your evidence and applies the correction."
+            photo1Label="Photo of Correct Weight"
+            photo1Hint="Evidence showing the correct weight from the weighing scale/display."
+            photo2Label="Photo of Paper Receipt"
+            photo2Hint="Paper receipt/slip showing the correct recorded weight."
+            onClose={() => setReportingIssue(false)}
+            onSubmit={submitIssue}
+          />
         )}
       </div>
     );
   }
 
-  const inputClass = `w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
+  const inputClass = `w-full min-w-0 max-w-full px-4 py-2.5 rounded-xl border border-beige-dark bg-white text-brown-dark text-sm
     placeholder-brown-light/50 focus:outline-none focus:ring-2 focus:ring-green-mid/30 focus:border-green-mid transition-all`;
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl min-w-0 mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate("/dashboard/weigher")} className="text-brown-light hover:text-brown-dark transition-colors">
@@ -291,7 +267,7 @@ export default function WalkinDeliveryForm() {
 
       <form onSubmit={handleReview} className="space-y-5">
         {/* Supplier details */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuUser className="w-4 h-4 text-brown-light" /> Supplier Information
           </h3>
@@ -302,7 +278,7 @@ export default function WalkinDeliveryForm() {
         </div>
 
         {/* Delivery details */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuTruck className="w-4 h-4 text-brown-light" /> Delivery Details
           </h3>
@@ -310,22 +286,22 @@ export default function WalkinDeliveryForm() {
             <label className="block text-xs font-medium text-brown-dark mb-1.5">
               <LuCalendar className="inline w-3 h-3 mr-1" /> Delivery Date <span className="text-red-500">*</span>
             </label>
-            <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={inputClass} />
+            <input type="date" required value={form.deliveryDate} onChange={set("deliveryDate")} className={`${inputClass} h-[42px] appearance-none`} />
           </div>
         </div>
 
         {/* Weighing */}
-        <div className="bg-white border border-beige-dark/40 rounded-xl p-5">
+        <div className="min-w-0 bg-white border border-beige-dark/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-brown-dark mb-4 flex items-center gap-2">
             <LuScale className="w-4 h-4 text-brown-light" /> Weighing Record
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Row 1: weight + sacks */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-medium text-brown-dark mb-1.5">Gross Weight (kg) <span className="text-red-500">*</span></label>
               <input type="number" step="0.001" min="0.001" required value={form.weight} onChange={set("weight")} placeholder="0.000" className={inputClass} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-medium text-brown-dark mb-1.5">
                 <LuPackage className="inline w-3 h-3 mr-1" /> No. of Sacks <span className="text-red-500">*</span>
               </label>
@@ -333,7 +309,7 @@ export default function WalkinDeliveryForm() {
             </div>
 
             {/* Row 2: condition + computed breakdown */}
-            <div>
+            <div className="min-w-0">
               <span className="block text-xs font-medium text-brown-dark mb-1.5">Condition <span className="text-red-500">*</span></span>
               <div className="flex items-center gap-4 h-10">
                 {['Dry', 'Wet'].map(condition => (
@@ -346,7 +322,7 @@ export default function WalkinDeliveryForm() {
             </div>
 
             {/* Computed breakdown (read-only) */}
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <div>
                 <label className="block text-xs font-medium text-brown-dark mb-1.5">Net Weight (kg)</label>
                 <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
@@ -363,19 +339,6 @@ export default function WalkinDeliveryForm() {
               </div>
             </div>
 
-            {/* Estimated payout — full width. Uses the spot price fetched on
-                load as a preview only; the actual price locked in at
-                submission time is re-fetched fresh in handleSubmit. */}
-            {spotPrice != null && (
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-brown-dark mb-1.5">Estimated Payout</label>
-                <div className={`${inputClass} bg-beige border-beige-dark text-brown-dark font-semibold`}>
-                  {finalWeight > 0
-                    ? `₱${(finalWeight * spotPrice).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (at ₱${spotPrice.toFixed(2)}/kg spot price)`
-                    : "—"}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

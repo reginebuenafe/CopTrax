@@ -8,7 +8,11 @@
 //
 // This Edge Function does NOT require the caller to be authenticated —
 // it verifies legitimacy by checking that the userId exists in users
-// with account_status = 'Pending Verification'.
+// with account_status = 'Pending' (the actual value the on_auth_user_created
+// trigger/handle_new_auth_user() inserts for every non-Business-Owner role —
+// see migration 20260724000002_functions_triggers.sql. There is no
+// 'Pending Verification' value in account_status_enum; that string was never
+// a real status and caused this check to always fail for brand-new accounts).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateImageDataUrl } from "../_shared/supplier_registration_validation.mjs";
@@ -81,23 +85,23 @@ Deno.serve(async (req) => {
     }
 
     // ── Caller-identity check ─────────────────────────────────────────────────
-    // If the client sent a JWT (which supabase.functions.invoke does when a
-    // session exists), verify that the JWT subject matches the user_id being
-    // submitted. This prevents any other caller from overwriting another user's
-    // profile/documents/bank row by guessing a UUID.
+    // A valid JWT is now mandatory (not merely checked when present): this is the
+    // only real authorization gate on this endpoint, since account_status alone
+    // is guessable/enumerable and must never be trusted as the sole authorizer.
     const authHeader = req.headers.get("Authorization") ?? "";
     const jwtMatch  = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (jwtMatch) {
-      const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
-      if (jwtErr || !jwtUser) {
-        return json({ error: "Invalid or expired authentication token." }, 401);
-      }
-      if (jwtUser.id !== user_id) {
-        return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
-      }
+    if (!jwtMatch) {
+      return json({ error: "Unauthorized: missing authentication token." }, 401);
+    }
+    const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
+    if (jwtErr || !jwtUser) {
+      return json({ error: "Invalid or expired authentication token." }, 401);
+    }
+    if (jwtUser.id !== user_id) {
+      return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -105,13 +109,15 @@ Deno.serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Verify the user exists in public.users AND is still Pending Verification
-    // (prevents overwriting an already-approved or rejected supplier's data)
+    // Verify the user exists in public.users AND is still Pending
+    // (prevents overwriting an already-approved or rejected supplier's data).
+    // 'Pending' is the actual account_status_enum value the signup trigger
+    // inserts — there is no 'Pending Verification' value in the enum.
     const { data: userRow, error: userErr } = await admin
       .from("users")
       .select("user_id, account_status")
       .eq("user_id", user_id)
-      .eq("account_status", "Pending Verification")
+      .eq("account_status", "Pending")
       .single();
 
     if (userErr || !userRow) {
@@ -121,10 +127,10 @@ Deno.serve(async (req) => {
         .from("users")
         .select("user_id, account_status")
         .eq("user_id", user_id)
-        .eq("account_status", "Pending Verification")
+        .eq("account_status", "Pending")
         .single();
       if (retryErr || !retryRow) {
-        return json({ error: "User profile not found or account is not in Pending Verification status. Please try again." }, 404);
+        return json({ error: "User profile not found or account is not in Pending status. Please try again." }, 404);
       }
     }
 

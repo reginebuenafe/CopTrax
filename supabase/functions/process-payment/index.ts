@@ -5,6 +5,7 @@
 // the payment (Released / Failed) once Xendit sends the callback.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { writeAuditLog } from "../_shared/audit_log.ts";
 
 const XENDIT_SECRET_KEY        = Deno.env.get("XENDIT_SECRET_KEY") ?? "";
 const SUPABASE_URL             = Deno.env.get("SUPABASE_URL") ?? "";
@@ -104,19 +105,31 @@ Deno.serve(async (req) => {
       return json({ error: "Payment has already been released." }, 400);
     }
 
-    // Mark as Processing immediately so a second click cannot re-submit
-    const { error: updateErr } = await supabase
+    // Atomically claim Pending or retryable Failed payments. If another
+    // request claims the row first, this update returns no rows.
+    const { data: claimedPayments, error: updateErr } = await supabase
       .from("payments")
       .update({ payment_status: "Processing" })
-      .eq("payment_id", payment_id);
+      .eq("payment_id", payment_id)
+      .in("payment_status", ["Pending", "Failed"])
+      .select("payment_id");
 
     if (updateErr) return json({ error: "Failed to update payment status." }, 500);
+    if (!claimedPayments || claimedPayments.length === 0) {
+      return json({ error: "Payment is already being processed or has been released." }, 409);
+    }
+
+    const supplier = Array.isArray(payment.supplier) ? payment.supplier[0] : payment.supplier;
+    if (!supplier?.user_id) {
+      await supabase.from("payments").update({ payment_status: "Pending" }).eq("payment_id", payment_id);
+      return json({ error: "Payment supplier record is missing." }, 422);
+    }
 
     // Fetch supplier bank account
     const { data: bankAccount } = await supabase
       .from("bank_accounts")
       .select("bank_name, account_name, account_number")
-      .eq("user_id", payment.supplier.user_id)
+      .eq("user_id", supplier.user_id)
       .single();
 
     if (!bankAccount) {
@@ -151,17 +164,26 @@ Deno.serve(async (req) => {
       description: `CopTrax payout – week of ${payment.payment_week}`,
     };
 
-    const xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
-        "Content-Type": "application/json",
-        "idempotency-key": referenceId,
-      },
-      body: JSON.stringify(xenditPayload),
-    });
-
-    const xenditData = await xenditRes.json() as Record<string, unknown>;
+    let xenditRes: Response;
+    let xenditData: Record<string, unknown>;
+    try {
+      xenditRes = await fetch("https://api.xendit.co/v2/payouts", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${btoa(XENDIT_SECRET_KEY + ":")}`,
+          "Content-Type": "application/json",
+          "idempotency-key": referenceId,
+        },
+        body: JSON.stringify(xenditPayload),
+      });
+      xenditData = await xenditRes.json() as Record<string, unknown>;
+    } catch (error) {
+      console.error(`[process-payment] Payout outcome is unknown for payment_id=${payment_id}: ${String(error)}`);
+      return json({
+        processing: true,
+        warning: "The payout response could not be confirmed. This payment remains Processing to prevent a duplicate transfer while awaiting reconciliation.",
+      }, 202);
+    }
 
     if (!xenditRes.ok) {
       // Xendit rejected the request — mark Failed so BO can investigate
@@ -182,11 +204,37 @@ Deno.serve(async (req) => {
     if (payoutRefErr) {
       console.error(`[process-payment] Failed to store xendit_payout_id for payment_id=${payment_id}: ${payoutRefErr.message}`);
       // Do not fail the payout here: webhook can still resolve by reference_id → payment_id.
+      try {
+        await writeAuditLog(supabase, {
+          userId: caller.id,
+          action: "Released payment",
+          entityType: "payments",
+          entityId: payment_id,
+        });
+      } catch (auditErr) {
+        console.error(`[process-payment] Audit log failed for payment_id=${payment_id}:`, auditErr);
+      }
       return json({
         processing: true,
         xendit_payout_id: xenditPayoutId,
         warning: "Payout created but payout reference was not saved locally. Webhook fallback matching will be used.",
       });
+    }
+
+    try {
+      await writeAuditLog(supabase, {
+        userId: caller.id,
+        action: "Released payment",
+        entityType: "payments",
+        entityId: payment_id,
+      });
+    } catch (auditErr) {
+      console.error(`[process-payment] Audit log failed for payment_id=${payment_id}:`, auditErr);
+      return json({
+        processing: true,
+        xendit_payout_id: xenditPayoutId,
+        warning: "Payout was created, but the audit log could not be recorded.",
+      }, 202);
     }
 
     return json({ processing: true, xendit_payout_id: xenditPayoutId });
