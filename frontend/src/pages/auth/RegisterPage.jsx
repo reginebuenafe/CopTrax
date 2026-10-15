@@ -783,7 +783,7 @@ export default function RegisterPage() {
             hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
             preview={govIdPhoto?.dataUrl ?? null}
             accept={REGISTRATION_IMAGE_ACCEPT}
-            formatHint="JPEG (.jpg, .jpeg), PNG (.png), or HEIC (.heic, .heif) · max 10 MB"
+            formatHint="JPEG, PNG, or HEIC · Max 10 MB"
             error={fieldErrors.govIdPhoto}
             onSelect={file => acceptRegistrationPhoto("govIdPhoto", { file })}
             onFile={photo => acceptRegistrationPhoto("govIdPhoto", photo)}

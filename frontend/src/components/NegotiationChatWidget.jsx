@@ -16,6 +16,9 @@ import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
 import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../utils/presenceChannels";
+import TypingIndicator from "./TypingIndicator";
+import { useChatTyping } from "../hooks/useChatTyping";
+import { chatActivityLabel, conversationChatTopic } from "../utils/chatTyping";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -140,6 +143,9 @@ export default function NegotiationChatWidget() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const { activity, humans: typingPeople, assistants: thinkingAssistants } = useChatTyping({
+    conversationId: conversation?.conversation_id, user, profile, aiSenderId: conversation?.business_owner_id,
+  });
   const [proposalActing, setProposalActing] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [businessOwnerId, setBusinessOwnerId] = useState(null); 
@@ -150,7 +156,7 @@ export default function NegotiationChatWidget() {
   const [showContractsModal, setShowContractsModal] = useState(false);
   const [viewContract, setViewContract] = useState(null);
   const [signContract, setSignContract] = useState(null);
-  const messagesEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const knownMessageIdsRef = useRef(new Set());
   // Synchronous guard so a fast double-click can't fire two accept/decline
@@ -169,6 +175,8 @@ export default function NegotiationChatWidget() {
   const counteringProposal = proposalModalState?.type === "counter"
     ? proposalModalState.proposal
     : null;
+
+  useEffect(() => { if (!isOpen) activity.stopTyping(); }, [isOpen, activity]);
 
   useEffect(() => {
     localStorage.setItem("coptrax_chat_widget_open", String(isOpen));
@@ -194,9 +202,10 @@ export default function NegotiationChatWidget() {
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
-    channel.on("presence", { event: "sync" }, syncPresence).subscribe();
+    channel.on("presence", { event: "sync" }, syncPresence)
+      .on("broadcast", { event: "ai_thinking" }, activity.receiveAi).subscribe();
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [activity]);
 
   // Load the shared conversation. Opening the widget creates/opens the row, but
   // BOChatLayout keeps it hidden until a real message or proposal is submitted.
@@ -352,7 +361,7 @@ export default function NegotiationChatWidget() {
     };
 
     const channel = supabase
-      .channel(`chat_widget:${convId}`)
+      .channel(conversationChatTopic(convId))
       .on(
         "postgres_changes",
         {
@@ -362,6 +371,7 @@ export default function NegotiationChatWidget() {
           filter: `conversation_id=eq.${convId}`,
         },
         (payload) => {
+          activity.messageReceived(payload.new);
           if (knownMessageIdsRef.current.has(payload.new.message_id)) return;
           knownMessageIdsRef.current.add(payload.new.message_id);
           if (payload.new.sender_id !== user.id) {
@@ -408,22 +418,33 @@ export default function NegotiationChatWidget() {
         ({ new: updatedConversation }) => {
           setConversation(previous => previous ? { ...previous, ...updatedConversation } : previous);
         },
-      )
-      .subscribe(status => {
-        if (status === "SUBSCRIBED") refreshProposals();
-      });
+      );
+    const unbindTyping = activity.bindChannel(channel);
+    channel.subscribe(status => {
+      activity.channelStatus(status);
+      if (status === "SUBSCRIBED") refreshProposals();
+    });
 
     return () => {
+      unbindTyping();
       supabase.removeChannel(channel);
     };
-  }, [conversation?.conversation_id, user.id]);
+  }, [conversation?.conversation_id, user.id, activity]);
 
   // Auto scroll to latest message
   useEffect(() => {
     if (isOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      const list = scrollContainerRef.current;
+      list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     }
   }, [messages, proposals, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && (typingPeople.length || thinkingAssistants.length)) {
+      const list = scrollContainerRef.current;
+      list?.scrollTo({ top: list.scrollHeight, behavior: "auto" });
+    }
+  }, [isOpen, typingPeople, thinkingAssistants]);
 
   // Helper: Ensure a conversation exists, creating one if needed
   async function ensureConversationExists() {
@@ -489,6 +510,7 @@ export default function NegotiationChatWidget() {
     if (e) e.preventDefault();
     const trimmed = inputText.trim();
     if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
+    activity.stopTyping();
 
     setSending(true);
 
@@ -775,7 +797,7 @@ export default function NegotiationChatWidget() {
         </div>
 
         {/* ── Chat Feed Body ── */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-white">
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3.5 bg-white">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="w-6 h-6 border-2 border-[#2E7D32] border-t-transparent rounded-full animate-spin" />
@@ -1055,7 +1077,26 @@ export default function NegotiationChatWidget() {
               })}
             </>
           )}
-          <div ref={messagesEndRef} />
+          <div className="grid grid-cols-2">
+            {["left", "right"].map(side => {
+              const humans = typingPeople.filter(person => (person.sender_id === user?.id ? "right" : "left") === side);
+              const assistants = thinkingAssistants.filter(person => (person.sender_id === user?.id ? "right" : "left") === side);
+              const namedHumans = humans.map(person => ({ ...person, name: person.sender_id === conversation?.business_owner_id
+                ? [conversation.business_owner?.first_name, conversation.business_owner?.last_name].filter(Boolean).join(" ") || person.name
+                : person.name }));
+              return <div key={side} className="min-w-0">
+                <TypingIndicator side={side} active={!!humans.length}
+                  label={chatActivityLabel(namedHumans, [])} variant="human"
+                  bubbleClassName={side === "right" ? "bg-[#024023] text-white rounded-tr-none shadow-sm"
+                    : "bg-[#FDF7E7] text-brown-dark border border-[#E8DCC8] rounded-tl-none shadow-sm"} />
+                <TypingIndicator side={side} active={!!assistants.length}
+                label={chatActivityLabel([], assistants)} variant={assistants.length ? "ai" : "human"}
+                bubbleClassName={side === "right" ? "bg-[#024023] text-white rounded-tr-none shadow-sm"
+                  : "bg-[#FDF7E7] text-brown-dark border border-[#E8DCC8] rounded-tl-none shadow-sm"} />
+              </div>;
+            })}
+          </div>
+          <div />
         </div>
 
         {/* ── Footer Controls ── */}
@@ -1105,7 +1146,8 @@ export default function NegotiationChatWidget() {
             <input
               type="text"
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => { setInputText(e.target.value); activity.inputChanged(e.target.value); }}
+              onBlur={activity.stopTyping}
               placeholder="Type your message here..."
               maxLength={MAX_MESSAGE_LENGTH}
               className="flex-1 bg-transparent text-xs text-brown-dark placeholder-[#8D6E63] focus:outline-none"

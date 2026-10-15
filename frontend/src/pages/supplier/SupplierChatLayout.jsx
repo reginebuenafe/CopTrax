@@ -14,6 +14,9 @@ import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import { invokeAiFaq } from "../../utils/aiFaq";
+import TypingIndicator from "../../components/TypingIndicator";
+import { useChatTyping } from "../../hooks/useChatTyping";
+import { chatActivityLabel, conversationChatTopic } from "../../utils/chatTyping";
 import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
 import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
 
@@ -216,6 +219,9 @@ export default function SupplierChatLayout() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const { activity, humans: typingPeople, assistants: thinkingAssistants } = useChatTyping({
+    conversationId, user, profile, aiSenderId: currentConv?.business_owner_id,
+  });
   const [proposalActing, setProposalActing] = useState(false);
   const {
     modalState: proposalModalState,
@@ -318,9 +324,10 @@ export default function SupplierChatLayout() {
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
-    channel.on("presence", { event: "sync" }, syncPresence).subscribe();
+    channel.on("presence", { event: "sync" }, syncPresence)
+      .on("broadcast", { event: "ai_thinking" }, activity.receiveAi).subscribe();
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [activity]);
 
   // ── Load conversations ────────────────────────────────────────────────────
   // ── Load chat ─────────────────────────────────────────────────────────────
@@ -369,11 +376,12 @@ export default function SupplierChatLayout() {
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
-    const channel = supabase.channel(`sup-chat:${conversationId}`)
+    const channel = supabase.channel(conversationChatTopic(conversationId))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
         payload => {
           const m = payload.new;
           if (!m || m.conversation_id !== conversationId) return; // belt-and-suspenders guard
+          activity.messageReceived(m);
           setMessages(prev =>
             prev.some(x => x.message_id === m.message_id) ? prev : [...prev, m]);
           // Belt-and-suspenders: when the BO inserts a Contract Form message (acceptance,
@@ -393,10 +401,11 @@ export default function SupplierChatLayout() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
         () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations", filter: `conversation_id=eq.${conversationId}` },
-        ({ new: updated }) => setCurrentConv(prev => prev ? { ...prev, ...updated } : updated))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [conversationId, user.id]);
+        ({ new: updated }) => setCurrentConv(prev => prev ? { ...prev, ...updated } : updated));
+    const unbindTyping = activity.bindChannel(channel);
+    channel.subscribe(activity.channelStatus);
+    return () => { unbindTyping(); supabase.removeChannel(channel); };
+  }, [conversationId, user.id, activity]);
 
   // Scroll to bottom when initial load completes (covers conversation open & switch)
   useEffect(() => {
@@ -428,6 +437,12 @@ export default function SupplierChatLayout() {
     const el = scrollContainerRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!typingPeople.length && !thinkingAssistants.length) return;
+    const el = scrollContainerRef.current;
+    el?.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, [typingPeople, thinkingAssistants]);
 
   // ── Proposal logic ────────────────────────────────────────────────────────
   const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
@@ -534,6 +549,7 @@ export default function SupplierChatLayout() {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
+    activity.stopTyping();
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: trimmed,
@@ -762,6 +778,25 @@ export default function SupplierChatLayout() {
 
 
 
+              <div className="grid grid-cols-2 px-1 sm:px-4">
+                {["left", "right"].map(side => {
+                  const humans = typingPeople.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const assistants = thinkingAssistants.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const namedHumans = humans.map(person => ({ ...person, name: person.sender_id === currentConv?.business_owner_id
+                    ? [currentConv.business_owner?.first_name, currentConv.business_owner?.last_name].filter(Boolean).join(" ") || person.name
+                    : person.name }));
+                  return <div key={side} className="min-w-0">
+                    <TypingIndicator side={side} active={!!humans.length}
+                      label={chatActivityLabel(namedHumans, [])} variant="human"
+                      bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                        : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                    <TypingIndicator side={side} active={!!assistants.length}
+                    label={chatActivityLabel([], assistants)} variant={assistants.length ? "ai" : "human"}
+                    bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                      : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                  </div>;
+                })}
+              </div>
               <div ref={bottomRef} />
             </div>
 
@@ -775,7 +810,7 @@ export default function SupplierChatLayout() {
                   </button>
                 )}
                 {SUPPLIER_QUICK_SUGGESTIONS.map((suggestion) => (
-                  <button key={suggestion} type="button" onClick={() => setText(suggestion)}
+                  <button key={suggestion} type="button" onClick={() => { setText(suggestion); activity.inputChanged(suggestion); }}
                     className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-1.5 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]">
                     {suggestion}
                   </button>
@@ -786,7 +821,8 @@ export default function SupplierChatLayout() {
             {/* Message input — always available when a conversation exists */}
             {currentConv && (
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
-                <input type="text" value={text} onChange={e => setText(e.target.value)}
+                <input type="text" value={text} onChange={e => { setText(e.target.value); activity.inputChanged(e.target.value); }}
+                  onBlur={activity.stopTyping}
                   placeholder="Message NERC Copra Trading…"
                   maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none" />
