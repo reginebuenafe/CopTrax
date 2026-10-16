@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import {
   LuFileText, LuCheck, LuX,
@@ -53,6 +54,8 @@ function fmtProgressPct(value) {
 
 export default function BOContractsPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [contracts, setContracts] = useState([]);
   const [filter, setFilter] = useState("All");
   const [pendingSubfilter, setPendingSubfilter] = useState("all");
@@ -67,8 +70,18 @@ export default function BOContractsPage() {
   const [successMsg, setSuccessMsg]         = useState(null); // success overlay after generation
   const [pdfModal, setPdfModal]             = useState(null); // { url, contractNumber, supplierName }
   const [batchesModal, setBatchesModal]     = useState(null); // contract object
-  const [pendingPanelOpen, setPendingPanelOpen] = useState(false); // right-side "all pending contracts" panel
+  const [pendingPanelOpen, setPendingPanelOpen] = useState(() => location.state?.openPendingContracts === true); // right-side "all pending contracts" panel
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (location.state?.openPendingContracts !== true) return;
+    // Consume only this instruction; refresh and history traversal stay closed.
+    const nextState = { ...location.state };
+    delete nextState.openPendingContracts;
+    navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, {
+      replace: true, state: Object.keys(nextState).length ? nextState : null,
+    });
+  }, [location, navigate]);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });

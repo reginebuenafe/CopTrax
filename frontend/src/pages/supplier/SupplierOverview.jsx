@@ -7,6 +7,8 @@ import {
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
+import { useIsFirstTimeSupplier } from "../../hooks/useIsFirstTimeSupplier";
+import { FirstTimePricingNotice } from "../../components/FirstTimePricingNotice";
 
 function StatCard({ label, value, sub, onClick }) {
   return (
@@ -28,6 +30,7 @@ function peso(n) {
 
 export default function SupplierOverview() {
   const { user, profile } = useAuth();
+  const pricing = useIsFirstTimeSupplier(user?.id);
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [spotPrice, setSpotPrice] = useState(null);
@@ -145,6 +148,8 @@ export default function SupplierOverview() {
           </div>
         </div>
       </div>
+
+      {pricing.isFirstTimeSupplier && <FirstTimePricingNotice dashboard userId={user.id} />}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">

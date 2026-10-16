@@ -22,6 +22,27 @@ CLI (or root `.env`) and in the Edge Function environment passed to
 stack to apply `config.toml`. Do not commit secrets. The hook authenticates its
 requests through Standard Webhooks, then checks a short-lived server-signed
 validation proof for Supplier signups. Other roles keep their existing checks.
+
+If CLI commands (including `supabase db dump`) report
+`auth.hook.before_user_created.secrets must be formatted as ...`, the CLI
+environment is missing a valid `SUPPLIER_SIGNUP_HOOK_SECRET`. The frontend's
+`.env` and hosted Edge Function secrets do not populate the local CLI environment.
+For local development, generate a 32-byte signing secret in PowerShell:
+
+```powershell
+$hookBytes = New-Object byte[] 32
+$hookRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $hookRng.GetBytes($hookBytes) } finally { $hookRng.Dispose() }
+$env:SUPPLIER_SIGNUP_HOOK_SECRET = 'v1,whsec_' + [Convert]::ToBase64String($hookBytes)
+```
+
+Persist that value as `SUPPLIER_SIGNUP_HOOK_SECRET=...` in the repository-root
+`.env` (already Git-ignored) to use it in later terminals. Use the same local
+value for Auth and the function, for example
+`supabase functions serve --env-file .env` from the repository root. Keep it
+local; the hosted Auth hook and hosted Edge Function must share the signing
+secret generated in the hosted dashboard instead.
+
 Until the hook is enabled in the hosted project, direct calls to Supabase Auth
 can bypass the new credential gateway. Deploy the function before enabling it.
 

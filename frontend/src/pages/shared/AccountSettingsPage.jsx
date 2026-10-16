@@ -262,7 +262,7 @@ export default function AccountSettingsPage() {
       {/* Bank & signature sections — different for each role */}
       {(isSupplier || isBO) && (
         <>
-          <BankAccountSection showToast={showToast} />
+          <BankAccountSection showToast={showToast} active={activeTab === "Account"} />
           <SignatureSection showToast={showToast} />
         </>
       )}
@@ -359,9 +359,9 @@ export default function AccountSettingsPage() {
    BANK ACCOUNT SECTION — editable by both Supplier and BO
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function BankAccountSection({ showToast }) {
+function BankAccountSection({ showToast, active }) {
   const { user } = useAuth();
-  useSensitiveSessionTimeout(true);
+  useSensitiveSessionTimeout(active);
   const [loading, setLoading] = useState(true);
   const [form, setForm]       = useState({ bank_name: "", account_name: "", account_number: "" });
   const [saving, setSaving]   = useState(false);

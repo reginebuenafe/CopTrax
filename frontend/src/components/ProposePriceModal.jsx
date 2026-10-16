@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { LuCoins, LuX, LuPackage, LuTrendingUp } from "react-icons/lu";
 import { supabase } from "../lib/supabase";
+import { useIsFirstTimeSupplier } from "../hooks/useIsFirstTimeSupplier";
+import { FIRST_TIME_COUNTER_MESSAGE } from "../utils/supplierPricing";
 
 export default function ProposePriceModal({
   conversationId,
@@ -13,6 +15,10 @@ export default function ProposePriceModal({
   onClose,
   onSubmitted,
 }) {
+  const supplierSubmission = Boolean(userId && (!supplierId || supplierId === userId));
+  const pricing = useIsFirstTimeSupplier(supplierSubmission ? userId : null);
+  const counterSubmission = isCounter || supersedesId != null;
+  const canSubmit = counterSubmission ? pricing.canCounter : pricing.canSubmitProposal;
   const draftStorageKey = useMemo(() => [
     "coptrax-proposal-draft-v2",
     userId ?? "anonymous",
@@ -72,6 +78,15 @@ export default function ProposePriceModal({
 
     setSubmitting(true);
 
+    if (supplierSubmission) {
+      const eligibility = await pricing.refresh({ silent: true });
+      if (eligibility.loading || eligibility.error || eligibility.count === null || (counterSubmission && eligibility.count === 0)) {
+        setError(counterSubmission && eligibility.count === 0 ? FIRST_TIME_COUNTER_MESSAGE : "Contract history could not be verified. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+    }
+
     const { error: err } = await supabase.from("proposal_forms").insert({
       conversation_id: conversationId,
       supplier_id: supplierId ?? userId,
@@ -96,6 +111,18 @@ export default function ProposePriceModal({
     sessionStorage.removeItem(draftStorageKey);
     onSubmitted(msg);
   }
+
+  if (supplierSubmission && !canSubmit) return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+      <div role="dialog" aria-label="Pricing information" className="bg-white rounded-3xl shadow-card-hover w-full max-w-sm p-7">
+        <h3 className="text-lg font-bold text-brown-dark mb-3">Pricing information</h3>
+        <p role="status" className="text-sm text-brown-mid">
+          {pricing.loading ? "Checking pricing eligibility…" : pricing.isFirstTimeSupplier && counterSubmission ? FIRST_TIME_COUNTER_MESSAGE : "Contract history could not be verified. Please reopen to try again."}
+        </p>
+        <button type="button" onClick={clearDraftAndClose} className="mt-5 w-full rounded-xl bg-green-pale py-2.5 text-sm font-semibold text-green-dark">Close</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4">

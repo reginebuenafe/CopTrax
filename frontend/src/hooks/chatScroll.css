@@ -1,0 +1,26 @@
+/* Scoped to the three negotiation threads; other chat views keep their layout. */
+[data-chat-scroll] { position: relative; }
+[data-chat-scroll] [data-chat-typing] {
+  margin-top: 0 !important;
+  padding-top: 0;
+  transition: padding-top 150ms ease;
+}
+[data-chat-scroll] [data-chat-typing]:has(.chat-typing-slot[data-active="true"]) {
+  padding-top: var(--chat-message-gap, .25rem);
+}
+[data-chat-scroll] .chat-typing-slot {
+  height: auto;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 150ms ease;
+}
+[data-chat-scroll] .chat-typing-slot[data-active="true"] { max-height: 80px; }
+[data-chat-scroll] [data-chat-end] {
+  height: 0;
+  margin: 0 !important;
+  padding: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-chat-scroll] [data-chat-typing],
+  [data-chat-scroll] .chat-typing-slot { transition: none; }
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { cloneElement, useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   LuX, LuSend, LuFileText,
@@ -11,7 +11,9 @@ import ProposePriceModal from "./ProposePriceModal";
 import ContractDocumentModal from "./ContractDocumentModal";
 import SupplierContractReviewModal from "./SupplierContractReviewModal";
 import MoistureContentTable from "./MoistureContentTable";
-import { actionableProposalIndex, isProposalSubmissionMessage, uniqueContractCardMessages } from "../utils/negotiationMessages";
+import { actionableProposalIndex } from "../utils/negotiationMessages";
+import { proposalHistoryItems } from "../utils/proposalHistory";
+import ProposalHistoryLine from "./ProposalHistoryLine";
 import { invokeAiFaq } from "../utils/aiFaq";
 import { formatMessageText } from "../utils/formatMessageText";
 import { usePersistentProposalModal } from "../hooks/usePersistentProposalModal";
@@ -19,6 +21,10 @@ import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../utils/presenceChannels";
 import TypingIndicator from "./TypingIndicator";
 import { useChatTyping } from "../hooks/useChatTyping";
 import { chatActivityLabel, conversationChatTopic } from "../utils/chatTyping";
+import { useIsFirstTimeSupplier } from "../hooks/useIsFirstTimeSupplier";
+import { FirstTimePricingNotice, SpotPriceBasis } from "./FirstTimePricingNotice";
+import { FIRST_TIME_OFFER_MESSAGE, FIRST_TIME_COUNTER_MESSAGE } from "../utils/supplierPricing";
+import { useChatEntryScroll } from "../hooks/useChatEntryScroll";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -51,85 +57,6 @@ function AiBadge({ className = "" }) {
   );
 }
 
-function getSupplierProposalEvent(message = "", isMine = false) {
-  const rawMessage = message.trim();
-
-  const decision = rawMessage.match(
-    /^Proposal (accepted|rejected):\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
-  );
-  if (decision) {
-    const action = decision[1].toLowerCase();
-    return {
-      tone: action === "accepted" ? "accepted" : "rejected",
-      text: `NERC Copra Trading ${action} your proposal of ₱${decision[2]}/kg for ${decision[3]} tons.`,
-    };
-  }
-
-  const counterDecision = rawMessage.match(
-    /^Counteroffer (accepted|rejected):\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
-  );
-  if (counterDecision) {
-    const action = counterDecision[1].toLowerCase();
-    return {
-      tone: action === "accepted" ? "accepted" : "rejected",
-      text: `You ${action} NERC Copra Trading's counteroffer of ₱${counterDecision[2]}/kg for ${counterDecision[3]} tons.`,
-    };
-  }
-
-  const legacyAcceptedCounter = rawMessage.match(
-    /^✅\s*Counteroffer accepted:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
-  );
-  if (legacyAcceptedCounter) {
-    return {
-      tone: "accepted",
-      text: `You accepted NERC Copra Trading's counteroffer of ₱${legacyAcceptedCounter[1]}/kg for ${legacyAcceptedCounter[2]} tons.`,
-    };
-  }
-
-  if (/^❌\s*Counteroffer declined\.?$/i.test(rawMessage)) {
-    return {
-      tone: "rejected",
-      text: "You rejected NERC Copra Trading's counteroffer.",
-    };
-  }
-
-  if (
-    /^You accepted .+['’]s proposal form\./i.test(rawMessage)
-    || /^NERC accepted your proposal form\./i.test(rawMessage)
-  ) {
-    return {
-      tone: "accepted",
-      text: rawMessage.replace(
-        /^(?:You accepted .+['’]s proposal form|NERC accepted your proposal form)\./i,
-        "NERC accepted your proposal form.",
-      ),
-    };
-  }
-
-  const rejected = rawMessage.match(
-    /^❌\s*Proposal declined:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
-  );
-
-  if (rejected && !isMine) {
-    return {
-      tone: "rejected",
-      text: `NERC rejected your proposal form.\nPrice: ₱${rejected[1]}/kg Volume: ${rejected[2]} tons`,
-    };
-  }
-
-  const counteroffer = rawMessage.match(
-    /^🔄\s*Counteroffer:\s*₱?([\d,.]+)\/kg for ([\d,.]+) tons\.?$/i,
-  );
-  if (counteroffer && !isMine) {
-    return {
-      tone: "counteroffer",
-      text: `NERC sent you a counteroffer.\nPrice: ₱${counteroffer[1]}/kg Volume: ${counteroffer[2]} tons`,
-    };
-  }
-
-  return null;
-}
-
 export default function NegotiationChatWidget() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
@@ -138,6 +65,8 @@ export default function NegotiationChatWidget() {
     return localStorage.getItem("coptrax_chat_widget_open") === "true";
   });
   const [conversation, setConversation] = useState(null);
+  const pricing = useIsFirstTimeSupplier(user?.id, { refreshKey: isOpen });
+  const { refresh: refreshPricing } = pricing;
   const [messages, setMessages] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [inputText, setInputText] = useState("");
@@ -164,14 +93,21 @@ export default function NegotiationChatWidget() {
   const proposalActingRef = useRef(false);
   const {
     modalState: proposalModalState,
-    openPropose,
-    openCounter,
+    openPropose: persistOpenPropose,
+    openCounter: persistOpenCounter,
     clearModal: clearProposalModal,
   } = usePersistentProposalModal({
     storageKey: `coptrax:proposal-modal:widget:${user?.id ?? "anonymous"}`,
     conversationId: conversation?.conversation_id,
   });
   const showProposeModal = Boolean(proposalModalState);
+  const openPropose = targetConversationId => { if (pricing.canSubmitProposal) persistOpenPropose(targetConversationId); };
+  const openCounter = proposal => { if (pricing.canCounter) persistOpenCounter(proposal); };
+  useEffect(() => {
+    if (!pricing.isFirstTimeSupplier || proposalModalState?.type !== "counter") return;
+    const timer = window.setTimeout(clearProposalModal, 0);
+    return () => window.clearTimeout(timer);
+  }, [pricing.isFirstTimeSupplier, proposalModalState, clearProposalModal]);
   const counteringProposal = proposalModalState?.type === "counter"
     ? proposalModalState.proposal
     : null;
@@ -328,7 +264,7 @@ export default function NegotiationChatWidget() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "contracts", filter: `supplier_id=eq.${user.id}` },
-        () => { refreshActiveContracts(); refreshAllContracts(); },
+        () => { refreshActiveContracts(); refreshAllContracts(); refreshPricing(); },
       )
       .subscribe();
 
@@ -336,7 +272,7 @@ export default function NegotiationChatWidget() {
       mounted = false;
       supabase.removeChannel(contractsChannel);
     };
-  }, [user?.id]);
+  }, [user?.id, refreshPricing]);
 
   // Subscribe to realtime messages & proposals when active conversation is ready
   useEffect(() => {
@@ -431,21 +367,6 @@ export default function NegotiationChatWidget() {
     };
   }, [conversation?.conversation_id, user.id, activity]);
 
-  // Auto scroll to latest message
-  useEffect(() => {
-    if (isOpen) {
-      const list = scrollContainerRef.current;
-      list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
-    }
-  }, [messages, proposals, isOpen]);
-
-  useEffect(() => {
-    if (isOpen && (typingPeople.length || thinkingAssistants.length)) {
-      const list = scrollContainerRef.current;
-      list?.scrollTo({ top: list.scrollHeight, behavior: "auto" });
-    }
-  }, [isOpen, typingPeople, thinkingAssistants]);
-
   // Helper: Ensure a conversation exists, creating one if needed
   async function ensureConversationExists() {
     if (conversation?.conversation_id) {
@@ -511,7 +432,7 @@ export default function NegotiationChatWidget() {
     const trimmed = inputText.trim();
     if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
     activity.stopTyping();
-
+    resumeFollowing();
     setSending(true);
 
     // Ensure conversation exists before sending message
@@ -685,12 +606,6 @@ export default function NegotiationChatWidget() {
     });
   }
 
-  const boName = conversation?.business_owner
-    ? `${conversation.business_owner.first_name} ${conversation.business_owner.last_name}`
-    : "NERC Copra Trading";
-
-  // ── Latest-proposal logic (matches SupplierChatLayout exactly) ───────────
-  // Only the most-recent non-resolved proposal triggers action buttons.
   const latestProposalIndex = actionableProposalIndex(proposals, conversation?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // submitted_by (migration 025+) is authoritative; fall back to index parity for legacy rows.
@@ -701,29 +616,18 @@ export default function NegotiationChatWidget() {
     : false;
 
   // ── Propose eligibility (matches SupplierChatLayout: max 3 Active contracts) ─
-  const canPropose = activeContracts.length < 3;
-  // Merge messages and proposal cards chronologically for chat feed display.
-  // Only the single authoritative "latest actionable" proposal (computed
-  // above) is ever pushed here — guarding by proposal_id (not just status)
-  // guarantees exactly one card can ever render, even if two rows are
-  // transiently both "Pending" in the DB for a moment (e.g. right after a
-  // counteroffer is inserted but before the superseded row's status update
-  // lands) — preventing any duplicate card rendering.
-  const combinedItems = [];
-  uniqueContractCardMessages(messages).forEach((m) => {
-    combinedItems.push({ type: "message", date: new Date(m.sent_at), data: m });
+  const canPropose = pricing.canSubmitProposal && activeContracts.length < 3;
+  const proposalDisabledReason = pricing.loading
+    ? "Checking pricing eligibility…"
+    : !pricing.canSubmitProposal ? "Contract history could not be verified. Reopen the chat to try again."
+    : activeContracts.length >= 3 ? "You already have 3 Active contracts. Complete or wait for one to finish before proposing again."
+    : "Submit a price proposal to NERC Copra Trading";
+  const combinedItems = proposalHistoryItems({ messages, proposals, supplierId: user?.id });
+  const latestEntryKey = combinedItems.at(-1)?.key ?? null;
+  const { resumeFollowing, contentRef, bottomRef } = useChatEntryScroll({
+    containerRef: scrollContainerRef, conversationKey: conversation?.conversation_id,
+    latestEntryKey, enabled: isOpen && !loading,
   });
-  proposals.forEach((p, proposalIndex) => {
-    if (!latestProposal || p.proposal_id !== latestProposal.proposal_id) return;
-    if (p.proposal_status !== "Pending") return;
-    combinedItems.push({
-      type: "proposal",
-      date: new Date(p.submitted_at),
-      data: p,
-      proposalIndex,
-    });
-  });
-  combinedItems.sort((a, b) => a.date - b.date);
 
   // Quick response suggestions
   const quickSuggestions = [
@@ -738,8 +642,8 @@ export default function NegotiationChatWidget() {
   return (
     <>
       <div
-        className={`fixed bottom-6 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[380px] h-[580px] max-h-[calc(100vh-4rem)]
-          bg-white rounded-3xl border border-[#55B968] flex flex-col overflow-hidden
+        className={`fixed bottom-6 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[380px] h-[580px] max-h-[calc(100dvh-4rem)]
+          bg-white rounded-3xl border border-[#55B968] flex flex-col overflow-clip
           shadow-[0_0_0_2px_rgba(46,125,50,0.12),0_0_28px_rgba(46,125,50,0.32),0_22px_55px_rgba(50,38,24,0.22)]
           transition-all duration-300 ease-out origin-bottom-right
           ${isOpen
@@ -796,8 +700,12 @@ export default function NegotiationChatWidget() {
           </div>
         </div>
 
+        {pricing.loading && <p role="status" className="shrink-0 px-4 py-2 text-xs text-brown-light">Checking pricing eligibility…</p>}
+        {pricing.error && <p role="status" className="shrink-0 px-4 py-2 text-xs text-brown-mid">Contract history could not be verified. Reopen the chat to try again.</p>}
+        {pricing.isFirstTimeSupplier && <FirstTimePricingNotice userId={user.id} />}
         {/* ── Chat Feed Body ── */}
-        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3.5 bg-white">
+        <div ref={scrollContainerRef} data-chat-scroll className="flex-1 min-h-0 overflow-y-auto p-4 bg-white [overflow-anchor:none] [--chat-message-gap:0.875rem]">
+          <div ref={contentRef} data-chat-content className="flow-root space-y-3.5">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="w-6 h-6 border-2 border-[#2E7D32] border-t-transparent rounded-full animate-spin" />
@@ -822,11 +730,14 @@ export default function NegotiationChatWidget() {
                   Send First Message
                 </button>
                 <button
+                  type="button"
+                  disabled={!canPropose}
+                  title={proposalDisabledReason}
                   onClick={async () => {
                     const conv = await ensureConversationExists();
                     if (conv) openPropose(conv.conversation_id);
                   }}
-                  className="text-[11px] w-full px-3 py-2 rounded-lg bg-green-50 text-green-700 font-medium hover:bg-green-100 transition-colors"
+                  className="text-[11px] w-full px-3 py-2 rounded-lg bg-green-50 text-green-700 font-medium hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Submit Price Proposal
                 </button>
@@ -842,28 +753,13 @@ export default function NegotiationChatWidget() {
               </div>
 
               {combinedItems.map((item, idx) => {
+                if (item.type === "history") {
+                  return <div key={item.key}><ProposalHistoryLine {...item.history} /></div>;
+                }
                 if (item.type === "message") {
                   const m = item.data;
                   const isMe = m.sender_id === user?.id;
                   const rawMessage = m.message_text?.trimStart() ?? "";
-                  if (isProposalSubmissionMessage(rawMessage)) return null;
-                  const proposalEvent = getSupplierProposalEvent(rawMessage, isMe);
-
-                  if (proposalEvent) {
-                    const eventColor = proposalEvent.tone === "accepted"
-                      ? "text-[#17682D]"
-                      : proposalEvent.tone === "rejected"
-                        ? "text-[#C62828]"
-                        : "text-[#2563EB]";
-                    return (
-                      <div key={m.message_id || idx} className="flex justify-center px-3 py-2">
-                        <p className={`max-w-[90%] whitespace-pre-line text-center text-xs italic leading-relaxed ${eventColor}`}>
-                          {proposalEvent.text}
-                        </p>
-                      </div>
-                    );
-                  }
-
                   if (rawMessage.startsWith("CONTRACT_CARD:")) {
                     try {
                       const contract = JSON.parse(rawMessage.replace(/^CONTRACT_CARD:\s*/, ""));
@@ -984,21 +880,11 @@ export default function NegotiationChatWidget() {
                   const isMine = p.submitted_by
                     ? p.submitted_by === user?.id
                     : item.proposalIndex % 2 === 0;
-                  // Offer-history label — states exactly who made THIS offer,
-                  // the action (proposed vs. counteroffered), and its actual
-                  // price/volume, replacing the old vague "edited your
-                  // proposal form" note. Display-only; does not affect who
-                  // may act on the card or any negotiation state.
-                  const offerHistoryText = `${isMine ? "You" : boName} ${
-                    p.supersedes_proposal_id ? "counteroffered" : "proposed"
-                  }: ₱${Number(p.proposed_price_per_kg).toFixed(2)}/kg for ${p.proposed_volume_tons} tons`;
-
                   return (
                     <div key={p.proposal_id || idx} className="my-2 flex flex-col items-center px-1">
-                      <p className="text-[11px] italic text-[#2E7D32] text-center mb-1.5 font-medium">
-                        {offerHistoryText}
-                      </p>
-                      <div className="w-[92%] overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
+                      <ProposalHistoryLine {...item.history} />
+                      {item.decision && <ProposalHistoryLine {...item.decision} />}
+                      {p.proposal_id === latestProposal?.proposal_id && <div className="w-[92%] overflow-hidden rounded-2xl border border-[#2E7D32] bg-[#FFFEFB] shadow-sm">
                         {/* Card Header */}
                         <div className="flex items-center gap-2 border-b border-[#B7DDBD] bg-[#EAF6EC] px-3.5 py-3 text-[10px] font-extrabold uppercase text-[#17682D]">
                           {isMine ? (
@@ -1019,6 +905,7 @@ export default function NegotiationChatWidget() {
 
                         {/* Card Fields */}
                         <div className="space-y-2 px-3.5 py-3 text-xs">
+                          {!isMine && pricing.isFirstTimeSupplier && <SpotPriceBasis spotPrice={pricing.spotPrice} offerPrice={p.proposed_price_per_kg} />}
                           <div className="flex items-center justify-between">
                             <span className="text-brown-light font-medium">Proposed Price</span>
                             <span className="font-extrabold text-brown-dark text-sm">
@@ -1060,8 +947,9 @@ export default function NegotiationChatWidget() {
                               className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#E8F0E5] py-2 text-[10px] font-semibold text-[#2D5A27] hover:bg-[#D4E5CF]">
                               <LuCheck className="h-3 w-3" /> Accept
                             </button>
-                            <button type="button" onClick={() => openCounter(p)}
-                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-2 text-[10px] font-semibold text-[#5C4A32] hover:bg-[#EBE5D5]">
+                            <button type="button" onClick={() => openCounter(p)} disabled={!pricing.canCounter}
+                              title={pricing.isFirstTimeSupplier ? FIRST_TIME_COUNTER_MESSAGE : "Send a counteroffer"}
+                              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#F5F0E8] py-2 text-[10px] font-semibold text-[#5C4A32] hover:bg-[#EBE5D5] disabled:opacity-50 disabled:cursor-not-allowed">
                               <LuPencil className="h-3 w-3" /> Counter
                             </button>
                             <button type="button" onClick={() => rejectCounteroffer(p)}
@@ -1070,14 +958,17 @@ export default function NegotiationChatWidget() {
                             </button>
                           </div>
                         )}
-                      </div>
+                        {!isMine && pricing.isFirstTimeSupplier && <p className="px-3.5 pb-3 text-xs leading-relaxed text-brown-mid">{FIRST_TIME_OFFER_MESSAGE}</p>}
+                      </div>}
                     </div>
                   );
                 }
-              })}
+              }).map((element, index) => element && cloneElement(element, {
+                "data-chat-entry": combinedItems[index].key,
+              }))}
             </>
           )}
-          <div className="grid grid-cols-2">
+          <div data-chat-typing className="grid grid-cols-2">
             {["left", "right"].map(side => {
               const humans = typingPeople.filter(person => (person.sender_id === user?.id ? "right" : "left") === side);
               const assistants = thinkingAssistants.filter(person => (person.sender_id === user?.id ? "right" : "left") === side);
@@ -1096,7 +987,8 @@ export default function NegotiationChatWidget() {
               </div>;
             })}
           </div>
-          <div />
+          <div ref={bottomRef} data-chat-end aria-hidden="true" />
+          </div>
         </div>
 
         {/* ── Footer Controls ── */}
@@ -1119,8 +1011,9 @@ export default function NegotiationChatWidget() {
 
           {/* Prominent Submit Price Proposal Button */}
           <button
+            type="button"
             disabled={!canPropose}
-            title={!canPropose ? "You already have 3 Active contracts. Complete or wait for one to finish before proposing again." : "Submit a price proposal to NERC Copra Trading"}
+            title={proposalDisabledReason}
             onClick={async () => {
               if (!canPropose) return;
               const conv = await ensureConversationExists();
@@ -1134,7 +1027,7 @@ export default function NegotiationChatWidget() {
               rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all duration-200 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <LuFileText className="w-4.5 h-4.5 text-white" />
-            {!canPropose ? "3 Active Contracts (Limit Reached)" : "Submit Price Proposal"}
+            Submit Price Proposal
           </button>
 
           {/* Rounded Input Bar */}
@@ -1259,7 +1152,7 @@ export default function NegotiationChatWidget() {
         </div>
       )}
 
-      {showProposeModal && conversation?.conversation_id && canPropose && (
+      {(counteringProposal ? pricing.canCounter : pricing.canSubmitProposal) && showProposeModal && conversation?.conversation_id && canPropose && (
         <ProposePriceModal
           conversationId={conversation.conversation_id}
           userId={user.id}

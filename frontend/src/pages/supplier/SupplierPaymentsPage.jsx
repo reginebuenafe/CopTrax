@@ -21,7 +21,7 @@ function fmtDate(d) {
 const STATUS_META = {
   Pending:    { color: "bg-amber-50 text-amber-700",  icon: LuClock,  label: "Pending" },
   Processing: { color: "bg-blue-50 text-blue-600",    icon: LuLoader, label: "Processing" },
-  Released:   { color: "bg-green-pale text-green-dark", icon: LuCheck, label: "Released" },
+  Released:   { color: "bg-green-pale text-green-dark", icon: LuCheck, label: "Completed" },
   Failed:     { color: "bg-red-50 text-red-600",       icon: LuX,    label: "Failed" },
 };
 
@@ -54,7 +54,10 @@ export default function SupplierPaymentsPage() {
             net_weight_kg, final_weight_kg,
             moisture_content_pct, price_type, price_per_kg_used,
             moisture_deduction_kg, pca_discount_amount, line_amount,
-            delivery:delivery_id(weigher:weigher_id(first_name, last_name))
+            delivery:delivery_id(
+              batch_number, contract_id, contract:contract_id(contract_number),
+              weigher:weigher_id(first_name, last_name)
+            )
           ),
           e_receipts(receipt_number, generated_at)
         `)
@@ -95,7 +98,7 @@ export default function SupplierPaymentsPage() {
           </div>
           <div className="bg-white border border-beige-dark/40 rounded-xl px-5 py-4">
             <p className="text-2xl font-bold text-amber-600 leading-none">{peso(totalPending)}</p>
-            <p className="text-xs text-brown-light mt-1.5 leading-snug">Pending</p>
+            <p className="text-xs text-brown-light mt-1.5 leading-snug">Amount to receive</p>
           </div>
         </div>
       )}
@@ -119,6 +122,10 @@ export default function SupplierPaymentsPage() {
             const StatusIcon = meta.icon;
             const isOpen = expanded === p.payment_id;
             const receipt = p.e_receipts?.[0];
+            const bankAccount = Array.isArray(p.supplier?.bank_accounts)
+              ? p.supplier.bank_accounts[0] : p.supplier?.bank_accounts;
+            const isPending = p.payment_status === "Pending";
+            const isCompleted = p.payment_status === "Released";
 
             return (
               <div key={p.payment_id} className="bg-white border border-beige-dark/40 rounded-xl overflow-hidden">
@@ -132,13 +139,14 @@ export default function SupplierPaymentsPage() {
                       <p className="font-bold text-brown-dark">Week of {fmtDate(p.payment_week)}</p>
                       <p className="text-brown-light text-xs break-words">
                         {p.payment_details?.length ?? 0} delivery(ies)
-                        {p.payment_date ? ` · Paid ${fmtDate(p.payment_date)}` : ""}
+                        {isPending ? ` · Expected ${fmtDate(p.payment_week)}`
+                          : isCompleted && p.payment_date ? ` · Paid ${fmtDate(p.payment_date)}` : ""}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-3 sm:block sm:text-right sm:shrink-0">
                     <p className="text-xl font-extrabold text-brown-dark">{peso(p.total_amount)}</p>
-                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${meta.color}`}>
+                    <span title={isPending ? "Pending: payment is on its way to you." : undefined} className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${meta.color}`}>
                       <StatusIcon className="w-3 h-3" />{meta.label}
                     </span>
                     {isOpen ? <LuChevronUp className="w-4 h-4 text-brown-light shrink-0 sm:hidden" /> : <LuChevronDown className="w-4 h-4 text-brown-light shrink-0 sm:hidden" />}
@@ -149,6 +157,9 @@ export default function SupplierPaymentsPage() {
                 {/* Expanded detail */}
                 {isOpen && (
                   <div className="border-t border-beige-dark/20 px-5 py-4 space-y-4">
+                    {isPending && (
+                      <p className="text-xs text-amber-700">Pending: payment is on its way to you.</p>
+                    )}
                     {/* Receipt */}
                     {receipt && (
                       <div className="flex items-center gap-3 bg-green-pale rounded-xl px-4 py-3">
@@ -179,7 +190,7 @@ export default function SupplierPaymentsPage() {
                     {p.reference_number && (
                       <div className="bg-beige rounded-xl px-4 py-3 text-sm">
                         <p className="text-brown-light text-xs mb-0.5">Reference Number</p>
-                        <p className="font-mono font-semibold text-brown-dark">{p.reference_number}</p>
+                        <p className="font-mono font-semibold text-brown-dark break-all">{p.reference_number}</p>
                       </div>
                     )}
 
@@ -193,6 +204,12 @@ export default function SupplierPaymentsPage() {
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                 <div className="min-w-0 text-sm">
                                   <p className="text-brown-light text-xs">Delivery {i + 1}</p>
+                                  <p className="text-brown-light text-xs break-all">
+                                    Reference: {pd.delivery?.batch_number || pd.delivery_id || "—"}
+                                  </p>
+                                  <p className="text-brown-light text-xs break-all">
+                                    Contract: {pd.delivery?.contract?.contract_number || pd.delivery?.contract_id || "—"}
+                                  </p>
                                   <p className="text-brown-mid">
                                     {fmt3(pd.net_weight_kg)} kg net
                                     {pd.moisture_deduction_kg > 0 ? ` − ${fmt3(pd.moisture_deduction_kg)} kg (${pd.moisture_content_pct}cc MC)` : ""}
@@ -222,11 +239,25 @@ export default function SupplierPaymentsPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <div className="bg-beige rounded-xl px-3 py-2.5">
                         <p className="text-xs text-brown-light">Method</p>
-                        <p className="font-semibold text-brown-dark">{p.payment_method}</p>
+                        <p className="font-semibold text-brown-dark">{p.payment_method || "—"}</p>
+                        {p.payment_method === "Bank Transfer" && bankAccount && (
+                          <div className="text-xs text-brown-mid mt-1 break-words">
+                            <p className="text-brown-light">Registered payout account</p>
+                            <p>{bankAccount.bank_name || "—"}</p>
+                            <p>{bankAccount.account_name || "—"}</p>
+                            <p className="break-all">{bankAccount.account_number || "—"}</p>
+                          </div>
+                        )}
                       </div>
+                      {(isPending || isCompleted) && (
+                        <div className="bg-beige rounded-xl px-3 py-2.5">
+                          <p className="text-xs text-brown-light">{isPending ? "Expected payment date" : "Date paid"}</p>
+                          <p className="font-semibold text-brown-dark">{fmtDate(isPending ? p.payment_week : p.payment_date)}</p>
+                        </div>
+                      )}
                       <div className="bg-beige rounded-xl px-3 py-2.5">
                         <p className="text-xs text-brown-light">Status</p>
-                        <p className={`font-semibold ${meta.color.split(" ")[1]}`}>{p.payment_status}</p>
+                        <p className={`font-semibold ${meta.color.split(" ")[1]}`}>{meta.label}</p>
                       </div>
                     </div>
                   </div>

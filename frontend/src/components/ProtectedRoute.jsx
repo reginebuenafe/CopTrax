@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/login" }) {
-  const { session, role, accountStatus, isLoading, sessionExpired } = useAuth();
+  const { session, role, accountStatus, isLoading, sessionExpired, sessionEndReason } = useAuth();
 
   if (isLoading) {
     return (
@@ -15,7 +15,7 @@ export default function ProtectedRoute({ children, allowedRoles, redirectTo = "/
   if (!session) {
     // Distinguish between "never logged in" and "session was terminated"
     const loginUrl = sessionExpired
-      ? `${redirectTo}?reason=expired`
+      ? `${redirectTo}?reason=${sessionEndReason === "idle" ? "inactive" : "expired"}`
       : redirectTo;
     return <Navigate to={loginUrl} replace />;
   }
