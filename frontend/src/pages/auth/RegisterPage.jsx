@@ -11,6 +11,10 @@ import BrandLogo from "../../components/BrandLogo";
 import CameraModal from "../../components/CameraModal";
 import jsQR from "jsqr";
 import TermsConfirmModal from "../../components/TermsConfirmModal";
+import {
+  REGISTRATION_IMAGE_ACCEPT, PASSWORD_RULE, PASSWORD_ERROR,
+  emailError, passwordError, validateImageFile,
+} from "../../../../supabase/functions/_shared/supplier_registration_validation.mjs";
 
 const PH_BANKS = [
   "AllBank", "Asia United Bank", "Bank of China (Manila)", "Bank of Commerce",
@@ -166,7 +170,7 @@ const GOV_ID_TYPES = [
 ];
 
 // ── Image upload / camera card ────────────────────────────────────────────────
-function ImageField({ label, required, hint, preview, onFile, onCamera, accept = "image/*" }) {
+function ImageField({ label, required, hint, preview, onFile, onSelect, onCamera, error, accept = "image/*", formatHint = "JPEG, PNG or HEIC · max 10 MB" }) {
   const fileRef = useRef(null);
   return (
     <div>
@@ -202,14 +206,30 @@ function ImageField({ label, required, hint, preview, onFile, onCamera, accept =
             onChange={e => {
               const f = e.target.files?.[0];
               if (!f) return;
+              if (onSelect) {
+                e.target.value = "";
+                onSelect(f);
+                return;
+              }
               const reader = new FileReader();
               reader.onload = ev => onFile({ file: f, dataUrl: ev.target.result });
               reader.readAsDataURL(f);
             }}
           />
-          <p className="text-xs text-brown-light mt-2">JPEG, PNG or HEIC · max 10 MB</p>
+          <p className="text-xs text-brown-light mt-2">{formatHint}</p>
         </div>
       )}
+      {error && <FieldError message={error} />}
+    </div>
+  );
+}
+
+function FieldError({ message }) {
+  if (!message) return null;
+  return (
+    <div role="alert" className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl px-4 py-3 text-sm mt-2">
+      <LuCircleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+      <span>{message}</span>
     </div>
   );
 }
@@ -288,12 +308,75 @@ export default function RegisterPage() {
 
   const [camera,  setCamera]  = useState(null);
   const [error,   setError]   = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [imageValidating, setImageValidating] = useState({});
+  const imageRequestRef = useRef({ govIdPhoto: 0, signaturePhoto: 0 });
+  const navigationPendingRef = useRef(false);
+  const submissionPendingRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
 
   function set(field) {
-    return e => setForm(f => ({ ...f, [field]: e.target.value }));
+    return e => {
+      const value = e.target.value;
+      setForm(f => ({ ...f, [field]: value }));
+      if (field === "email" || field === "password" || field === "confirmPassword") {
+        setFieldErrors(errors => ({
+          ...errors,
+          ...(errors[field] ? { [field]: field === "email" ? emailError(value) : field === "password"
+            ? passwordError(value) : value === form.password ? "" : "Passwords do not match." } : {}),
+          ...(field === "password" && errors.confirmPassword
+            ? { confirmPassword: value === form.confirmPassword ? "" : "Passwords do not match." } : {}),
+        }));
+      }
+    };
   }
+
+  function validateCredentialFields() {
+    const errors = {
+      email: emailError(form.email),
+      password: passwordError(form.password),
+      confirmPassword: form.password === form.confirmPassword ? "" : "Passwords do not match.",
+    };
+    setFieldErrors(current => ({ ...current, ...errors }));
+    setForm(current => ({ ...current, email: current.email.trim() }));
+    return !Object.values(errors).some(Boolean);
+  }
+
+  async function acceptRegistrationPhoto(field, photo) {
+    const request = ++imageRequestRef.current[field];
+    const update = field === "govIdPhoto" ? updateGovIdPhoto : setSignaturePhoto;
+    update(null);
+    setFieldErrors(current => ({ ...current, [field]: "" }));
+    setImageValidating(current => ({ ...current, [field]: !!photo }));
+    if (!photo) return;
+    let message = await validateImageFile(photo.file);
+    let dataUrl;
+    if (!message) {
+      try { dataUrl = await blobToDataUrl(photo.file); }
+      catch { message = "The image could not be read. Please choose it again."; }
+    }
+    if (request !== imageRequestRef.current[field]) return;
+    setImageValidating(current => ({ ...current, [field]: false }));
+    setFieldErrors(current => ({ ...current, [field]: message }));
+    if (!message) update({ file: photo.file, dataUrl });
+  }
+
+  async function revalidatePhoto(field, photo) {
+    if (imageValidating[field]) return false;
+    if (!photo) return false;
+    const message = await validateImageFile(photo.file);
+    if (!message) return true;
+    await acceptRegistrationPhoto(field, null);
+    setFieldErrors(current => ({ ...current, [field]: message }));
+    return false;
+  }
+
+  const credentialInvalid = !!emailError(form.email) || !!passwordError(form.password) || form.password !== form.confirmPassword;
+  const uploadsInvalid = !!fieldErrors.govIdPhoto || !!fieldErrors.signaturePhoto || Object.values(imageValidating).some(Boolean);
+  const nextBlocked = (currentStep === 0 && (fieldErrors.govIdPhoto || imageValidating.govIdPhoto || idExtracting)) ||
+    (currentStep === 1 && credentialInvalid) ||
+    (currentStep === 3 && (fieldErrors.signaturePhoto || imageValidating.signaturePhoto));
 
   async function decodeBankQr(file) {
     setError("");
@@ -415,25 +498,27 @@ export default function RegisterPage() {
   }
 
   // Per-step validation before advancing
-  function validateStep(step) {
+  async function validateStep(step) {
     setError("");
     if (step === 0) {
       if (!form.govIdType) { setError("Please select your ID type."); return false; }
       if (!govIdPhoto)     { setError("Please provide a photo of your government ID."); return false; }
+      if (!await revalidatePhoto("govIdPhoto", govIdPhoto)) return false;
     }
     if (step === 1) {
+      const credentialsValid = validateCredentialFields();
       if (!form.firstName.trim()) { setError("First name is required."); return false; }
       if (!form.lastName.trim())  { setError("Last name is required."); return false; }
       if (!form.email.trim())     { setError("Email address is required."); return false; }
       if (!form.phone.trim())     { setError("Contact number is required."); return false; }
-      if (form.password.length < 8) { setError("Password must be at least 8 characters."); return false; }
-      if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return false; }
+      if (!credentialsValid) return false;
     }
     if (step === 2) {
       if (!selfiePhoto) { setError("Please provide a selfie holding your ID."); return false; }
     }
     if (step === 3) {
       if (!signaturePhoto) { setError("Please provide a photo of your handwritten signature."); return false; }
+      if (!await revalidatePhoto("signaturePhoto", signaturePhoto)) return false;
     }
     if (step === 4) {
       if (!form.bankName.trim())      { setError("Bank name is required."); return false; }
@@ -451,18 +536,26 @@ export default function RegisterPage() {
     return true;
   }
 
-  function goNext() {
-    setError("");
-    if (currentStep === 0 && idExtracting) {
-      setError("Please wait while your government ID is being scanned.");
-      return;
+  async function goNext() {
+    if (navigationPendingRef.current || loading) return;
+    navigationPendingRef.current = true;
+    try {
+      setError("");
+      if (currentStep === 0 && idExtracting) {
+        setError("Please wait while your government ID is being scanned.");
+        return;
+      }
+      if (Object.values(imageValidating).some(Boolean)) return;
+      if (!await validateStep(currentStep)) return;
+      setCurrentStep(s => s + 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      navigationPendingRef.current = false;
     }
-    if (!validateStep(currentStep)) return;
-    setCurrentStep(s => s + 1);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function goBack() {
+    if (navigationPendingRef.current || submissionPendingRef.current) return;
     setError("");
     setCurrentStep(s => s - 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -476,17 +569,26 @@ export default function RegisterPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (currentStep !== STEPS.length) return;
-    if (!validateStep(4)) return;
+    if (loading || submissionPendingRef.current) return;
+    if (currentStep < STEPS.length) { await goNext(); return; }
+    submissionPendingRef.current = true;
+    try {
+    for (let step = 0; step < STEPS.length; step += 1) {
+      if (!await validateStep(step)) { setCurrentStep(step); return; }
+    }
 
     setLoading(true);
     setUploadProgress("Creating account…");
 
-    try {
-    const { data, error: authError } = await supabase.auth.signUp({
-      email: form.email, password: form.password,
-      options: { data: { role: "Supplier" } },
+    const { data: signupResult, error: signupError } = await supabase.functions.invoke("supplier-signup", {
+      body: { email: form.email.trim(), password: form.password, confirm_password: form.confirmPassword },
     });
+    let authError = signupResult?.error || signupError;
+    if (signupError) {
+      try { authError = (await signupError.context?.json?.())?.error || signupError; }
+      catch { /* Keep the existing network error handling. */ }
+    }
+    const data = signupResult?.data;
     if (authError) {
       const rawMsg = authError.message ?? "";
       const msg = typeof rawMsg === "string" ? rawMsg.toLowerCase() : "";
@@ -498,7 +600,7 @@ export default function RegisterPage() {
       } else if (msg.includes("invalid email")) {
         displayMsg = "Please enter a valid email address.";
       } else if (msg.includes("password")) {
-        displayMsg = "Password does not meet requirements. Please use at least 8 characters.";
+        displayMsg = PASSWORD_ERROR;
       } else {
         displayMsg = typeof rawMsg === "string" ? rawMsg : "Registration failed. Please try again.";
       }
@@ -511,6 +613,10 @@ export default function RegisterPage() {
       setError("Account creation failed. This email may already be registered, or email confirmation may be pending. Try logging in or use a different email.");
       setLoading(false);
       return;
+    }
+    if (data.session) {
+      const { error: sessionError } = await supabase.auth.setSession(data.session);
+      if (sessionError) throw sessionError;
     }
 
     let govIdData, faceIdData, esignData;
@@ -537,8 +643,12 @@ export default function RegisterPage() {
           address:        form.address.trim() || null,
           gov_id_type:    form.govIdType,
           gov_id_data:    govIdData,
+          gov_id_name:    govIdPhoto.file.name,
+          gov_id_mime:    govIdPhoto.file.type,
           face_id_data:   faceIdData,
           esign_data:     esignData,
+          esign_name:     signaturePhoto.file.name,
+          esign_mime:     signaturePhoto.file.type,
           bank_name:      form.bankName.trim(),
           account_name:   form.accountName.trim(),
           account_number: form.accountNumber.trim(),
@@ -582,6 +692,8 @@ export default function RegisterPage() {
     } catch (unexpectedErr) {
       setError("An unexpected error occurred: " + (unexpectedErr?.message ?? "Please try again."));
       setLoading(false);
+    } finally {
+      submissionPendingRef.current = false;
     }
   }
 
@@ -670,12 +782,16 @@ export default function RegisterPage() {
             required
             hint="Make sure all text on your ID is clearly visible. Lay the ID flat and take the photo in good lighting."
             preview={govIdPhoto?.dataUrl ?? null}
-            onFile={updateGovIdPhoto}
+            accept={REGISTRATION_IMAGE_ACCEPT}
+            formatHint="JPEG, PNG, or HEIC · Max 10 MB"
+            error={fieldErrors.govIdPhoto}
+            onSelect={file => acceptRegistrationPhoto("govIdPhoto", { file })}
+            onFile={photo => acceptRegistrationPhoto("govIdPhoto", photo)}
             onCamera={() => setCamera({
               facing: "environment",
               title: "Photograph your Government ID",
               instructions: "Place your ID on a flat surface in good lighting. Make sure all four corners are visible and the text is sharp.",
-              onCapture: updateGovIdPhoto,
+              onCapture: photo => acceptRegistrationPhoto("govIdPhoto", photo),
             })}
           />
           {idExtracting && (
@@ -732,8 +848,14 @@ export default function RegisterPage() {
             <div className="relative">
               <LuMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
               <input type="email" value={form.email} onChange={set("email")}
+                onBlur={() => {
+                  setForm(current => ({ ...current, email: current.email.trim() }));
+                  setFieldErrors(current => ({ ...current, email: emailError(form.email) }));
+                }}
+                aria-invalid={!!fieldErrors.email}
                 placeholder="you@example.com" className={`${inputClass} pl-10`} />
             </div>
+            <FieldError message={fieldErrors.email} />
           </div>
 
           <div>
@@ -763,12 +885,16 @@ export default function RegisterPage() {
             <div className="relative">
               <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
               <input type={showPassword ? "text" : "password"} value={form.password} onChange={set("password")}
+                onBlur={() => setFieldErrors(current => ({ ...current, password: passwordError(form.password) }))}
+                aria-invalid={!!fieldErrors.password}
                 placeholder="Min. 8 characters" className={`${inputClass} pl-10 pr-10`} />
               <button type="button" onClick={() => setShowPassword(p => !p)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
                 {showPassword ? <LuEye className="w-4 h-4" /> : <LuEyeOff className="w-4 h-4" />}
               </button>
             </div>
+            <p className="text-xs text-brown-light mt-2">{PASSWORD_RULE}</p>
+            <FieldError message={fieldErrors.password} />
           </div>
 
           <div>
@@ -778,12 +904,15 @@ export default function RegisterPage() {
             <div className="relative">
               <LuLock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brown-light" />
               <input type={showConfirm ? "text" : "password"} value={form.confirmPassword} onChange={set("confirmPassword")}
+                onBlur={() => setFieldErrors(current => ({ ...current, confirmPassword: form.password === form.confirmPassword ? "" : "Passwords do not match." }))}
+                aria-invalid={!!fieldErrors.confirmPassword}
                 placeholder="Re-enter password" className={`${inputClass} pl-10 pr-10`} />
               <button type="button" onClick={() => setShowConfirm(p => !p)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brown-light hover:text-brown-dark transition-colors">
                 {showConfirm ? <LuEye className="w-4 h-4" /> : <LuEyeOff className="w-4 h-4" />}
               </button>
             </div>
+            <FieldError message={fieldErrors.confirmPassword} />
           </div>
         </div>
       );
@@ -829,12 +958,16 @@ export default function RegisterPage() {
             label="Photo of your handwritten signature on a white sheet of paper"
             required
             preview={signaturePhoto?.dataUrl ?? null}
-            onFile={v => setSignaturePhoto(v)}
+            accept={REGISTRATION_IMAGE_ACCEPT}
+            formatHint="JPEG (.jpg, .jpeg), PNG (.png), or HEIC (.heic, .heif) · max 10 MB"
+            error={fieldErrors.signaturePhoto}
+            onSelect={file => acceptRegistrationPhoto("signaturePhoto", { file })}
+            onFile={photo => acceptRegistrationPhoto("signaturePhoto", photo)}
             onCamera={() => setCamera({
               facing: "environment",
               title: "Photograph your Signature Sheet",
               instructions: "Point the camera at the white paper with your signature. Make sure it is fully visible, well-lit, and in focus.",
-              onCapture: v => setSignaturePhoto(v),
+              onCapture: photo => acceptRegistrationPhoto("signaturePhoto", photo),
             })}
           />
         </div>
@@ -1046,7 +1179,12 @@ export default function RegisterPage() {
             )}
 
             {/* Step content */}
-            <form onSubmit={handleSubmit}>
+            <form noValidate onSubmit={handleSubmit} onKeyDown={e => {
+              if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type !== "file") {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }}>
               {renderStep()}
 
               {/* Navigation buttons */}
@@ -1058,7 +1196,7 @@ export default function RegisterPage() {
                   </button>
                 )}
                 {currentStep < STEPS.length ? (
-                  <button key="go-next-button" type="button" onClick={goNext} disabled={currentStep === 0 && idExtracting}
+                  <button key="go-next-button" type="button" onClick={goNext} disabled={nextBlocked}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green disabled:opacity-60 disabled:cursor-wait transition-all">
                     {currentStep === 0 && idExtracting
                       ? "Scanning ID…"
@@ -1067,15 +1205,7 @@ export default function RegisterPage() {
                         : <>Next <LuChevronRight className="w-4 h-4" /></>}
                   </button>
                 ) : (
-                  // Distinct `key` (and element identity) from the button above is required:
-                  // without it, React reconciles this as the SAME <button> DOM node and merely
-                  // mutates its `type` attribute from "button" to "submit" in place. Since that
-                  // mutation happens synchronously as part of handling the click that advanced
-                  // `currentStep`, the browser's native default action for the click then sees a
-                  // type="submit" button and submits the form immediately — skipping the review
-                  // step entirely. A unique `key` forces an unmount/remount instead of an in-place
-                  // attribute mutation, so the click that reveals this button can never also submit it.
-                  <button key="submit-registration-button" type="submit"
+                  <button key="submit-registration-button" type="submit" disabled={uploadsInvalid || credentialInvalid}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-green-dark to-green-mid text-white font-bold text-sm hover:shadow-glow-green transition-all">
                     <LuCheck className="w-4 h-4" /> Submit Registration
                   </button>

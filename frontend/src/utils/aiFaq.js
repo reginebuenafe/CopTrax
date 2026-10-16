@@ -16,6 +16,7 @@
 //     timeout, or thrown exception.
 
 import { supabase } from "../lib/supabase";
+import { observeAiRequest } from "./chatAiActivity";
 
 // Generous enough for Gemini's multi-model fallback inside the Edge
 // Function, but bounded so this call can never hang indefinitely.
@@ -36,7 +37,7 @@ export function invokeAiFaq(conversationId, messageText) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AI_FAQ_CLIENT_TIMEOUT_MS);
 
-  supabase.functions
+  const request = supabase.functions
     .invoke("ai-faq", {
       body: { conversation_id: conversationId, message_text: messageText },
       signal: controller.signal,
@@ -51,4 +52,5 @@ export function invokeAiFaq(conversationId, messageText) {
       clearTimeout(timeoutId);
       inFlightConversationIds.delete(conversationId);
     });
+  observeAiRequest(conversationId, request);
 }

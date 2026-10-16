@@ -1,12 +1,9 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
+import { createSessionIdle, DEFAULT_IDLE_MS, SENSITIVE_IDLE_MS } from "../utils/sessionIdle";
+import { logoutWithRetry, rememberSessionEnd, readSessionEnd, clearSessionEnd } from "../utils/sessionLogout";
 
 const AuthContext = createContext(null);
-
-const DEFAULT_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
-const SENSITIVE_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
-const WARNING_DURATION_MS = 60 * 1000;
-const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
 
 export function AuthProvider({ children }) {
   const [session, setSession]               = useState(undefined); // undefined = loading
@@ -15,27 +12,25 @@ export function AuthProvider({ children }) {
   // preventing a race window where session is set but profileLoading is still false.
   const [profileLoading, setProfileLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionEndReason, setSessionEndReason] = useState(null);
   const [sensitiveContextCount, setSensitiveContextCount] = useState(0);
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [warningSeconds, setWarningSeconds] = useState(60);
 
-  const wasAuthenticatedRef  = useRef(false);
-  const explicitSignOutRef   = useRef(false);
-  const loadedUserIdRef      = useRef(null);
-  const warningTimerRef      = useRef(null);
-  const inactivityTimerRef   = useRef(null);
-  const countdownTimerRef    = useRef(null);
-  const warningOpenRef       = useRef(false);
-  const logoutDeadlineRef    = useRef(0);
-  const lastActivityRef      = useRef(0);
-  const inactivityTimeoutMsRef = useRef(DEFAULT_INACTIVITY_TIMEOUT_MS);
-
-  const inactivityTimeoutMs = sensitiveContextCount > 0
-    ? SENSITIVE_INACTIVITY_TIMEOUT_MS
-    : DEFAULT_INACTIVITY_TIMEOUT_MS;
+  const wasAuthenticatedRef = useRef(false);
+  const loadedUserIdRef = useRef(null);
+  const sessionRef = useRef(null);
+  const idleRef = useRef(null);
+  const endReasonRef = useRef(null);
+  const mountedRef = useRef(false);
+  const profileVersionRef = useRef(0);
+  const inactivityTimeoutMsRef = useRef(DEFAULT_IDLE_MS);
+  const inactivityTimeoutMs = sensitiveContextCount > 0 ? SENSITIVE_IDLE_MS : DEFAULT_IDLE_MS;
+  const invalidateProfile = useCallback(() => { profileVersionRef.current++; }, []);
 
   useEffect(() => {
     inactivityTimeoutMsRef.current = inactivityTimeoutMs;
+    idleRef.current?.setTimeoutMs(inactivityTimeoutMs);
   }, [inactivityTimeoutMs]);
 
   const fetchProfile = useCallback(async (userId, { silent = false } = {}) => {
@@ -47,11 +42,14 @@ export function AuthProvider({ children }) {
     // on every call to the public `refreshProfile()`. The initial/auth-
     // event-driven load below still needs the real gating behavior, so
     // only `refreshProfile()` opts into `silent`.
+    const version = ++profileVersionRef.current;
+    const isCurrent = () => mountedRef.current && !endReasonRef.current && version === profileVersionRef.current && sessionRef.current?.user.id === userId;
+    let timeoutId;
     if (!silent) setProfileLoading(true);
     try {
       // Race against a 10-second timeout so a stalled network never blocks login
       const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Profile fetch timed out")), 10_000)
+        timeoutId = setTimeout(() => reject(new Error("Profile fetch timed out")), 10_000)
       );
       const query = supabase
         .from("users")
@@ -60,74 +58,36 @@ export function AuthProvider({ children }) {
         .single();
       const { data, error } = await Promise.race([query, timeout]);
       if (error) console.error("fetchProfile error:", error.message);
-      setProfile(data ?? null);
+      if (isCurrent()) setProfile(data ?? null);
     } catch (err) {
       console.error("fetchProfile failed:", err?.message ?? err);
-      setProfile(null);
+      if (isCurrent()) setProfile(null);
     } finally {
-      if (!silent) setProfileLoading(false);
+      clearTimeout(timeoutId);
+      if (isCurrent()) setProfileLoading(false);
     }
   }, []);
 
-  // ── Inactivity timer ──────────────────────────────────────────────────────
-  const clearInactivityTimer = useCallback(() => {
-    if (warningTimerRef.current) {
-      clearTimeout(warningTimerRef.current);
-      warningTimerRef.current = null;
-    }
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-      inactivityTimerRef.current = null;
-    }
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current);
-      countdownTimerRef.current = null;
-    }
-  }, []);
-
-  const resetInactivityTimer = useCallback(() => {
-    clearInactivityTimer();
-    warningOpenRef.current = false;
+  const endSession = useCallback(async (reason = "manual", scope = "global") => {
+    const current = sessionRef.current;
+    if (!current) return;
+    endReasonRef.current = reason;
+    rememberSessionEnd(current.user.id, reason);
+    idleRef.current?.stop();
+    invalidateProfile();
+    setSessionExpired(reason === "idle");
+    setSessionEndReason(reason);
+    setSession(null);
+    setProfile(null);
+    setProfileLoading(false);
     setShowIdleWarning(false);
-    setWarningSeconds(60);
-
-    const timeoutMs = inactivityTimeoutMsRef.current;
-    logoutDeadlineRef.current = Date.now() + timeoutMs;
-    warningTimerRef.current = setTimeout(() => {
-      warningOpenRef.current = true;
-      setShowIdleWarning(true);
-      setWarningSeconds(60);
-      countdownTimerRef.current = setInterval(() => {
-        const secondsRemaining = Math.max(
-          0,
-          Math.ceil((logoutDeadlineRef.current - Date.now()) / 1000),
-        );
-        setWarningSeconds(secondsRemaining);
-      }, 1000);
-    }, timeoutMs - WARNING_DURATION_MS);
-
-    inactivityTimerRef.current = setTimeout(async () => {
-      if (wasAuthenticatedRef.current) {
-        explicitSignOutRef.current = false;
-        await supabase.auth.signOut();
-      }
-    }, timeoutMs);
-  }, [clearInactivityTimer]);
-
-  const handleActivity = useCallback(() => {
-    // Once the warning is visible, require an explicit confirmation. This avoids
-    // a stray mouse movement silently extending a sensitive session.
-    if (warningOpenRef.current) return;
-    const now = Date.now();
-    if (now - lastActivityRef.current < 1000) return;
-    lastActivityRef.current = now;
-    resetInactivityTimer();
-  }, [resetInactivityTimer]);
-
-  const staySignedIn = useCallback(() => {
-    lastActivityRef.current = Date.now();
-    resetInactivityTimer();
-  }, [resetInactivityTimer]);
+    try {
+      await logoutWithRetry(supabase.auth, current.access_token, scope);
+    } catch {
+      console.warn("Server sign-out could not be confirmed.");
+    }
+  }, [invalidateProfile]);
+  const staySignedIn = useCallback(() => idleRef.current?.staySignedIn(), []);
 
   const beginSensitiveContext = useCallback(() => {
     setSensitiveContextCount((count) => count + 1);
@@ -137,89 +97,89 @@ export function AuthProvider({ children }) {
     setSensitiveContextCount((count) => Math.max(0, count - 1));
   }, []);
 
-  // ── Auth state ────────────────────────────────────────────────────────────
-  // Supabase fires INITIAL_SESSION via onAuthStateChange on mount, so we rely
-  // solely on that listener — no separate getSession() call — to avoid a
-  // double-fetch race where two concurrent fetchProfile calls could leave
-  // profileLoading=false while profile is still null.
+  // Restore the stored deadline; token refresh is not user activity.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
+    mountedRef.current = true;
+    let active = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!active) return;
+      if (nextSession) {
+        if (endReasonRef.current) return;
+        const userId = nextSession.user.id;
+        const changedUser = loadedUserIdRef.current !== userId;
+        sessionRef.current = nextSession;
         wasAuthenticatedRef.current = true;
-        setSession(session);
+        endReasonRef.current = null;
+        setSession(nextSession);
         setSessionExpired(false);
-        resetInactivityTimer();
-
-        // Supabase re-fires auth events (TOKEN_REFRESHED, sometimes even
-        // SIGNED_IN again) whenever a tab/window regains focus — this is
-        // NOT a new login. Refetching the profile every time flips
-        // profileLoading (and therefore isLoading) back to true, which
-        // makes ProtectedRoute unmount the current page and lose any
-        // in-progress form input. Only refetch when the session actually
-        // belongs to a different user than the one already loaded.
-        if (loadedUserIdRef.current !== session.user.id) {
-          loadedUserIdRef.current = session.user.id;
-          fetchProfile(session.user.id);
+        setSessionEndReason(null);
+        if (changedUser) {
+          loadedUserIdRef.current = userId;
+          clearSessionEnd(userId);
+          fetchProfile(userId);
+        } else if (["INITIAL_SESSION", "TOKEN_REFRESHED", "USER_UPDATED", "SIGNED_IN"].includes(event)) {
+          fetchProfile(userId, { silent: true });
         }
+        if (idleRef.current?.userId !== userId) {
+          idleRef.current?.stop();
+          const idle = createSessionIdle({
+            userId, timeoutMs: inactivityTimeoutMsRef.current,
+            onWarning: ({ show, seconds }) => { if (active) { setShowIdleWarning(show); setWarningSeconds(seconds); } },
+            onExpire: () => queueMicrotask(() => {
+              if (active && idleRef.current === idle) endSession("idle", "local");
+            }),
+          });
+          idleRef.current = idle;
+          idle.start();
+        } else idleRef.current.check();
       } else {
-        loadedUserIdRef.current = null;
+        const userId = loadedUserIdRef.current;
+        const reason = endReasonRef.current || (userId && readSessionEnd(userId)) || "expired";
         if (event === "SIGNED_OUT") {
-          if (wasAuthenticatedRef.current && !explicitSignOutRef.current) {
-            setSessionExpired(true); // expired or inactivity timeout
-          } else {
-            setSessionExpired(false);
-          }
-          wasAuthenticatedRef.current = false;
-          explicitSignOutRef.current  = false;
+          setSessionExpired(wasAuthenticatedRef.current && reason !== "manual");
+          setSessionEndReason(wasAuthenticatedRef.current ? reason : null);
         }
+        idleRef.current?.clear();
+        idleRef.current = null;
+        sessionRef.current = null;
+        wasAuthenticatedRef.current = false;
+        endReasonRef.current = null;
+        loadedUserIdRef.current = null;
+        invalidateProfile();
         setSession(null);
         setProfile(null);
         setProfileLoading(false);
-        clearInactivityTimer();
+        setShowIdleWarning(false);
       }
     });
-
-    return () => subscription.unsubscribe();
-  }, [fetchProfile, resetInactivityTimer, clearInactivityTimer]);
-
-  // ── Activity listeners ────────────────────────────────────────────────────
-  // Only attach when there is an active session; detach on sign-out
-  useEffect(() => {
-    if (!session) return;
-
-    ACTIVITY_EVENTS.forEach(evt =>
-      window.addEventListener(evt, handleActivity, { passive: true })
-    );
-
     return () => {
-      ACTIVITY_EVENTS.forEach(evt =>
-        window.removeEventListener(evt, handleActivity)
-      );
+      active = false;
+      mountedRef.current = false;
+      invalidateProfile();
+      subscription.unsubscribe();
+      idleRef.current?.stop();
+      idleRef.current = null;
     };
-  }, [session, handleActivity]);
+  }, [fetchProfile, endSession, invalidateProfile]);
 
-  // Switching into or out of a sensitive page changes the timeout duration.
-  // Keep auth initialization stable and only restart the existing idle timer.
+  // Refresh authorization data without unmounting forms on focus or row changes.
+  const userId = session?.user.id;
   useEffect(() => {
-    if (!session) return undefined;
-    const timerId = window.setTimeout(resetInactivityTimer, 0);
-    return () => window.clearTimeout(timerId);
-  }, [inactivityTimeoutMs, session, resetInactivityTimer]);
+    if (!userId) return undefined;
+    const refresh = () => { if (!document.hidden) fetchProfile(userId, { silent: true }); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const channel = supabase.channel(`auth-profile:${userId}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "users", filter: `user_id=eq.${userId}` }, refresh)
+      .subscribe();
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      supabase.removeChannel(channel);
+    };
+  }, [userId, fetchProfile]);
 
-  // ── signOut ───────────────────────────────────────────────────────────────
-  async function signOut() {
-    explicitSignOutRef.current = true;
-    clearInactivityTimer();
-    // supabase-js always clears the local session regardless of outcome, but
-    // the server-side revocation request (POST /auth/v1/logout?scope=global)
-    // has been observed to abort client-side before reaching the server. Retry
-    // once so the refresh token actually gets revoked server-side instead of
-    // silently surviving a single aborted/failed request.
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      await supabase.auth.signOut().catch(() => {});
-    }
-  }
+  const signOut = useCallback(() => endSession("manual", "global"), [endSession]);
 
   const value = {
     session,
@@ -230,6 +190,7 @@ export function AuthProvider({ children }) {
     // isLoading is true until both session AND profile are resolved
     isLoading:     session === undefined || (session !== null && profileLoading),
     sessionExpired,
+    sessionEndReason,
     idleTimeoutMinutes: inactivityTimeoutMs / 60000,
     beginSensitiveContext,
     endSensitiveContext,

@@ -15,6 +15,7 @@
 // a real status and caused this check to always fail for brand-new accounts).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateImageDataUrl } from "../_shared/supplier_registration_validation.mjs";
 
 const SUPABASE_URL               = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -55,8 +56,12 @@ Deno.serve(async (req) => {
       address,
       gov_id_type,      // e.g. "Driver's License"
       gov_id_data,      // base64 data URL
+      gov_id_name,
+      gov_id_mime,
       face_id_data,     // base64 data URL
       esign_data,       // base64 data URL
+      esign_name,
+      esign_mime,
       bank_name,        // NEW: for Xendit disbursements
       account_name,     // NEW
       account_number,   // NEW
@@ -67,6 +72,16 @@ Deno.serve(async (req) => {
     }
     if (!bank_name || !account_name || !account_number) {
       return json({ error: "bank_name, account_name, and account_number are required" }, 400);
+    }
+
+    // Validate both original filenames, MIME declarations, and actual bytes
+    // before writing profiles, storage objects, or verification records.
+    let govIdUpload, esignUpload;
+    try {
+      govIdUpload = validateImageDataUrl(gov_id_data, gov_id_name, gov_id_mime);
+      esignUpload = validateImageDataUrl(esign_data, esign_name, esign_mime);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "Invalid registration image." }, 400);
     }
 
     // ── Caller-identity check ─────────────────────────────────────────────────
@@ -134,8 +149,9 @@ Deno.serve(async (req) => {
       dataUrl: string,
       category: string,
       fileName: string,
+      validated?: { bytes: Uint8Array; mimeType: string },
     ): Promise<string> {
-      const { bytes, mimeType } = base64ToBytes(dataUrl);
+      const { bytes, mimeType } = validated ?? base64ToBytes(dataUrl);
       const path = `${user_id}/${category.replace(/\s+/g, "-")}-${Date.now()}-${fileName}`;
 
       const { data: storageData, error: storageErr } = await admin.storage
@@ -161,10 +177,10 @@ Deno.serve(async (req) => {
     }
 
     // Upload all three files
-    const govIdFileName  = `${gov_id_type ?? "Gov-ID"}.jpg`.replace(/\s+/g, "-");
-    const govIdFileId    = await uploadFile(gov_id_data,  "Gov ID",  govIdFileName);
+    const govIdFileName  = `${gov_id_type ?? "Gov-ID"}.${govIdUpload.extension}`.replace(/\s+/g, "-");
+    const govIdFileId    = await uploadFile(gov_id_data,  "Gov ID",  govIdFileName, govIdUpload);
     const _faceIdFileId  = await uploadFile(face_id_data, "Face ID", "face-id.jpg");
-    const esignFileId    = await uploadFile(esign_data,   "E-Sign",  "esign.jpg");
+    const esignFileId    = await uploadFile(esign_data,   "E-Sign",  `esign.${esignUpload.extension}`, esignUpload);
 
     // Create user_verify record.
     // Use insert with ignoreDuplicates in case a previous partial attempt left a row.

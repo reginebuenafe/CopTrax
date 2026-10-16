@@ -14,8 +14,17 @@ import MoistureContentTable from "../../components/MoistureContentTable";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import { invokeAiFaq } from "../../utils/aiFaq";
-import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
+import TypingIndicator from "../../components/TypingIndicator";
+import { useChatTyping } from "../../hooks/useChatTyping";
+import { chatActivityLabel, conversationChatTopic } from "../../utils/chatTyping";
+import { actionableProposalIndex } from "../../utils/negotiationMessages";
+import { proposalHistoryItems } from "../../utils/proposalHistory";
+import ProposalHistoryLine from "../../components/ProposalHistoryLine";
 import { BUSINESS_OWNER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
+import { useIsFirstTimeSupplier } from "../../hooks/useIsFirstTimeSupplier";
+import { FirstTimePricingNotice, SpotPriceBasis } from "../../components/FirstTimePricingNotice";
+import { FIRST_TIME_OFFER_MESSAGE, FIRST_TIME_COUNTER_MESSAGE } from "../../utils/supplierPricing";
+import { useChatEntryScroll } from "../../hooks/useChatEntryScroll";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -145,21 +154,11 @@ function ContractCard({ contractData, onReviewSign, onView, signed, pendingOwner
 }
 
 // ── Proposal card ─────────────────────────────────────────────────────────────
-function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }) {
-  // Offer-history label shown above the card — states exactly who made THIS
-  // offer, the action (proposed vs. counteroffered), and its actual
-  // price/volume. Display-only; does not affect any negotiation state.
-  const offerHistoryText = `${submittedByMe ? "You" : "NERC Copra Trading"} ${
-    proposal.supersedes_proposal_id ? "counteroffered" : "proposed"
-  }: ₱${Number(proposal.proposed_price_per_kg).toFixed(2)}/kg for ${proposal.proposed_volume_tons} tons`;
-
+function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter, pricing }) {
   return (
-    <div className="flex flex-col items-center my-3 px-4">
-      <p className="text-[11px] italic text-[#2d5a27] text-center mb-1.5 font-medium">
-        {offerHistoryText}
-      </p>
-      <div className="w-full max-w-xs rounded-2xl border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
+    <div className="flex flex-col items-center my-3 px-1 sm:px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[#AFCDB2] bg-[#FFFEFB] p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           <LuCoins className="w-4 h-4 text-[#2d5a27]" />
           <p className="text-sm font-bold text-[#2d5a27]">
             {submittedByMe ? "Your Proposal" : "Incoming Counteroffer"}
@@ -179,6 +178,7 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
             <p className="font-bold text-[#3d2b1f]">{proposal.proposed_volume_tons} tons</p>
           </div>
         </div>
+        {!submittedByMe && pricing.isFirstTimeSupplier && <SpotPriceBasis spotPrice={pricing.spotPrice} offerPrice={proposal.proposed_price_per_kg} />}
         {submittedByMe ? (
           <div className="text-center py-2 text-xs text-[#b09a7a] italic">
             Awaiting NERC's response…
@@ -189,7 +189,8 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
               className="flex-1 flex items-center justify-center gap-1.5 bg-[#e8f0e5] text-[#2d5a27] font-semibold text-xs py-2 rounded-xl hover:bg-[#d4e5cf] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuCheck className="w-3.5 h-3.5" /> Accept
             </button>
-            <button onClick={onCounter} disabled={!onCounter}
+            <button onClick={onCounter} disabled={!pricing.canCounter || !onCounter}
+              title={pricing.isFirstTimeSupplier ? FIRST_TIME_COUNTER_MESSAGE : "Send a counteroffer"}
               className="flex-1 flex items-center justify-center gap-1.5 bg-[#f5f0e8] text-[#5c4a32] font-semibold text-xs py-2 rounded-xl hover:bg-[#ebe5d5] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               <LuPencil className="w-3.5 h-3.5" /> Counter
             </button>
@@ -199,6 +200,7 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
             </button>
           </div>
         )}
+        {!submittedByMe && pricing.isFirstTimeSupplier && <p className="mt-3 text-xs leading-relaxed text-brown-mid">{FIRST_TIME_OFFER_MESSAGE}</p>}
       </div>
     </div>
   );
@@ -208,6 +210,8 @@ export default function SupplierChatLayout() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const pricing = useIsFirstTimeSupplier(user?.id, { refreshKey: conversationId });
+  const { refresh: refreshPricing } = pricing;
 
   // Middle panel
   const [currentConv, setCurrentConv] = useState(null);
@@ -216,39 +220,37 @@ export default function SupplierChatLayout() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const { activity, humans: typingPeople, assistants: thinkingAssistants } = useChatTyping({
+    conversationId, user, profile, aiSenderId: currentConv?.business_owner_id,
+  });
   const [proposalActing, setProposalActing] = useState(false);
   const {
     modalState: proposalModalState,
-    openPropose,
-    openCounter,
+    openPropose: persistOpenPropose,
+    openCounter: persistOpenCounter,
     clearModal: clearProposalModal,
   } = usePersistentProposalModal({
     storageKey: `coptrax:proposal-modal:supplier-chat:${user?.id ?? "anonymous"}`,
     conversationId,
   });
   const showProposeModal = proposalModalState?.type === "propose";
+  const openPropose = () => { if (pricing.canSubmitProposal) persistOpenPropose(); };
+  const openCounter = proposal => { if (pricing.canCounter) persistOpenCounter(proposal); };
+  useEffect(() => {
+    if (!pricing.isFirstTimeSupplier || proposalModalState?.type !== "counter") return;
+    const timer = window.setTimeout(clearProposalModal, 0);
+    return () => window.clearTimeout(timer);
+  }, [pricing.isFirstTimeSupplier, proposalModalState, clearProposalModal]);
   const counterModal = proposalModalState?.type === "counter" ? proposalModalState.proposal : null;
   const [signContract, setSignContract] = useState(null);
   const [viewContract, setViewContract] = useState(null);
   const [resolvingConversation, setResolvingConversation] = useState(!conversationId);
   const [onlineBusinessOwnerIds, setOnlineBusinessOwnerIds] = useState(() => new Set());
-  const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
   // Synchronous guard (in addition to the proposalActing state) so a fast
   // double-click can't fire two accept/decline calls before React commits
   // the state update from the first click.
   const proposalActingRef = useRef(false);
-
-  function isNearBottom() {
-    const el = scrollContainerRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-  }
-
-  function scrollToBottom(behavior = "smooth") {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
-  }
 
   // Right panel
   const [contracts, setContracts] = useState([]);
@@ -318,9 +320,10 @@ export default function SupplierChatLayout() {
     const syncPresence = () => {
       setOnlineBusinessOwnerIds(new Set(Object.keys(channel.presenceState())));
     };
-    channel.on("presence", { event: "sync" }, syncPresence).subscribe();
+    channel.on("presence", { event: "sync" }, syncPresence)
+      .on("broadcast", { event: "ai_thinking" }, activity.receiveAi).subscribe();
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [activity]);
 
   // ── Load conversations ────────────────────────────────────────────────────
   // ── Load chat ─────────────────────────────────────────────────────────────
@@ -369,11 +372,12 @@ export default function SupplierChatLayout() {
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
-    const channel = supabase.channel(`sup-chat:${conversationId}`)
+    const channel = supabase.channel(conversationChatTopic(conversationId))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
         payload => {
           const m = payload.new;
           if (!m || m.conversation_id !== conversationId) return; // belt-and-suspenders guard
+          activity.messageReceived(m);
           setMessages(prev =>
             prev.some(x => x.message_id === m.message_id) ? prev : [...prev, m]);
           // Belt-and-suspenders: when the BO inserts a Contract Form message (acceptance,
@@ -389,45 +393,15 @@ export default function SupplierChatLayout() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "proposal_forms", filter: `conversation_id=eq.${conversationId}` },
         () => supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? [])))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
-        () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
+        () => { refreshPricing(); supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
-        () => supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])))
+        () => { refreshPricing(); supabase.from("contracts").select("contract_id, contract_number, status, negotiated_price_per_kg, contracted_tons, due_date, contract_hash, contract_document_url").eq("supplier_id", user.id).order("created_at", { ascending: false }).then(({ data }) => setContracts(data ?? [])); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations", filter: `conversation_id=eq.${conversationId}` },
-        ({ new: updated }) => setCurrentConv(prev => prev ? { ...prev, ...updated } : updated))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [conversationId, user.id]);
-
-  // Scroll to bottom when initial load completes (covers conversation open & switch)
-  useEffect(() => {
-    if (chatLoading) return;
-    // Double-rAF: gives the chat panel time to finish rendering before scrolling
-    let raf2;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const el = scrollContainerRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    });
-    // Fallback: on mobile the panel may still be transitioning — scroll again after a short delay
-    const tid = setTimeout(() => {
-      const el = scrollContainerRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }, 150);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      clearTimeout(tid);
-    };
-  }, [chatLoading]);
-
-  // Follow new realtime messages only if user is already near the bottom
-  useEffect(() => {
-    if (chatLoading) return; // initial load handled above
-    if (!isNearBottom()) return; // user intentionally scrolled up — don't interrupt
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+        ({ new: updated }) => setCurrentConv(prev => prev ? { ...prev, ...updated } : updated));
+    const unbindTyping = activity.bindChannel(channel);
+    channel.subscribe(activity.channelStatus);
+    return () => { unbindTyping(); supabase.removeChannel(channel); };
+  }, [conversationId, user.id, activity, refreshPricing]);
 
   // ── Proposal logic ────────────────────────────────────────────────────────
   const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
@@ -440,7 +414,12 @@ export default function SupplierChatLayout() {
     : false;
 
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
-  const visibleMessages = uniqueContractCardMessages(messages);
+  const threadItems = proposalHistoryItems({ messages, proposals, supplierId: user.id });
+  const latestEntryKey = threadItems.at(-1)?.key ?? null;
+  const { resumeFollowing, contentRef, bottomRef } = useChatEntryScroll({
+    containerRef: scrollContainerRef, conversationKey: conversationId,
+    latestEntryKey, enabled: !!conversationId && !chatLoading,
+  });
 
   // ── Supplier accepts BO's counteroffer → auto-generates contract ─────────────
   // All DB writes (proposal status, contract row, PDF) are handled server-side
@@ -534,6 +513,8 @@ export default function SupplierChatLayout() {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
+    activity.stopTyping();
+    resumeFollowing();
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
       conversation_id: conversationId, sender_id: user.id, message_type: "Text", message_text: trimmed,
@@ -541,7 +522,6 @@ export default function SupplierChatLayout() {
     if (newMsg) {
       // Show immediately for the sender; realtime will echo it but dedup prevents duplicate
       setMessages(prev => prev.some(m => m.message_id === newMsg.message_id) ? prev : [...prev, newMsg]);
-      requestAnimationFrame(() => scrollToBottom("smooth"));
     }
     setText("");
     setSending(false);
@@ -564,14 +544,19 @@ export default function SupplierChatLayout() {
   // Rule: allowed unless the supplier already has 3 or more Active contracts.
   // Contract status of the current conversation does NOT block proposing.
   const activeContractCount = contracts.filter(c => c.status === "Active").length;
-  const canPropose = activeContractCount < 3;
+  const canPropose = pricing.canSubmitProposal && activeContractCount < 3;
+  const proposalDisabledReason = pricing.loading
+    ? "Checking pricing eligibility…"
+    : !pricing.canSubmitProposal ? "Contract history could not be verified. Reopen the chat to try again."
+    : activeContractCount >= 3 ? "You already have 3 Active contracts. Complete or wait for one to finish before proposing again."
+    : "Submit a price proposal to NERC Copra Trading";
   const businessOwnerId = currentConv?.business_owner_id ?? currentConv?.business_owner?.user_id;
   const isBusinessOwnerOnline = Boolean(
     businessOwnerId && onlineBusinessOwnerIds.has(businessOwnerId),
   );
 
   return (
-    <div className="-mx-3 -mb-5 sm:-mx-6 sm:-mb-6 flex flex-col gap-2 h-[calc(100dvh-76px)] overflow-hidden xl:mx-0 xl:mb-0 xl:h-[calc(100vh-104px)] xl:min-h-[620px]">
+    <div role="region" aria-label="Supplier conversation" className="fixed inset-x-0 bottom-0 top-[76px] flex min-h-0 flex-col gap-2 overflow-hidden px-3 pb-5 sm:px-6 sm:pb-6 lg:left-[var(--sidebar-w,0px)] lg:top-[84px] lg:px-8 lg:pb-8">
       <button type="button" onClick={() => navigate("/dashboard/supplier")}
         className="group flex w-fit shrink-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-[#5D4037] transition-colors hover:text-[#17682D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17682D]/40">
         <LuArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
@@ -600,36 +585,43 @@ export default function SupplierChatLayout() {
           </div>
         ) : (
           <>
-            {/* Header — click to view negotiation profile */}
+            {/* Profile and proposal are separate buttons, including on mobile. */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7">
             <button
               type="button"
               onClick={() => setProfileOpen(true)}
-              className="flex shrink-0 items-center gap-3 border-b border-[#E7DCC9] bg-[#FFFEFB] px-4 py-4 sm:px-7 w-full text-left hover:bg-[#FAF7EF] transition-colors">
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left hover:bg-[#FAF7EF] transition-colors">
               <div className="relative shrink-0">
                 <div className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white ${isBusinessOwnerOnline ? "bg-[#35AB50]" : "bg-[#9CA3AF]"}`}>N</div>
                 <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#FFFEFB] ${isBusinessOwnerOnline ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <p className="text-base font-extrabold leading-tight text-[#5D4037] sm:text-[18px]">NERC Copra Trading</p>
                 <div className="flex items-center gap-2">
                   <p className="text-[#8b7355] text-xs">{isBusinessOwnerOnline ? "Online" : "Offline"}</p>
                 </div>
               </div>
-              {currentConv && canPropose && (
+            </button>
+              {currentConv && (
                 <button
                   type="button"
-                  onClick={e => { e.stopPropagation(); openPropose(); }}
-                  title="Submit a price proposal to NERC Copra Trading"
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all bg-[#2d5a27] text-white hover:bg-[#234820] cursor-pointer">
+                  onClick={openPropose}
+                  disabled={!canPropose}
+                  title={proposalDisabledReason}
+                  className="flex shrink-0 items-center gap-1.5 text-[11px] sm:text-xs font-semibold px-2 sm:px-3.5 py-2 rounded-xl transition-all bg-[#2d5a27] text-white hover:bg-[#234820] disabled:opacity-50 disabled:cursor-not-allowed">
                   <LuCoins className="w-3.5 h-3.5" /> Propose Price
                 </button>
               )}
-            </button>
+            </div>
 
+            {pricing.loading && <p role="status" className="shrink-0 px-4 py-2 text-xs text-brown-light">Checking pricing eligibility…</p>}
+            {pricing.error && <p role="status" className="shrink-0 px-4 py-2 text-xs text-brown-mid">Contract history could not be verified. Reopen the chat to try again.</p>}
+            {pricing.isFirstTimeSupplier && <FirstTimePricingNotice userId={user.id} />}
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 min-h-0 space-y-1 overflow-y-auto bg-[#FFFEFB] px-3 py-3">
+            <div ref={scrollContainerRef} data-chat-scroll className="flex-1 min-h-0 overflow-y-auto bg-[#FFFEFB] px-3 py-3 [overflow-anchor:none]">
+              <div ref={contentRef} data-chat-content className="flow-root space-y-1">
               {messages.length === 0 && (
-                <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-4 text-center">
+                <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                   <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F5E9]">
                     <LuMessageSquare className="h-6 w-6 text-[#2E7D32]" />
                   </div>
@@ -643,18 +635,38 @@ export default function SupplierChatLayout() {
                       className="w-full rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-700 transition-colors hover:bg-blue-100">
                       Send First Message
                     </button>
-                    <button type="button" onClick={openPropose}
-                      className="w-full rounded-lg bg-green-50 px-3 py-2 text-[11px] font-medium text-green-700 transition-colors hover:bg-green-100">
+                    <button type="button" onClick={openPropose} disabled={!canPropose} title={proposalDisabledReason}
+                      className="w-full rounded-lg bg-green-50 px-3 py-2 text-[11px] font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed">
                       Submit Price Proposal
                     </button>
                   </div>
                 </div>
               )}
-              {visibleMessages.map((msg, index) => {
+              {threadItems.map((item, index) => {
+                if (item.type === "proposal") return (
+                  <div key={item.key} data-chat-entry={item.key}>
+                    <ProposalHistoryLine {...item.history} />
+                    {item.decision && <ProposalHistoryLine {...item.decision} />}
+                    {item.data.proposal_id === latestProposal?.proposal_id && (
+                      <ProposalCard
+                        proposal={latestProposal}
+                        pricing={pricing}
+                        submittedByMe={latestSubmittedBySupplier}
+                        onAccept={proposalActing ? null : () => acceptCounter(latestProposal)}
+                        onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
+                        onCounter={proposalActing ? null : () => openCounter(latestProposal)}
+                      />
+                    )}
+                  </div>
+                );
+                if (item.type === "history") return (
+                  <div key={item.key} data-chat-entry={item.key}><ProposalHistoryLine {...item.history} /></div>
+                );
+                const msg = item.data;
                 const isMine = msg.sender_id === user.id;
-                const prevMsg = visibleMessages[index - 1];
-                const showDateSep = !prevMsg ||
-                  new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
+                const previousItem = threadItems[index - 1];
+                const showDateSep = !previousItem ||
+                  new Date(msg.sent_at).toDateString() !== previousItem.date.toDateString();
 
                 let messageEl;
 
@@ -744,38 +756,44 @@ export default function SupplierChatLayout() {
                         </span>
                       </div>
                     )}
-                    {messageEl}
+                    <div data-chat-entry={`message:${msg.message_id}`}>{messageEl}</div>
                   </Fragment>
                 );
               })}
 
-              {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && (
-                <ProposalCard
-                  proposal={latestProposal}
-                  submittedByMe={latestSubmittedBySupplier}
-                  onAccept={proposalActing ? null : () => acceptCounter(latestProposal)}
-                  onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
-                  onCounter={proposalActing ? null : () => openCounter(latestProposal)}
-                />
-              )}
 
-
-
-              <div ref={bottomRef} />
+              <div data-chat-typing className="grid grid-cols-2 px-1 sm:px-4">
+                {["left", "right"].map(side => {
+                  const humans = typingPeople.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const assistants = thinkingAssistants.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const namedHumans = humans.map(person => ({ ...person, name: person.sender_id === currentConv?.business_owner_id
+                    ? [currentConv.business_owner?.first_name, currentConv.business_owner?.last_name].filter(Boolean).join(" ") || person.name
+                    : person.name }));
+                  return <div key={side} className="min-w-0">
+                    <TypingIndicator side={side} active={!!humans.length}
+                      label={chatActivityLabel(namedHumans, [])} variant="human"
+                      bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                        : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                    <TypingIndicator side={side} active={!!assistants.length}
+                    label={chatActivityLabel([], assistants)} variant={assistants.length ? "ai" : "human"}
+                    bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                      : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                  </div>;
+                })}
+              </div>
+              <div ref={bottomRef} data-chat-end aria-hidden="true" />
+              </div>
             </div>
 
             {/* Action chips */}
-            {currentConv?.status === "Open" && (
+            {currentConv && (
               <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-[#E7DCC9] bg-[#FFFEFB] px-3 pb-0.5 pt-2 no-scrollbar">
-                {canPropose && (
-                  <button onClick={openPropose}
-                    className="flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-[#17682D] px-4 py-1.5 text-[10px] font-semibold text-white transition-all hover:bg-[#105523]">
+                  <button type="button" onClick={openPropose} disabled={!canPropose} title={proposalDisabledReason}
+                    className="flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-[#17682D] px-4 py-1.5 text-[10px] font-semibold text-white transition-all hover:bg-[#105523] disabled:opacity-50 disabled:cursor-not-allowed">
                     <LuCoins className="w-3.5 h-3.5" /> Propose Price
                   </button>
-                )}
                 {SUPPLIER_QUICK_SUGGESTIONS.map((suggestion) => (
-                  <button key={suggestion} type="button" onClick={() => setText(suggestion)}
+                  <button key={suggestion} type="button" onClick={() => { setText(suggestion); activity.inputChanged(suggestion); }}
                     className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-1.5 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]">
                     {suggestion}
                   </button>
@@ -786,7 +804,8 @@ export default function SupplierChatLayout() {
             {/* Message input — always available when a conversation exists */}
             {currentConv && (
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full bg-[#EDE3D1] px-4 py-2.5">
-                <input type="text" value={text} onChange={e => setText(e.target.value)}
+                <input type="text" value={text} onChange={e => { setText(e.target.value); activity.inputChanged(e.target.value); }}
+                  onBlur={activity.stopTyping}
                   placeholder="Message NERC Copra Trading…"
                   maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#3d2b1f] placeholder-[#A18D82] focus:outline-none" />
@@ -913,7 +932,7 @@ export default function SupplierChatLayout() {
       </div>
 
       {/* Propose Price Modal */}
-      {showProposeModal && currentConv && (
+      {pricing.canSubmitProposal && showProposeModal && currentConv && createPortal(
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
@@ -930,11 +949,11 @@ export default function SupplierChatLayout() {
             });
             await loadChat(conversationId);
           }}
-        />
+        />, document.body
       )}
 
       {/* Counteroffer Modal */}
-      {counterModal !== null && counterModal !== undefined && currentConv && (
+      {pricing.canCounter && counterModal !== null && counterModal !== undefined && currentConv && createPortal(
         <ProposePriceModal
           conversationId={conversationId}
           userId={user.id}
@@ -957,11 +976,11 @@ export default function SupplierChatLayout() {
             clearProposalModal();
             await supabase.from("proposal_forms").select("*").eq("conversation_id", conversationId).order("submitted_at", { ascending: true }).then(({ data }) => setProposals(data ?? []));
           }}
-        />
+        />, document.body
       )}
 
       {/* Sign Contract Modal */}
-      {signContract && (
+      {signContract && createPortal(
         <SupplierContractReviewModal
           contract={signContract}
           onClose={() => setSignContract(null)}
@@ -975,16 +994,16 @@ export default function SupplierChatLayout() {
             });
             await loadChat(conversationId);
           }}
-        />
+        />, document.body
       )}
 
-      {viewContract && (
+      {viewContract && createPortal(
         <ContractDocumentModal
           contractId={viewContract.contractId}
           contractNumber={viewContract.contractNumber}
           documentPath={viewContract.documentPath}
           onClose={() => setViewContract(null)}
-        />
+        />, document.body
       )}
 
       {/* NERC profile sheet — mirrors the desktop right panel */}

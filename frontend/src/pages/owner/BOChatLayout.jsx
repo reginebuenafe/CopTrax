@@ -13,8 +13,16 @@ import ContractDocumentModal from "../../components/ContractDocumentModal";
 import { usePersistentProposalModal } from "../../hooks/usePersistentProposalModal";
 import { formatMessageText } from "../../utils/formatMessageText";
 import MoistureContentTable from "../../components/MoistureContentTable";
-import { actionableProposalIndex, uniqueContractCardMessages } from "../../utils/negotiationMessages";
-import { SUPPLIER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
+import { actionableProposalIndex } from "../../utils/negotiationMessages";
+import { proposalHistoryItems } from "../../utils/proposalHistory";
+import ProposalHistoryLine from "../../components/ProposalHistoryLine";
+import { BUSINESS_OWNER_PRESENCE_CHANNEL, SUPPLIER_PRESENCE_CHANNEL } from "../../utils/presenceChannels";
+import TypingIndicator from "../../components/TypingIndicator";
+import { useChatTyping } from "../../hooks/useChatTyping";
+import { chatActivityLabel, conversationChatTopic } from "../../utils/chatTyping";
+import { observeAiRequest } from "../../utils/chatAiActivity";
+import { useIsFirstTimeSupplier } from "../../hooks/useIsFirstTimeSupplier";
+import { useChatEntryScroll } from "../../hooks/useChatEntryScroll";
 
 // Hard cap on a single chat message's length — matches the DB check
 // constraint added for defense-in-depth (see migration 20260917000064).
@@ -170,7 +178,7 @@ function ProposalCard({ proposal, submittedByMe, onAccept, onReject, onCounter }
 export default function BOChatLayout() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   // Left panel
   const [conversations, setConversations] = useState([]);
@@ -179,11 +187,16 @@ export default function BOChatLayout() {
 
   // Middle panel
   const [currentConv, setCurrentConv] = useState(null);
+  const supplierPricing = useIsFirstTimeSupplier(currentConv?.supplier?.user_id);
+  const { refresh: refreshSupplierPricing } = supplierPricing;
   const [messages, setMessages] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
+  const { activity, humans: typingPeople, assistants: thinkingAssistants } = useChatTyping({
+    conversationId, user, profile, aiSenderId: currentConv?.business_owner_id,
+  });
   const {
     modalState: proposalModalState,
     openCounter,
@@ -195,20 +208,8 @@ export default function BOChatLayout() {
   const counterModal = proposalModalState?.type === "counter"
     ? proposalModalState.proposal
     : null;
-  const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const currentConvRef = useRef(null); // stable ref so realtime callbacks don't go stale
-
-  function isNearBottom() {
-    const el = scrollContainerRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-  }
-
-  function scrollToBottom(behavior = "smooth") {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
-  }
 
   // Right panel
   const [supplierData, setSupplierData] = useState(null);
@@ -286,7 +287,11 @@ export default function BOChatLayout() {
         // checks the global ai_auto_negotiate_global flag server-side and skips if off.
         const newProp = payload.new;
         if (newProp?.proposal_id && newProp?.submitted_by && newProp.submitted_by !== user.id) {
-          supabase.functions.invoke("ai-negotiate", { body: { proposal_id: newProp.proposal_id } });
+          const request = supabase.functions.invoke("ai-negotiate", { body: { proposal_id: newProp.proposal_id } });
+          observeAiRequest(newProp.conversation_id, request, {
+            aiSenderId: user.id,
+            broadcastChannel: supabase.getChannels().find(channel => channel.topic === `realtime:${BUSINESS_OWNER_PRESENCE_CHANNEL}`),
+          });
         }
       })
       .subscribe();
@@ -359,11 +364,12 @@ export default function BOChatLayout() {
   // ── Realtime subscription for selected chat ───────────────────────────────
   useEffect(() => {
     if (!conversationId) return;
-    const channel = supabase.channel(`bo-chat:${conversationId}`)
+    const channel = supabase.channel(conversationChatTopic(conversationId))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
         payload => {
           const m = payload.new;
           if (!m || m.conversation_id !== conversationId) return; // belt-and-suspenders guard
+          activity.messageReceived(m);
           setMessages(prev =>
             prev.some(x => x.message_id === m.message_id) ? prev : [...prev, m]);
         })
@@ -374,6 +380,7 @@ export default function BOChatLayout() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "contracts" },
         async () => {
           // Refetch contracts only — do NOT call loadChat (it clears all messages)
+          refreshSupplierPricing();
           const conv = currentConvRef.current;
           if (!conv?.supplier?.user_id) return;
           const { data } = await supabase
@@ -384,42 +391,13 @@ export default function BOChatLayout() {
             .order("created_at", { ascending: false });
           setContracts(data ?? []);
         })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [conversationId, user.id]);
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "contracts" },
+        () => { refreshSupplierPricing(); });
+    const unbindTyping = activity.bindChannel(channel);
+    channel.subscribe(activity.channelStatus);
+    return () => { unbindTyping(); supabase.removeChannel(channel); };
+  }, [conversationId, user.id, activity, refreshSupplierPricing]);
 
-  // Scroll to bottom when initial load completes (covers conversation open & switch)
-  useEffect(() => {
-    if (chatLoading) return;
-    // Double-rAF: gives the chat panel time to finish rendering before scrolling
-    let raf2;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const el = scrollContainerRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    });
-    // Fallback: on mobile the panel may still be transitioning — scroll again after a short delay
-    const tid = setTimeout(() => {
-      const el = scrollContainerRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }, 150);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      clearTimeout(tid);
-    };
-  }, [chatLoading]);
-
-  // Follow new realtime messages only if user is already near the bottom
-  useEffect(() => {
-    if (chatLoading) return; // initial load handled above
-    if (!isNearBottom()) return; // user intentionally scrolled up — don't interrupt
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Latest pending proposal logic ─────────────────────────────────────────
   const latestProposalIndex = actionableProposalIndex(proposals, currentConv?.status);
   const latestProposal = latestProposalIndex >= 0 ? proposals[latestProposalIndex] : null;
   // Use submitted_by if available (migration 025+); fall back to index parity for legacy rows.
@@ -431,7 +409,15 @@ export default function BOChatLayout() {
 
   // ── Latest accepted proposal (for negotiation summary) ────────────────────
   const acceptedProposal = [...proposals].reverse().find(p => p.proposal_status === "Accepted") ?? null;
-  const visibleMessages = uniqueContractCardMessages(messages);
+  const threadItems = proposalHistoryItems({ messages, proposals, supplierId: currentConv?.supplier_id,
+    supplierName: [currentConv?.supplier?.first_name, currentConv?.supplier?.last_name].filter(Boolean).join(" ") || "Supplier",
+    supplierView: false });
+
+
+  const { resumeFollowing, contentRef, bottomRef } = useChatEntryScroll({
+    containerRef: scrollContainerRef, conversationKey: conversationId,
+    latestEntryKey: threadItems.at(-1)?.key ?? null, enabled: !!conversationId && !chatLoading,
+  });
 
   // ── Sent contract (PDF generated, awaiting supplier signature) ─────────────
   const sentContract    = contracts.find(c => c.status === "Pending" && c.contract_hash) ?? null;
@@ -441,6 +427,8 @@ export default function BOChatLayout() {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || sending || trimmed.length > MAX_MESSAGE_LENGTH) return;
+    activity.stopTyping();
+    resumeFollowing();
     setSending(true);
     const { data: newMsg } = await supabase.from("messages").insert({
       conversation_id: conversationId,
@@ -450,7 +438,6 @@ export default function BOChatLayout() {
     }).select().single();
     if (newMsg) {
       setMessages(prev => prev.some(m => m.message_id === newMsg.message_id) ? prev : [...prev, newMsg]);
-      requestAnimationFrame(() => scrollToBottom("smooth"));
     }
     setText("");
     setSending(false);
@@ -547,7 +534,7 @@ export default function BOChatLayout() {
   );
 
   return (
-    <div className="-mx-3 -mb-5 sm:-mx-6 sm:-mb-6 flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 h-[calc(100dvh-76px)] overflow-hidden xl:mx-0 xl:mb-0 xl:h-[calc(100vh-104px)] xl:min-h-[620px] xl:flex-row">
+    <div className="-mx-3 -mb-5 sm:-mx-6 sm:-mb-6 lg:-mb-8 flex flex-col gap-4 rounded-[22px] bg-[#FAF7EF] p-2 h-[calc(100dvh-76px)] min-h-0 overflow-hidden lg:h-[calc(100dvh-84px)] xl:mx-0 xl:mb-0 xl:h-[calc(100dvh-116px)] xl:flex-row">
 
       {/* ── LEFT PANEL — Conversations list ──────────────────────────────── */}
       <div className={`${conversationId ? "hidden xl:flex" : "flex"} h-[320px] w-full shrink-0 flex-col overflow-hidden rounded-[18px] border border-[#E4D5BD] bg-[#FFFEFB] shadow-sm xl:h-full xl:w-[280px]`}>
@@ -643,6 +630,7 @@ export default function BOChatLayout() {
                 <p className="text-[17px] font-bold leading-tight text-[#5D4037]">
                   {currentConv?.supplier?.first_name} {currentConv?.supplier?.last_name}
                 </p>
+                {supplierPricing.isFirstTimeSupplier && <span className="inline-block mt-1 rounded-full bg-green-pale px-2 py-0.5 text-[10px] font-semibold text-green-dark">First-time supplier</span>}
                 <div className="flex items-center gap-2">
                   <p className="text-[#8b7355] text-xs">
                     {isSupplierOnline ? "Online" : "Offline"}
@@ -653,17 +641,38 @@ export default function BOChatLayout() {
             </button>
 
             {/* Messages */}
-            <div ref={scrollContainerRef} className="flex-1 min-h-0 space-y-1 overflow-y-auto bg-[#FFFEFB] px-0 py-4">
+            <div ref={scrollContainerRef} data-chat-scroll className="flex-1 min-h-0 overflow-y-auto bg-[#FFFEFB] px-0 py-4 [overflow-anchor:none]">
+              <div ref={contentRef} data-chat-content className="flow-root space-y-1">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-32 text-center text-[#b09a7a] text-sm px-4">
                   <p>No messages yet. Waiting for the supplier to start.</p>
                 </div>
               )}
-              {visibleMessages.map((msg, index) => {
+              {threadItems.map((item, index) => {
+                if (item.type === "proposal") return (
+                  <div key={item.key} data-chat-entry={item.key}>
+                    <ProposalHistoryLine {...item.history} />
+                    {item.decision && <ProposalHistoryLine {...item.decision} />}
+                    {item.data.proposal_id === latestProposal?.proposal_id && (
+                      <ProposalCard
+                        proposal={latestProposal}
+                        submittedByBO={latestSubmittedByBO}
+                        submittedByMe={latestSubmittedByBO}
+                        onAccept={proposalActing ? null : () => acceptProposal(latestProposal)}
+                        onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
+                        onCounter={proposalActing ? null : () => openCounter(latestProposal)}
+                      />
+                    )}
+                  </div>
+                );
+                if (item.type === "history") return (
+                  <div key={item.key} data-chat-entry={item.key}><ProposalHistoryLine {...item.history} /></div>
+                );
+                const msg = item.data;
                 const isMine = msg.sender_id === user.id;
-                const prevMsg = visibleMessages[index - 1];
-                const showDateSep = !prevMsg ||
-                  new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
+                const previousItem = threadItems[index - 1];
+                const showDateSep = !previousItem ||
+                  new Date(msg.sent_at).toDateString() !== previousItem.date.toDateString();
 
                 // Determine message element (no key — Fragment carries it)
                 let messageEl;
@@ -741,23 +750,34 @@ export default function BOChatLayout() {
                         </span>
                       </div>
                     )}
-                    {messageEl}
+                    <div data-chat-entry={item.key}>{messageEl}</div>
                   </Fragment>
                 );
               })}
 
-              {/* Pending proposal card */}
-              {latestProposal && latestProposal.proposal_status === "Pending" && (
-                <ProposalCard
-                  proposal={latestProposal}
-                  submittedByBO={latestSubmittedByBO}
-                  submittedByMe={latestSubmittedByBO}
-                  onAccept={proposalActing ? null : () => acceptProposal(latestProposal)}
-                  onReject={proposalActing ? null : () => rejectProposal(latestProposal)}
-                  onCounter={proposalActing ? null : () => openCounter(latestProposal)}
-                />
-              )}
-              <div ref={bottomRef} />
+
+              <div data-chat-typing className="grid grid-cols-2 px-3 sm:px-5">
+                {["left", "right"].map(side => {
+                  // Same sender_id === user.id rule used by message bubbles above.
+                  const humans = typingPeople.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const assistants = thinkingAssistants.filter(person => (person.sender_id === user.id ? "right" : "left") === side);
+                  const namedHumans = humans.map(person => ({ ...person, name: person.sender_id === currentConv?.supplier_id
+                    ? [currentConv.supplier?.first_name, currentConv.supplier?.last_name].filter(Boolean).join(" ") || person.name
+                    : person.name }));
+                  return <div key={side} className="min-w-0">
+                    <TypingIndicator side={side} active={!!humans.length}
+                      label={chatActivityLabel(namedHumans, [])} variant="human"
+                      bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                        : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                    <TypingIndicator side={side} active={!!assistants.length}
+                    label={chatActivityLabel([], assistants)} variant={assistants.length ? "ai" : "human"}
+                    bubbleClassName={side === "right" ? "bg-[#2d5a27] text-white rounded-br-sm"
+                      : "bg-white text-[#3d2b1f] rounded-bl-sm shadow-sm border border-[#e8e0d0]"} />
+                  </div>;
+                })}
+              </div>
+              <div ref={bottomRef} data-chat-end aria-hidden="true" />
+              </div>
             </div>
 
             {/* Quick action chips */}
@@ -779,7 +799,7 @@ export default function BOChatLayout() {
                   <LuCoins className="w-3.5 h-3.5" /> Counteroffer
                 </button>
                 {BO_QUICK_ACTIONS.map(([label, message]) => (
-                  <button key={label} type="button" onClick={() => setText(message)}
+                  <button key={label} type="button" onClick={() => { setText(message); activity.inputChanged(message); }}
                     className="shrink-0 whitespace-nowrap rounded-full border border-[#E8DCC8] bg-[#FDF7E7] px-3 py-2 text-[10px] font-medium text-[#5D4037] transition-colors hover:bg-[#F5EFEB]">
                     {label}
                   </button>
@@ -800,7 +820,8 @@ export default function BOChatLayout() {
             {currentConv && (
               <form onSubmit={sendMessage} className="mx-3 mb-3 mt-2 flex shrink-0 items-center gap-3 rounded-full border border-[#E0D5C1] bg-[#EDE3D1] px-4 py-2.5">
                 <input
-                  type="text" value={text} onChange={e => setText(e.target.value)}
+                  type="text" value={text} onChange={e => { setText(e.target.value); activity.inputChanged(e.target.value); }}
+                  onBlur={activity.stopTyping}
                   placeholder={`Message ${currentConv?.supplier?.first_name ?? ""}…`}
                   maxLength={MAX_MESSAGE_LENGTH}
                   className="min-w-0 flex-1 border-0 bg-transparent px-1 py-1 text-sm text-[#4E342E] placeholder-[#A18D82] focus:outline-none"

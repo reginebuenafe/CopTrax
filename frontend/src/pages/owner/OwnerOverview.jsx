@@ -561,6 +561,7 @@ export default function OwnerOverview() {
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState("");
   const [stats, setStats]           = useState(null);
+  const [awaitingContracts, setAwaitingContracts] = useState({ loading: true, count: null });
   const [createModal, setCreateModal] = useState(false);
   const [toast, setToast]           = useState(null);
 
@@ -574,6 +575,19 @@ export default function OwnerOverview() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [showAnalytics, setShowAnalytics]   = useState(false);
   const [showRankings, setShowRankings]     = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadAwaitingContracts() {
+      // Same unfiltered owner-review list as BOContractsPage's pending panel.
+      const { count, error } = await supabase.from("contracts")
+        .select("contract_id", { count: "exact", head: true })
+        .eq("status", "Pending Owner Review");
+      if (active) setAwaitingContracts({ loading: false, count: error ? null : count ?? 0 });
+    }
+    loadAwaitingContracts();
+    return () => { active = false; };
+  }, [user?.id]);
 
   useEffect(() => {
     async function loadAll() {
@@ -773,6 +787,12 @@ export default function OwnerOverview() {
       onClick: () => navigate("/dashboard/owner/users"),
     },
     { label: "Active Contracts",    value: stats.activeContracts,    color: "bg-green-pale text-green-dark" },
+    {
+      label: "Awaiting Contracts", value: awaitingContracts.loading ? "…" : awaitingContracts.count ?? "—",
+      loading: awaitingContracts.loading,
+      ariaLabel: `Awaiting contracts: ${awaitingContracts.loading ? "loading" : awaitingContracts.count ?? "unavailable"}, open pending contracts`,
+      onClick: () => navigate("/dashboard/owner/contracts", { state: { openPendingContracts: true } }),
+    },
     { label: "Total Amount Paid",   value: paymentSummary
         ? "₱" + Number(paymentSummary.paidTotal ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : "—",
@@ -878,21 +898,27 @@ export default function OwnerOverview() {
 
       {/* ── Summary stat cards ── */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="min-w-0 overflow-x-auto p-1 -m-1" aria-label="Overview statistics">
+        <div className="grid grid-cols-5 min-w-[720px] gap-2 lg:gap-4">
           {STAT_CARDS.map(s => {
             const Tag = s.onClick ? "button" : "div";
             return (
               <Tag key={s.label}
                 type={s.onClick ? "button" : undefined}
                 onClick={s.onClick}
-                className={`bg-white border border-beige-dark/40 rounded-xl px-5 py-4 text-left transition-colors hover:border-green-dark/30 ${
+                aria-label={s.ariaLabel}
+                aria-busy={s.loading}
+                className={`min-w-0 bg-white border border-beige-dark/40 rounded-xl px-3 py-3 lg:px-5 lg:py-4 text-left transition-colors hover:border-green-dark/30 ${
                   s.onClick ? "cursor-pointer hover:bg-beige/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-mid/40" : ""
                 }`}>
-                <p className="text-2xl font-bold text-brown-dark leading-none">{s.value}</p>
-                <p className="text-xs text-brown-light mt-1.5 leading-snug">{s.label}</p>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-xl lg:text-2xl font-bold text-brown-dark leading-none">{s.value}</p>
+                </div>
+                <p title={s.label} className="truncate text-[11px] lg:text-xs text-brown-light mt-1.5 leading-snug">{s.label}</p>
               </Tag>
             );
           })}
+        </div>
         </div>
       )}
 

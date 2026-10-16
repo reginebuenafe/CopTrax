@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LuTruck, LuClock, LuCheck, LuX,
-  LuChevronDown, LuChevronUp, LuSearch,
+  LuChevronDown, LuChevronUp, LuSearch, LuCircleAlert,
 } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -75,6 +76,96 @@ function supplierStatusKey(status, qualityResult) {
   if (status === "Rejected" || qualityResult === "Rejected") return "Rejected";
   if (status === "Accepted" || qualityResult === "Accepted") return "Accepted";
   return "Pending";
+}
+
+function moistureRemark(delivery, status) {
+  const results = delivery.quality_results ?? [];
+  const hasRemark = result => typeof result.remarks === "string" && result.remarks.trim();
+  const result = results.find(result => result.result === status && hasRemark(result))
+    ?? results.find(hasRemark);
+  if (!result) return "";
+  let phrase = result.remarks.replace(/\s+/g, " ").trim();
+  if (["Accepted", "Rejected"].includes(status) && result.result === status
+    && !new RegExp(`\\b${status}\\b`, "i").test(phrase)) phrase = `${status}: ${phrase}`;
+  return phrase.length > 80 ? `${phrase.slice(0, 79).trimEnd()}…` : phrase;
+}
+
+// Scoped to this page. A body portal escapes the cards/table's overflow clipping.
+function MoistureRemarksTooltip({ text, className = "" }) {
+  const id = useId();
+  const buttonRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const pointerFocus = useRef(false);
+  const [open, setOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    function position() {
+      const button = buttonRef.current, tooltip = tooltipRef.current;
+      if (!button || !tooltip) return;
+      const viewport = window.visualViewport;
+      const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+      const width = viewport?.width ?? document.documentElement.clientWidth;
+      const height = viewport?.height ?? window.innerHeight;
+      tooltip.style.maxWidth = `${Math.max(1, width - 16)}px`;
+      const anchor = button.getBoundingClientRect(), box = tooltip.getBoundingClientRect();
+      const x = Math.max(left + 8, Math.min(anchor.left + anchor.width / 2 - box.width / 2, left + width - box.width - 8));
+      const above = anchor.top - box.height - 8;
+      const y = above >= top + 8 ? above : anchor.bottom + 8;
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${Math.max(top + 8, Math.min(y, top + height - box.height - 8))}px`;
+      tooltip.style.visibility = "visible";
+    }
+    position();
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    window.visualViewport?.addEventListener("resize", position);
+    window.visualViewport?.addEventListener("scroll", position);
+    return () => {
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+      window.visualViewport?.removeEventListener("resize", position);
+      window.visualViewport?.removeEventListener("scroll", position);
+    };
+  }, [open, text]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = event => { if (!buttonRef.current?.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef} type="button" tabIndex={0} aria-label="Moisture remarks"
+        aria-describedby={open ? id : undefined}
+        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-mid/40 ${className}`}
+        onPointerEnter={event => { if (event.pointerType === "mouse") setOpen(true); }}
+        onPointerLeave={event => { if (event.pointerType === "mouse") setOpen(false); }}
+        onPointerDown={() => { pointerFocus.current = true; }}
+        onPointerCancel={() => { pointerFocus.current = false; }}
+        onFocus={() => { if (!pointerFocus.current) setOpen(true); }}
+        onBlur={() => { pointerFocus.current = false; setOpen(false); }}
+        onClick={event => { event.stopPropagation(); pointerFocus.current = false; setOpen(value => !value); }}
+      >
+        <LuCircleAlert className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {open && createPortal(
+        <span ref={tooltipRef} id={id} role="tooltip"
+          className="pointer-events-none fixed z-[1000] overflow-hidden text-ellipsis whitespace-nowrap rounded-xl border border-beige-dark/50 bg-white px-3 py-2 text-xs font-medium text-brown-dark shadow-card"
+          style={{ left: 0, top: 0, visibility: "hidden" }}>
+          {text}
+        </span>, document.body,
+      )}
+    </>
+  );
 }
 
 export default function SupplierDeliveriesPage() {
@@ -252,6 +343,7 @@ export default function SupplierDeliveriesPage() {
             const li = d.laboratory_inspections?.[0];
             const qr = d.quality_results?.[0];
             const displayStatus = supplierStatusKey(d.delivery_status, qr?.result);
+            const moistureInfo = moistureRemark(d, displayStatus);
             const meta = displayStatus ? STATUS_META[displayStatus] : null;
             const StatusIcon = meta?.icon;
             const contractRef = contractLabel(d);
@@ -378,7 +470,10 @@ export default function SupplierDeliveriesPage() {
                             <td className="whitespace-nowrap px-3 py-4 text-right font-bold tabular-nums text-brown-dark">{netWeight !== null ? `${fmt3(netWeight)} kg` : "—"}</td>
                             <td className="whitespace-nowrap px-3 py-4 text-left">{weigherName}</td>
                             <td className={`whitespace-nowrap px-3 py-4 text-left ${hasMoisture ? "" : "font-medium text-orange-600"}`}>
-                              {hasMoisture ? `${moisture}cc` : "Not yet assessed"}
+                              <span className="relative inline-block">
+                                {hasMoisture ? `${moisture}cc` : "Not yet assessed"}
+                                {moistureInfo && <MoistureRemarksTooltip text={moistureInfo} className="absolute left-full top-1/2 ml-1 -translate-y-1/2" />}
+                              </span>
                             </td>
                             <td className={`whitespace-nowrap px-3 py-4 text-right tabular-nums ${li ? "" : "font-medium text-orange-600"}`}>
                               {li ? `${discountPct}%` : "Not yet assessed"}
@@ -407,7 +502,12 @@ export default function SupplierDeliveriesPage() {
                       <MobileDetail label="Tare Weight" value={tareWeight !== null && tareWeight !== undefined ? `${fmt3(tareWeight)} kg` : "—"} numeric />
                       <MobileDetail label="Net Weight" value={netWeight !== null ? `${fmt3(netWeight)} kg` : "—"} numeric prominent />
                       <MobileDetail label="Weighing Staff" value={weigherName} />
-                      <MobileDetail label="Moisture" value={hasMoisture ? `${moisture}cc` : "Not yet assessed"} pending={!hasMoisture} />
+                      <MobileDetail label="Moisture" value={
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                          {hasMoisture ? `${moisture}cc` : "Not yet assessed"}
+                          {moistureInfo && <MoistureRemarksTooltip text={moistureInfo} />}
+                        </span>
+                      } pending={!hasMoisture} />
                       <MobileDetail label="PCA Deduction" value={li ? `${discountPct}%` : "Not yet assessed"} numeric={Boolean(li)} pending={!li} />
                       <MobileDetail label="Final Weight" value={finalWeight !== null ? `${fmt3(finalWeight)} kg` : "Not yet assessed"} numeric={finalWeight !== null} pending={finalWeight === null} prominent />
                       <MobileDetail
