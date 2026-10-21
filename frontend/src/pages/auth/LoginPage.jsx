@@ -4,6 +4,7 @@ import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "rea
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
 import { useAuth } from "../../contexts/AuthContext";
+import { hasExplicitLogoutRecently, clearExplicitLogout } from "../../utils/sessionLogout";
 
 const ROLE_REDIRECT = {
   "Business Owner": "/dashboard/owner",
@@ -56,10 +57,20 @@ export default function LoginPage() {
 
   // Redirect whenever AuthContext resolves an authenticated user. This covers
   // fresh sign-ins as well as a session restored before the login page mounts.
+  // However, if the user just explicitly logged out, do NOT auto-redirect—show
+  // the login page so they can choose whether to log in again.
   useEffect(() => {
     if (isLoading || !user) return;
 
     setLoading(false);
+
+    // If user just explicitly logged out, clear the flag and show login page
+    if (hasExplicitLogoutRecently()) {
+      clearExplicitLogout();
+      // Sign out the auto-restored session to prevent re-login
+      supabase.auth.signOut({ scope: "global" });
+      return;
+    }
 
     if (!role && !accountStatus) {
       // Profile not found even after loading finished

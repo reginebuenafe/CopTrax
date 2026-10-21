@@ -339,6 +339,19 @@ Build and review one module at a time (see build order in `docs/requirements.md`
 
 ## Recent changes (keep this updated)
 
+### 2026-10-21 — Restored manual "Create Batch" workflow (reverted automatic payment batching)
+
+- **Issue**: Migration `20261016000089` added automatic payment creation triggers that fire when deliveries are accepted, immediately creating a `payment_batches` row with Pending status. This bypassed the documented "Ready to Pay" review step where the Business Owner should manually inspect unbatched deliveries and click "Create Batch" before batching.
+- **Symptom**: After a delivery was accepted, the "Ready to Pay" tab showed "No deliveries awaiting payment" (because the payment was already auto-batched), and the delivery immediately appeared in "Payment Batches" tab without the BO clicking anything.
+- **Fix**: Created migration `20261021000090_revert_manual_create_batch_workflow.sql` which drops the automatic payment creation triggers (`zz_pending_payment_on_delivery_acceptance`, `zz_pending_payment_on_quality_acceptance`) and their supporting functions (`create_pending_payment_on_acceptance()`, `ensure_pending_delivery_payment()`). This restores the original manual workflow.
+- **Deployment**: Apply via `supabase db push` or copy/paste migration `20261021000090` into Supabase Dashboard SQL Editor.
+- **Workflow after fix**: Accepted delivery → appears in "Ready to Pay" tab → BO reviews → clicks "Create Batch" → payment created in Pending status → BO reviews batch → clicks "Release" to send payment.
+
+### 2026-10-21 — Restored Supplier registration by deploying the missing `supplier-signup` Edge Function
+
+- The frontend's configured Supabase project had `upload-registration-files` deployed but was missing `supplier-signup`, which the registration form calls first. The resulting request failure appeared on the final review screen before document upload began.
+- Deployed `supplier-signup` with gateway JWT verification disabled, matching the function's public credential-validation flow. Confirmed it is active and responds to a safe invalid-input smoke test with the expected validation error; no account was created.
+
 ### 2026-10-02 — Fixed: no success/error toast after saving Contact Details in Account Settings (root cause: profile refresh unmounted the page)
 
 - **Root cause**: `AccountSettingsPage.jsx`'s contact-details save handler calls `await refreshProfile()` (from `AuthContext`) before calling `showToast(...)`. `refreshProfile()` → `fetchProfile()` toggled the global `profileLoading` flag, which feeds `AuthContext`'s `isLoading`. `ProtectedRoute.jsx` unmounts its entire children tree and shows a full-page spinner whenever `isLoading` is true — so every contact-details save briefly unmounted `AccountSettingsPage` (and remounted a fresh instance once the refetch finished). The `showToast(...)` call that ran right after `await refreshProfile()` was therefore setting state on an already-unmounted component instance — a silent no-op in React, with no console error, which is why the save itself always worked (confirmed via network logs: the `PATCH users` → 204 and the refetch → 200 both always succeeded) while the toast simply never appeared. Confirmed live with a MutationObserver watching for the toast element across multiple save attempts — it never entered the DOM at all until this fix.
