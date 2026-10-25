@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { LuMail, LuLock, LuEye, LuEyeOff, LuCircleAlert, LuArrowLeft } from "react-icons/lu";
 import { supabase } from "../../lib/supabase";
 import BrandLogo from "../../components/BrandLogo";
 import { useAuth } from "../../contexts/AuthContext";
-import { hasExplicitLogoutRecently, clearExplicitLogout } from "../../utils/sessionLogout";
 
 const ROLE_REDIRECT = {
   "Business Owner": "/dashboard/owner",
@@ -55,22 +54,21 @@ export default function LoginPage() {
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  // Redirect whenever AuthContext resolves an authenticated user. This covers
-  // fresh sign-ins as well as a session restored before the login page mounts.
-  // However, if the user just explicitly logged out, do NOT auto-redirect—show
-  // the login page so they can choose whether to log in again.
+  // Any session found when this page opens is a leftover from an earlier
+  // visit: clear it so the user must actually sign in. Redirects only happen
+  // after a sign-in submitted on this page.
+  const signInSubmitted = useRef(false);
+  const staleSessionCleared = useRef(null);
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (!staleSessionCleared.current) {
+      staleSessionCleared.current = supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!signInSubmitted.current || isLoading || !user) return;
 
     setLoading(false);
-
-    // If user just explicitly logged out, clear the flag and show login page
-    if (hasExplicitLogoutRecently()) {
-      clearExplicitLogout();
-      // Sign out the auto-restored session to prevent re-login
-      supabase.auth.signOut({ scope: "global" });
-      return;
-    }
 
     if (!role && !accountStatus) {
       // Profile not found even after loading finished
@@ -122,6 +120,8 @@ export default function LoginPage() {
     const trimmedEmail = email.trim();
 
     try {
+      await staleSessionCleared.current;
+      signInSubmitted.current = true;
       // Race against a 15-second timeout so a stalled auth call (e.g. a
       // background browser tab holding a stuck GoTrue request) never leaves
       // the user stuck on an infinite "Signing in…" spinner with no feedback.
@@ -147,6 +147,7 @@ export default function LoginPage() {
           setError("Login failed. Please try again.");
         }
         console.error("[login] auth error:", authError.status, authError.message);
+        signInSubmitted.current = false;
         setLoading(false);
         return;
       }
@@ -156,6 +157,7 @@ export default function LoginPage() {
       // Unexpected throw (network failure, timeout race above, Supabase
       // client error, etc.)
       console.error("[login] unexpected error:", err);
+      signInSubmitted.current = false;
       setError(
         err?.message === "Sign-in timed out"
           ? "Sign-in is taking too long. Please try again."

@@ -27,9 +27,13 @@ function daysUntil(dateStr) {
 // stored unchanged on weighing_records — this is what Bodega Stock is
 // summed from (NOT the post-PCA-deduction weight_kg stored on
 // inventory_batches, which is shown separately as "After Deduction").
-function getNetWeightKg(delivery) {
+// Falls back to the batch's own recorded weight when the weighing record
+// can't be read, so a batch never silently counts as 0.
+function getNetWeightKg(delivery, batch) {
   const wr = Array.isArray(delivery?.weighing_records) ? delivery.weighing_records[0] : delivery?.weighing_records;
-  return Number(wr?.net_weight_kg ?? 0);
+  const net = Number(wr?.net_weight_kg);
+  if (Number.isFinite(net) && net > 0) return net;
+  return Number(batch?.weight_kg ?? 0);
 }
 
 export default function InventoryPage() {
@@ -81,6 +85,11 @@ export default function InventoryPage() {
       supabase.from("copra_sales").select("net_weight_kg"),
     ]);
 
+    const failed = resRes.error || wRes.error || salesRes.error;
+    if (failed) {
+      console.error("Inventory fetch failed:", failed);
+      showToast(`Failed to load inventory: ${failed.message}`, "error");
+    }
     setResecada(resRes.data ?? []);
     setWalkin(wRes.data ?? []);
     setTotalSoldKg((salesRes.data ?? []).reduce((s, r) => s + Number(r.net_weight_kg ?? 0), 0));
@@ -102,7 +111,7 @@ export default function InventoryPage() {
   // every recorded copra sale (copra_sales never mutates inventory_batches/
   // weighing_records/deliveries, so this subtraction is the only place the
   // sold weight is ever reflected).
-  const bodegaStockBeforeSalesKg = resecada.reduce((s, b) => s + getNetWeightKg(b.delivery), 0);
+  const bodegaStockBeforeSalesKg = resecada.reduce((s, b) => s + getNetWeightKg(b.delivery, b), 0);
   const bodegaStockKg = Math.max(0, bodegaStockBeforeSalesKg - totalSoldKg);
   const walkinTotal = walkin.reduce((s, b) => s + Number(b.weight_kg), 0);
   const bodegaCapacityPercent = Math.min(100, (bodegaStockKg / BODEGA_CAPACITY_KG) * 100);
@@ -282,7 +291,7 @@ function BodegaStockTab({ batches, total }) {
                   </td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.delivery?.delivery_date)}</td>
                   <td className="px-5 py-3.5 text-brown-mid">{fmtDate(b.recorded_date)}</td>
-                  <td className="px-5 py-3.5 font-bold text-brown-dark">{fmtTons(getNetWeightKg(b.delivery))}</td>
+                  <td className="px-5 py-3.5 font-bold text-brown-dark">{fmtTons(getNetWeightKg(b.delivery, b))}</td>
                   <td className="px-5 py-3.5 font-bold text-green-dark">{fmtTons(b.weight_kg)}</td>
                 </tr>
               ))}
@@ -321,7 +330,7 @@ function BodegaStockTab({ batches, total }) {
                 </div>
                 <div className="flex justify-between gap-3">
                   <span className="text-brown-light">Net Weight (t)</span>
-                  <span className="font-semibold text-brown-dark text-right">{fmtTons(getNetWeightKg(b.delivery))}</span>
+                  <span className="font-semibold text-brown-dark text-right">{fmtTons(getNetWeightKg(b.delivery, b))}</span>
                 </div>
                 <div className="flex justify-between gap-3">
                   <span className="text-brown-light">After Deduction (t)</span>
