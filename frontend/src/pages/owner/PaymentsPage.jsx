@@ -70,7 +70,7 @@ function computeLine(delivery, spot) {
     const deductedKg   = allocNetKg - allocFinalKg;
     const pricePerKg   = alloc.contract_id
       ? parseFloat(alloc.contract?.negotiated_price_per_kg ?? 0)
-      : parseFloat(spot);
+      : parseFloat(alloc.spot_price_per_kg_at_delivery ?? spot);
     const lineAmount   = allocFinalKg * pricePerKg;
     const priceType    = alloc.contract_id ? "Negotiated" : "Spot";
     return {
@@ -162,7 +162,7 @@ export default function PaymentsPage() {
       supabase.from("deliveries").select(`
         delivery_id, delivery_date, delivery_source, created_at,
         supplier:supplier_id(user_id, first_name, last_name),
-        delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+        delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order, spot_price_per_kg_at_delivery,
           contract:contract_id(contract_number, negotiated_price_per_kg)),
         weighing_records(gross_weight_kg, tare_weight_kg, net_weight_kg),
         laboratory_inspections(moisture_content_pct),

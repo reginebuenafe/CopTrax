@@ -210,7 +210,7 @@ export default function SupplierDeliveriesPage() {
       const { data } = await supabase
         .from("delivery_allocations")
         .select(`
-          allocation_id, delivery_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+          allocation_id, delivery_id, contract_id, allocated_weight_kg, price_type, sequence_order, spot_price_per_kg_at_delivery,
           contract:contract_id(contract_number, negotiated_price_per_kg)
         `)
         .in("delivery_id", deliveryIds)
@@ -532,7 +532,7 @@ export default function SupplierDeliveriesPage() {
                         <div className="divide-y divide-beige-dark/40">
                           {allocs.map((allocation, index) => {
                             const isSpot = !allocation.contract_id;
-                            const price = isSpot ? spotPrice : allocation.contract?.negotiated_price_per_kg;
+                            const price = isSpot ? (allocation.spot_price_per_kg_at_delivery ?? spotPrice) : allocation.contract?.negotiated_price_per_kg;
                             return (
                               <div
                                 key={allocation.allocation_id ?? index}

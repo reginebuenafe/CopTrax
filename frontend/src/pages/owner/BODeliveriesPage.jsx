@@ -74,7 +74,7 @@ export default function BODeliveriesPage() {
           laboratory_inspections(moisture_content_pct, inspected_at,
             lab_staff:lab_staff_id(first_name, last_name)),
           quality_results(result, remarks),
-          delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order,
+          delivery_allocations(allocation_id, contract_id, allocated_weight_kg, price_type, sequence_order, spot_price_per_kg_at_delivery,
             contract:contract_id(contract_number, negotiated_price_per_kg))
         `)
         .order("created_at", { ascending: false });
@@ -289,7 +289,7 @@ export default function BODeliveriesPage() {
                         <div className="divide-y divide-beige-dark/40">
                           {allocs.map((a, i) => {
                             const isSpot = !a.contract_id;
-                            const price = isSpot ? spotPrice : a.contract?.negotiated_price_per_kg;
+                            const price = isSpot ? (a.spot_price_per_kg_at_delivery ?? spotPrice) : a.contract?.negotiated_price_per_kg;
                             return (
                               <div key={a.allocation_id ?? i} className="flex items-center justify-between gap-3 py-2.5">
                                 <div className="flex min-w-0 items-center gap-2">
