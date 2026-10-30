@@ -81,7 +81,16 @@ Deno.serve(async req => {
       options: { data: { role: "Supplier", supplier_signup_validation: proof } },
     });
     if (error) return json({ error: { message: error.message, status: error.status } }, error.status || 400);
-    return json({ data });
+    // With email confirmation on, signUp returns no session, so the browser has
+    // no JWT for upload-registration-files. Issue a short-lived token bound to
+    // this new user id instead (verified with the same HMAC key there).
+    let upload_token: { expires: number; signature: string } | undefined;
+    if (data.user?.id) {
+      const expires = Math.floor(Date.now() / 1000) + 30 * 60;
+      const sig = await crypto.subtle.sign("HMAC", await proofKey(), new TextEncoder().encode(`registration-upload:${data.user.id}:${expires}`));
+      upload_token = { expires, signature: Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, "0")).join("") };
+    }
+    return json({ data, upload_token });
   } catch {
     return json({ error: { message: "Supplier registration could not be completed. Please try again.", status: 500 } }, 500);
   }

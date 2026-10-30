@@ -44,6 +44,16 @@ function base64ToBytes(dataUrl: string): { bytes: Uint8Array; mimeType: string }
   return { bytes, mimeType };
 }
 
+async function validUploadToken(userId: string, token: { expires?: number; signature?: string } | undefined) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!token || !Number.isInteger(token.expires) || token.expires! < now || token.expires! > now + 30 * 60 ||
+      typeof token.signature !== "string" || !/^[a-f0-9]{64}$/.test(token.signature)) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SUPABASE_SERVICE_ROLE_KEY),
+    { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const bytes = Uint8Array.from(token.signature.match(/../g)!, b => parseInt(b, 16));
+  return crypto.subtle.verify("HMAC", key, bytes, new TextEncoder().encode(`registration-upload:${userId}:${token.expires}`));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -65,6 +75,7 @@ Deno.serve(async (req) => {
       bank_name,        // NEW: for Xendit disbursements
       account_name,     // NEW
       account_number,   // NEW
+      upload_token,
     } = await req.json();
 
     if (!user_id || !gov_id_data || !face_id_data || !esign_data) {
@@ -88,20 +99,25 @@ Deno.serve(async (req) => {
     // A valid JWT is now mandatory (not merely checked when present): this is the
     // only real authorization gate on this endpoint, since account_status alone
     // is guessable/enumerable and must never be trusted as the sole authorizer.
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const jwtMatch  = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (!jwtMatch) {
-      return json({ error: "Unauthorized: missing authentication token." }, 401);
-    }
-    const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
-    if (jwtErr || !jwtUser) {
-      return json({ error: "Invalid or expired authentication token." }, 401);
-    }
-    if (jwtUser.id !== user_id) {
-      return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
+    // Accepted proofs: (a) a session JWT for this user, or (b) the short-lived
+    // upload_token issued by supplier-signup (needed when email confirmation
+    // means no session exists yet).
+    if (!await validUploadToken(user_id, upload_token)) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      const jwtMatch  = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (!jwtMatch) {
+        return json({ error: "Unauthorized: missing authentication token." }, 401);
+      }
+      const anonOrUserClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: { user: jwtUser }, error: jwtErr } = await anonOrUserClient.auth.getUser(jwtMatch[1]);
+      if (jwtErr || !jwtUser) {
+        return json({ error: "Invalid or expired authentication token." }, 401);
+      }
+      if (jwtUser.id !== user_id) {
+        return json({ error: "Unauthorized: token subject does not match the submitted user_id." }, 403);
+      }
     }
     // ─────────────────────────────────────────────────────────────────────────
 

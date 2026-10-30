@@ -618,6 +618,7 @@ export default function RegisterPage() {
       const { error: sessionError } = await supabase.auth.setSession(data.session);
       if (sessionError) throw sessionError;
     }
+    const uploadToken = signupResult?.upload_token;
 
     let govIdData, faceIdData, esignData;
     try {
@@ -637,6 +638,7 @@ export default function RegisterPage() {
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("upload-registration-files", {
         body: {
           user_id:        userId,
+          upload_token:   uploadToken,
           first_name:     form.firstName.trim(),
           last_name:      form.lastName.trim(),
           phone:          form.phone.trim() || null,
